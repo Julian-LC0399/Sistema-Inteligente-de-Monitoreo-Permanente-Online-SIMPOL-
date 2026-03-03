@@ -1,0 +1,81 @@
+/* --- LIMPIEZA TOTAL DE LIBRERÍA --- */
+#MainMenu, footer, header, .stDeployButton, [data-testid="stHeader"] { 
+    visibility: hidden !important; 
+    display: none !important; 
+}
+
+.stApp { 
+    background-color: #F4F7F9; 
+}
+
+/* --- CUADRO DE LOGIN (SIN BORDES AZULES EXTERNOS) --- */
+[data-testid="stForm"] {
+    border: 1px solid #003366 !important;
+    border-radius: 0px !important;
+    background-color: #FFFFFF !important;
+    padding: 45px !important;
+    box-shadow: none !important; /* Eliminamos la sombra/borde grueso */
+    max-width: 450px;
+    margin: auto;
+}
+
+/* TÍTULO DEL FORMULARIO (FORZADO A AZUL) */
+.titulo-login {
+    color: #003366 !important;
+    text-align: center;
+    font-weight: bold;
+    margin-bottom: 20px;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+/* NOMBRES DE LOS CAMPOS (ETIQUETAS) EN AZUL */
+[data-testid="stWidgetLabel"] p {
+    color: #003366 !important;
+    font-weight: bold !important;
+    font-size: 14px !important;
+}
+
+/* --- INPUTS: BLANCO PURO --- */
+input { 
+    caret-color: black !important; 
+    color: #003366 !important; 
+    background-color: #FFFFFF !important; 
+}
+
+div[data-baseweb="input"] {
+    background-color: #FFFFFF !important;
+    border-radius: 0px !important;
+    border: 1px solid #D3D3D3 !important;
+    box-shadow: none !important;
+}
+
+/* ELIMINAR LÍNEA AZUL INFERIOR Y BOTÓN DE MOSTRAR CLAVE (OJO) */
+div[data-baseweb="base-input"] { border-bottom: none !important; }
+[data-testid="stTextInput"] button { display: none !important; visibility: hidden !important; }
+[data-testid="stInstructionCustom"] { display: none !important; }
+
+/* FOCO: BORDE NEGRO AL ESCRIBIR */
+div[data-baseweb="input"]:focus-within {
+    border: 2px solid #000000 !important;
+    box-shadow: none !important;
+}
+
+/* --- BOTÓN DE ACCESO --- */
+div[data-testid="stFormSubmitButton"] button {
+    background-color: #003366 !important;
+    color: white !important;
+    border-radius: 0px !important;
+    border: none !important;
+    width: 100% !important;
+    height: 45px !important;
+    font-weight: bold !important;
+    text-transform: uppercase;
+}
+
+div[data-testid="stFormSubmitButton"] button:hover {
+    background-color: #000000 !important;
+}
+
+/* --- SIDEBAR (MANTIENE SU AZUL) --- */
+[data-testid="stSidebar"] { background-color: #003366 !important; }
+[data-testid="stSidebar"] * { color: white !important; }
