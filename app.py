@@ -89,7 +89,7 @@ else:
     # --- SIDEBAR ESTILO BANCO CARONÍ ---
     with st.sidebar:
         # Espacio para el Logo Superior
-        st.image("https://www.bancocaroni.com.ve/assets/img/logo_caroni.png", width=200)
+        st.image("logo-banco.jpg", width=200)
         st.markdown("<br>", unsafe_allow_html=True)
         
         # Bloque de Identificación del Analista
