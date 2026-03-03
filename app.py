@@ -1,124 +1,140 @@
 import streamlit as st
 import mysql.connector
 import pandas as pd
+import plotly.graph_objects as go
 import time
 import psutil
 import requests
 import urllib3
 from datetime import datetime
 
+# Desactivar advertencias de certificados SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Acceso - Banco Caroní", layout="wide", page_icon="🏦")
+def load_css(file_name):
+    try:
+        with open(file_name, encoding="utf-8") as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    except: pass
 
-# --- CREDENCIALES PRTG ---
+st.set_page_config(page_title="SIMPOL | Banco Caroní", layout="wide", page_icon="🏦")
+load_css("style.css")
+
+# --- VARIABLES DE CONEXIÓN ---
 PRTG_IP = "127.0.0.1"
 API_KEY = "ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======" 
 ID_SENSOR = "2094"
 
-# --- FUNCIÓN DE CONEXIÓN A MYSQL ---
 def conectar_bd():
-    return mysql.connector.connect(
-        host="localhost", user="root", password="1234", database="monitoreo_banco"
-    )
+    return mysql.connector.connect(host="localhost", user="root", password="1234", database="monitoreo_banco")
 
-# --- SISTEMA DE LOGUEO ---
 def verificar_usuario(user, password):
     try:
         conn = conectar_bd()
         cursor = conn.cursor(dictionary=True)
-        query = "SELECT * FROM usuarios WHERE usuario = %s AND clave = %s"
-        cursor.execute(query, (user, password))
+        query = "SELECT * FROM usuarios WHERE BINARY usuario = %s AND BINARY clave = %s"
+        cursor.execute(query, (user.strip(), password.strip()))
         resultado = cursor.fetchone()
-        cursor.close()
         conn.close()
         return resultado
-    except:
-        return None
+    except: return None
 
-# LÓGICA DE SESIÓN
+def obtener_telemetria():
+    try:
+        url = f"https://{PRTG_IP}/api/table.json?content=sensors&columns=objid,lastvalue,lastvalue_raw&filter_objid={ID_SENSOR}&apitoken={API_KEY}"
+        r = requests.get(url, timeout=2, verify=False)
+        if r.status_code == 200:
+            data = r.json()
+            val = float(data['sensors'][0].get('lastvalue_raw', 0))
+            return val, f"PRTG Sensor {ID_SENSOR}"
+    except: pass
+    return float(psutil.cpu_percent(interval=None)), "MODO LOCAL"
+
 if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
 
+# --- LOGIN ---
 if not st.session_state['autenticado']:
-    st.title("🔐 Control de Acceso - Infraestructura")
-    with st.form("login_form"):
-        u = st.text_input("Usuario")
-        p = st.text_input("Contraseña", type="password")
-        submit = st.form_submit_button("Entrar")
-        
-        if submit:
-            user_data = verificar_usuario(u, p)
-            if user_data:
-                st.session_state['autenticado'] = True
-                st.session_state['user_actual'] = user_data['usuario']
-                st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos")
-    st.stop() # Detiene el script aquí si no está logueado
-
-# --- SI LLEGA AQUÍ, EL USUARIO ESTÁ LOGUEADO ---
-
-# Botón para cerrar sesión en la barra lateral
-with st.sidebar:
-    st.write(f"👤 Usuario: **{st.session_state['user_actual']}**")
-    if st.button("Cerrar Sesión"):
-        st.session_state['autenticado'] = False
-        st.rerun()
-
-# --- FUNCIÓN PRTG (LA QUE YA TENÍAS VERDE) ---
-def obtener_metrica_prtg():
-    url = f"https://{PRTG_IP}/api/table.json?content=sensors&columns=objid,lastvalue,lastvalue_raw&filter_objid={ID_SENSOR}&apitoken={API_KEY}"
-    try:
-        response = requests.get(url, timeout=5, verify=False)
-        if response.status_code == 200:
-            data = response.json()
-            sensores = data.get('sensors', [])
-            if sensores:
-                return float(sensores[0].get('lastvalue_raw', 0)), f"CONECTADO (Sensor {ID_SENSOR})"
-        return psutil.cpu_percent(), "MODO LOCAL (PRTG 401/Off)"
-    except:
-        return psutil.cpu_percent(), "MODO LOCAL (Error Red)"
+    placeholder = st.empty()
+    with placeholder.container():
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        _, col_login, _ = st.columns([1, 1.2, 1])
+        with col_login:
+            st.markdown("<h1 class='nombre-sistema'>SIMPOL</h1>", unsafe_allow_html=True)
+            st.markdown("<p class='subtitulo-sistema'>Sistema Inteligente de Monitoreo</p>", unsafe_allow_html=True)
+            with st.form("form_acceso"):
+                u = st.text_input("USUARIO")
+                p = st.text_input("CONTRASEÑA", type="password")
+                if st.form_submit_button("AUTENTICAR"):
+                    user_info = verificar_usuario(u, p)
+                    if user_info:
+                        st.session_state['autenticado'] = True
+                        st.session_state['user_actual'] = user_info['usuario']
+                        st.rerun()
+                    else: st.error("Credenciales Inválidas")
+    st.stop()
 
 # --- DASHBOARD ---
-st.title(f"🏦 Monitor Banco Caroní - {st.session_state['user_actual']}")
-st.markdown(f"Bienvenido al panel de control. Nivel de acceso: **LECTURA**")
-
-cpu, msg = obtener_metrica_prtg()
-ram = psutil.virtual_memory().percent
-
-if "CONECTADO" in msg:
-    st.success(f"🟢 {msg}")
 else:
-    st.warning(f"🟡 {msg}")
+    with st.sidebar:
+        st.markdown("### 🏦 BANCO CARONÍ")
+        st.write(f"Analista: **{st.session_state['user_actual']}**")
+        if st.button("Cerrar Sesión"):
+            st.session_state['autenticado'] = False
+            st.rerun()
 
-# Guardar en MySQL (Telemetría)
-try:
-    conn = conectar_bd()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO monitoreo_30_nodos (fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado) VALUES (%s, %s, %s, %s, %s)", 
-                   (datetime.now(), st.session_state['user_actual'], cpu, ram, "ESTABLE"))
-    conn.commit()
-    cursor.close()
-    conn.close()
-except:
-    pass
+    st.markdown(f"<h1 style='color:#003366;'>Panel de Monitoreo</h1>", unsafe_allow_html=True)
 
-# Visualización
-c1, c2 = st.columns(2)
-c1.metric("CPU PRTG", f"{cpu}%")
-c2.metric("RAM LOCAL", f"{ram}%")
+    cpu_val, cpu_msg = obtener_telemetria()
+    ram_val = float(psutil.virtual_memory().percent)
 
-# Gráfica Histórica
-try:
-    conn = conectar_bd()
-    df = pd.read_sql(f"SELECT fecha_registro, uso_cpu FROM monitoreo_30_nodos ORDER BY id DESC LIMIT 30", conn)
-    conn.close()
-    if not df.empty:
-        st.line_chart(df.sort_values('fecha_registro').set_index('fecha_registro'))
-except:
-    pass
+    c1, c2, c3 = st.columns(3)
+    c1.metric("USO DE CPU", f"{cpu_val}%", delta=cpu_msg)
+    c2.metric("MEMORIA RAM", f"{ram_val}%")
+    c3.metric("ESTADO", "ACTIVO")
 
-time.sleep(3)
-st.rerun()
+    try:
+        conn = conectar_bd()
+        cursor = conn.cursor()
+        sql = "INSERT INTO monitoreo_30_nodos (fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(sql, (datetime.now(), st.session_state['user_actual'], cpu_val, ram_val, "ESTABLE"))
+        conn.commit()
+
+        df = pd.read_sql("SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_30_nodos ORDER BY id DESC LIMIT 40", conn)
+        conn.close()
+
+        if not df.empty:
+            df = df.sort_values('fecha_registro')
+            fig = go.Figure()
+            
+            # CPU - Línea continua
+            fig.add_trace(go.Scatter(
+                x=df['fecha_registro'], y=df['uso_cpu'], 
+                mode='lines', name='CPU %', 
+                line=dict(color='#003366', width=3), 
+                fill='tozeroy', fillcolor='rgba(0, 51, 102, 0.1)'
+            ))
+            
+            # RAM - Línea punteada (CORREGIDO AQUÍ)
+            fig.add_trace(go.Scatter(
+                x=df['fecha_registro'], y=df['uso_ram'], 
+                mode='lines', name='RAM %', 
+                line=dict(color='#D3D3D3', width=2, dash='dot') # 'dash' ahora está dentro de 'line'
+            ))
+            
+            fig.update_layout(
+                plot_bgcolor='white', 
+                paper_bgcolor='rgba(0,0,0,0)', 
+                margin=dict(l=0, r=0, t=30, b=0), 
+                height=450, 
+                hovermode="x unified", 
+                yaxis=dict(range=[0, 100])
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"❌ ERROR TÉCNICO DETECTADO: {e}")
+        st.stop()
+
+    time.sleep(5)
+    st.rerun()
