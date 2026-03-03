@@ -1,4 +1,4 @@
-/* --- LIMPIEZA TOTAL DE LIBRERÍA --- */
+/* --- 1. LIMPIEZA TOTAL DE LIBRERÍA --- */
 #MainMenu, footer, header, .stDeployButton, [data-testid="stHeader"] { 
     visibility: hidden !important; 
     display: none !important; 
@@ -8,38 +8,57 @@
     background-color: #F4F7F9; 
 }
 
-/* --- CUADRO DE LOGIN (SIN BORDES AZULES EXTERNOS) --- */
+/* --- 2. TÍTULOS DEL SISTEMA (FUERA DEL CUADRO) --- */
+.nombre-sistema {
+    color: #003366 !important;
+    text-align: center;
+    font-size: 3rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 5px;
+    margin-bottom: 0px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+.subtitulo-sistema {
+    color: #555 !important;
+    text-align: center;
+    font-size: 0.85rem;
+    letter-spacing: 1.5px;
+    margin-bottom: 25px;
+    text-transform: uppercase;
+}
+
+/* --- 3. CUADRO DE LOGIN --- */
 [data-testid="stForm"] {
     border: 1px solid #003366 !important;
     border-radius: 0px !important;
     background-color: #FFFFFF !important;
-    padding: 45px !important;
-    box-shadow: none !important; /* Eliminamos la sombra/borde grueso */
+    padding: 40px !important;
+    box-shadow: none !important;
     max-width: 450px;
     margin: auto;
 }
 
-/* TÍTULO DEL FORMULARIO (FORZADO A AZUL) */
-.titulo-login {
-    color: #003366 !important;
-    text-align: center;
-    font-weight: bold;
-    margin-bottom: 20px;
-    font-family: 'Segoe UI', sans-serif;
-}
-
-/* NOMBRES DE LOS CAMPOS (ETIQUETAS) EN AZUL */
+/* Etiquetas (Usuario/Contraseña) en Azul Marino */
 [data-testid="stWidgetLabel"] p {
     color: #003366 !important;
     font-weight: bold !important;
     font-size: 14px !important;
+    margin-bottom: 5px;
 }
 
-/* --- INPUTS: BLANCO PURO --- */
+/* --- 4. INPUTS: BLANCO PURO Y SIN INDICADORES --- */
 input { 
     caret-color: black !important; 
     color: #003366 !important; 
     background-color: #FFFFFF !important; 
+}
+
+/* Evitar fondo azul/gris al autocompletar */
+input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0px 1000px white inset !important;
+    -webkit-text-fill-color: #003366 !important;
+    transition: background-color 5000s ease-in-out 0s;
 }
 
 div[data-baseweb="input"] {
@@ -49,33 +68,36 @@ div[data-baseweb="input"] {
     box-shadow: none !important;
 }
 
-/* ELIMINAR LÍNEA AZUL INFERIOR Y BOTÓN DE MOSTRAR CLAVE (OJO) */
+/* Quitar línea azul inferior y botón del ojo (Mostrar Clave) */
 div[data-baseweb="base-input"] { border-bottom: none !important; }
-[data-testid="stTextInput"] button { display: none !important; visibility: hidden !important; }
+[data-testid="stTextInput"] button { display: none !important; } 
 [data-testid="stInstructionCustom"] { display: none !important; }
 
-/* FOCO: BORDE NEGRO AL ESCRIBIR */
+/* FOCO: BORDE NEGRO SÓLIDO AL ESCRIBIR */
 div[data-baseweb="input"]:focus-within {
     border: 2px solid #000000 !important;
     box-shadow: none !important;
+    outline: none !important;
 }
 
-/* --- BOTÓN DE ACCESO --- */
+/* --- 5. BOTÓN CORPORATIVO --- */
 div[data-testid="stFormSubmitButton"] button {
     background-color: #003366 !important;
     color: white !important;
     border-radius: 0px !important;
     border: none !important;
     width: 100% !important;
-    height: 45px !important;
+    height: 50px !important;
     font-weight: bold !important;
     text-transform: uppercase;
+    letter-spacing: 2px;
 }
 
 div[data-testid="stFormSubmitButton"] button:hover {
     background-color: #000000 !important;
+    color: #FFFFFF !important;
 }
 
-/* --- SIDEBAR (MANTIENE SU AZUL) --- */
+/* --- 6. SIDEBAR --- */
 [data-testid="stSidebar"] { background-color: #003366 !important; }
 [data-testid="stSidebar"] * { color: white !important; }
