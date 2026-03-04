@@ -1,197 +1,196 @@
 /* --- 1. LIMPIEZA DE INTERFAZ ESTÁNDAR --- */
-#MainMenu, footer, header, .stDeployButton, [data-testid="stHeader"], [data-testid="stToolbar"] { 
-    visibility: hidden !important; 
-    display: none !important; 
+#MainMenu,
+footer,
+header,
+.stDeployButton,
+[data-testid="stHeader"],
+[data-testid="stToolbar"] {
+  visibility: hidden !important;
+  display: none !important;
 }
 
-.stApp { 
-    background-color: #F4F7F9 !important; 
+.stApp {
+  background-color: #f4f7f9 !important;
 }
 
 /* --- 2. TÍTULOS DE LOGIN (SIMPOL) --- */
 .nombre-sistema {
-    color: #003366 !important;
-    text-align: center;
-    font-size: 3.5rem !important;
-    font-weight: 800 !important;
-    letter-spacing: 6px;
-    margin-bottom: 0px;
-    font-family: 'Segoe UI', Arial, sans-serif;
-    text-transform: uppercase;
+  color: #003366 !important;
+  text-align: center;
+  font-size: 3.5rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 6px;
+  margin-bottom: 0px;
+  font-family: "Segoe UI", Arial, sans-serif;
+  text-transform: uppercase;
 }
 
 .subtitulo-sistema {
-    color: #555 !important;
-    text-align: center;
-    font-size: 0.9rem;
-    letter-spacing: 1.2px;
-    margin-bottom: 30px;
-    text-transform: uppercase;
-    font-family: 'Segoe UI', sans-serif;
+  color: #555 !important;
+  text-align: center;
+  font-size: 0.9rem;
+  letter-spacing: 1.2px;
+  margin-bottom: 30px;
+  text-transform: uppercase;
+  font-family: "Segoe UI", sans-serif;
 }
 
 /* --- 3. CUADRO DE FORMULARIO (LOGIN) --- */
 [data-testid="stForm"] {
-    border: 1px solid #003366 !important; 
-    border-radius: 0px !important; 
-    background-color: #FFFFFF !important;
-    padding: 50px !important;
-    box-shadow: none !important;
-    max-width: 460px;
-    margin: auto;
+  border: 1px solid #003366 !important;
+  border-radius: 0px !important;
+  background-color: #ffffff !important;
+  padding: 50px !important;
+  box-shadow: none !important;
+  max-width: 460px;
+  margin: auto;
 }
 
 [data-testid="stWidgetLabel"] p {
-    color: #003366 !important;
-    font-weight: bold !important;
-    font-size: 15px !important;
-    margin-bottom: 8px;
-    text-transform: uppercase;
+  color: #003366 !important;
+  font-weight: bold !important;
+  font-size: 15px !important;
+  margin-bottom: 8px;
+  text-transform: uppercase;
 }
 
 /* --- 4. CAMPOS DE ENTRADA (INPUTS) --- */
-input { 
-    caret-color: #000000 !important; 
-    color: #003366 !important; 
-    background-color: #FFFFFF !important; 
-    font-weight: 500 !important;
+input {
+  caret-color: #000000 !important;
+  color: #003366 !important;
+  background-color: #ffffff !important;
+  font-weight: 500 !important;
 }
 
 input:-webkit-autofill,
-input:-webkit-autofill:hover, 
+input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
-    -webkit-box-shadow: 0 0 0px 1000px white inset !important;
-    -webkit-text-fill-color: #003366 !important;
-    transition: background-color 5000s ease-in-out 0s;
+  -webkit-box-shadow: 0 0 0px 1000px white inset !important;
+  -webkit-text-fill-color: #003366 !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 div[data-baseweb="input"] {
-    background-color: #FFFFFF !important;
-    border-radius: 0px !important;
-    border: 1px solid #D3D3D3 !important;
-    box-shadow: none !important;
+  background-color: #ffffff !important;
+  border-radius: 0px !important;
+  border: 1px solid #d3d3d3 !important;
+  box-shadow: none !important;
 }
 
-div[data-baseweb="base-input"] { 
-    border-bottom: none !important; 
+div[data-baseweb="base-input"] {
+  border-bottom: none !important;
 }
 
-[data-testid="stTextInput"] button { display: none !important; } 
-[data-testid="stInstructionCustom"] { display: none !important; }
+[data-testid="stTextInput"] button {
+  display: none !important;
+}
+[data-testid="stInstructionCustom"] {
+  display: none !important;
+}
 
 div[data-baseweb="input"]:focus-within {
-    border: 2px solid #000000 !important; 
-    box-shadow: none !important;
-    outline: none !important;
+  border: 2px solid #000000 !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 /* --- 5. BOTÓN DE ACCESO --- */
 div[data-testid="stFormSubmitButton"] button {
-    background-color: #003366 !important; 
-    color: #FFFFFF !important;
-    border-radius: 0px !important;
-    border: none !important;
-    width: 100% !important;
-    height: 55px !important;
-    font-weight: bold !important;
-    font-size: 1rem !important;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    transition: 0.3s ease;
+  background-color: #003366 !important;
+  color: #ffffff !important;
+  border-radius: 0px !important;
+  border: none !important;
+  width: 100% !important;
+  height: 55px !important;
+  font-weight: bold !important;
+  font-size: 1rem !important;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  transition: 0.3s ease;
 }
 
 div[data-testid="stFormSubmitButton"] button:hover {
-    background-color: #000000 !important; 
-    color: #FFFFFF !important;
-    cursor: pointer;
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  cursor: pointer;
 }
 
 /* --- 6. DASHBOARD: MÉTRICAS E INDICADORES --- */
 [data-testid="stMetric"] {
-    background-color: #FFFFFF !important;
-    border-left: 6px solid #003366 !important; 
-    padding: 25px !important;
-    border-radius: 4px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
+  background-color: #ffffff !important;
+  border-left: 6px solid #003366 !important;
+  padding: 25px !important;
+  border-radius: 4px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05) !important;
 }
 
 [data-testid="stMetricValue"] div {
-    color: #003366 !important;
-    font-weight: 800 !important;
+  color: #003366 !important;
+  font-weight: 800 !important;
 }
 
 /* --- 7. SIDEBAR (NUEVA MODIFICACIÓN ÚNICAMENTE AQUÍ) --- */
-[data-testid="stSidebar"] { 
-    background-color: #FFFFFF !important; 
-    border-right: 1px solid #E0E0E0 !important;
+[data-testid="stSidebar"] {
+  background-color: #ffffff !important;
+  border-right: 1px solid #e0e0e0 !important;
 }
 
 .user-info-box {
-    background-color: #F8F9FA !important;
-    padding: 15px;
-    border: 1px solid #EEEEEE;
-    border-radius: 2px;
-    margin-bottom: 10px;
+  background-color: #f8f9fa !important;
+  padding: 15px;
+  border: 1px solid #eeeeee;
+  border-radius: 2px;
+  margin-bottom: 10px;
 }
 
 .user-name-text {
-    color: #003366 !important;
-    font-weight: bold;
-    font-size: 14px;
+  color: #003366 !important;
+  font-weight: bold;
+  font-size: 14px;
 }
 
 .titulo-seccion-sidebar {
-    color: #999999 !important;
-    font-size: 0.75rem !important;
-    font-weight: bold !important;
-    letter-spacing: 1.5px;
-    margin-top: 20px;
-    margin-bottom: 10px;
-    text-transform: uppercase;
-    border-bottom: 1px solid #F0F0F0;
-    padding-bottom: 5px;
+  color: #999999 !important;
+  font-size: 0.75rem !important;
+  font-weight: bold !important;
+  letter-spacing: 1.5px;
+  margin-top: 20px;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 5px;
 }
 
 [data-testid="stSidebar"] .stButton button {
-    background-color: #FFFFFF !important;
-    border: 1px solid #D3D3D3 !important;
-    color: #CC0000 !important;
-    border-radius: 2px !important;
-    width: 100% !important;
+  background-color: #ffffff !important;
+  border: 1px solid #d3d3d3 !important;
+  color: #cc0000 !important;
+  border-radius: 2px !important;
+  width: 100% !important;
 }
 
 [data-testid="stSidebar"] .stButton button:hover {
-    background-color: #FFEEF0 !important;
-    border: 1px solid #CC0000 !important;
+  background-color: #ffeef0 !important;
+  border: 1px solid #cc0000 !important;
 }
 
-/* --- ADICIONES PARA CORREGIR TABLA Y SELECTBOX --- */
+/* --- ADICIONES PARA CORREGIR SELECTBOX --- */
 
 /* 1. Forzar color negro en las opciones del radio del Sidebar */
 [data-testid="stSidebar"] label p {
-    color: #000000 !important;
-    opacity: 1 !important;
+  color: #000000 !important;
+  opacity: 1 !important;
 }
 
 /* 2. Corregir cuadro de Rol (Selectbox) para que sea blanco con texto azul */
 div[data-baseweb="select"] > div {
-    background-color: #FFFFFF !important;
-    color: #003366 !important;
-    border: 1px solid #D3D3D3 !important;
-    border-radius: 0px !important;
+  background-color: #ffffff !important;
+  color: #003366 !important;
+  border: 1px solid #d3d3d3 !important;
+  border-radius: 0px !important;
 }
 
 /* Texto de la opción seleccionada en el selectbox */
 div[data-baseweb="select"] [data-testid="stMarkdownContainer"] p {
-    color: #003366 !important;
-}
-
-/* 3. Forzar estilo de la Tabla (Dataframe) */
-[data-testid="stDataFrame"] {
-    background-color: #FFFFFF !important;
-}
-
-/* Ajuste de colores internos de la tabla para evitar el tema oscuro */
-[data-testid="stDataFrame"] div[role="grid"] {
-    background-color: #FFFFFF !important;
+  color: #003366 !important;
 }
