@@ -258,3 +258,13 @@ div[data-baseweb="select"] [data-testid="stMarkdownContainer"] p {
 [data-testid="stMetricValue"] {
     color: #333333 !important;
 }
+
+/* Forzar que los textos de botones dentro de formularios sean legibles */
+.stForm submit_button button p {
+    color: #ffffff !important;
+}
+
+/* O si prefieres que los botones secundarios tengan texto oscuro */
+.stButton button p {
+    color: inherit;
+}
