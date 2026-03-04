@@ -11,7 +11,9 @@ from datetime import datetime
 # Desactivar advertencias de certificados SSL para PRTG
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- 1. CARGA DE RECURSOS ---
+# --- 1. CONFIGURACIÓN Y RECURSOS ---
+st.set_page_config(page_title="SIMPOL | Banco Caroní", layout="wide", page_icon="🏦")
+
 def load_css(file_name):
     try:
         with open(file_name, encoding="utf-8") as f:
@@ -19,8 +21,6 @@ def load_css(file_name):
     except:
         pass
 
-# Configuración inicial de la página
-st.set_page_config(page_title="SIMPOL | Banco Caroní", layout="wide", page_icon="🏦")
 load_css("style.css")
 
 # --- 2. FUNCIONES DE BACKEND ---
@@ -45,7 +45,6 @@ def verificar_usuario(user, password):
         return None
 
 def obtener_telemetria():
-    # Intento de conexión a PRTG (ID de sensor 2094 según tu configuración)
     try:
         url = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,lastvalue,lastvalue_raw&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
         r = requests.get(url, timeout=1, verify=False)
@@ -54,10 +53,9 @@ def obtener_telemetria():
             return val, "PRTG SENSOR"
     except:
         pass
-    # Fallback a sensor local si PRTG no responde
     return float(psutil.cpu_percent(interval=None)), "MODO LOCAL"
 
-# --- 3. CONTROL DE ACCESO ---
+# --- 3. LÓGICA DE AUTENTICACIÓN ---
 if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
 
@@ -79,104 +77,107 @@ if not st.session_state['autenticado']:
                     if user_info:
                         st.session_state['autenticado'] = True
                         st.session_state['user_actual'] = user_info['usuario']
+                        st.session_state['nombre_analista'] = user_info['nombre_completo']
+                        st.session_state['rol'] = user_info['rol']
                         st.rerun()
                     else:
                         st.error("Credenciales Inválidas")
     st.stop()
 
-# --- 4. DASHBOARD PRINCIPAL ---
+# --- 4. DASHBOARD CON NAVEGACIÓN ---
 else:
-    # --- SIDEBAR ESTILO BANCO CARONÍ ---
+    # Definición de opciones de menú según el ROL
+    opciones_menu = ["🏠 Inicio", "📊 Monitoreo en Vivo", "📄 Reportes PDF"]
+    if st.session_state.get('rol') == 'admin':
+        opciones_menu.append("👥 Gestión de Personal")
+
+    # --- SIDEBAR ---
     with st.sidebar:
-        # Espacio para el Logo Superior
-        st.image("logo-banco.jpg", width=200)
+        st.image("logo-banco.jpg", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Bloque de Identificación del Analista
         st.markdown('<p class="titulo-seccion-sidebar">Identificación</p>', unsafe_allow_html=True)
+        nombre_display = st.session_state.get('nombre_analista') or st.session_state['user_actual']
+        rol_display = st.session_state['rol'].upper()
+
         st.markdown(f"""
             <div class="user-info-box">
                 <span style="color:#888; font-size:11px;">ANALISTA DE NODO:</span><br>
-                <span class="user-name-text">👤 {st.session_state['user_actual']}</span><br>
-                <span style="color:#28a745; font-size:10px; font-weight:bold;">● CONECTADO - CSU</span>
+                <span class="user-name-text">👤 {nombre_display}</span><br>
+                <span style="color:#28a745; font-size:10px; font-weight:bold;">● {rol_display} - CSU</span>
             </div>
         """, unsafe_allow_html=True)
 
-        # Bloque de Operaciones (Botones de acción futura)
-        st.markdown('<p class="titulo-seccion-sidebar">Operaciones</p>', unsafe_allow_html=True)
-        st.info("Herramientas de reporte próximamente disponibles.")
+        st.markdown('<p class="titulo-seccion-sidebar">Navegación</p>', unsafe_allow_html=True)
+        seleccion = st.radio("Ir a:", opciones_menu, label_visibility="collapsed")
         
-        # Bloque de Cierre de Sesión (Al final)
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
         if st.button("🚪 CERRAR SESIÓN", use_container_width=True):
             st.session_state['autenticado'] = False
             st.rerun()
 
-    # --- CUERPO DEL DASHBOARD ---
-    st.markdown(f"<h2 style='color:#003366; margin-top:-30px;'>Centro de Monitoreo: Nodo {st.session_state['user_actual']}</h2>", unsafe_allow_html=True)
+    # --- CUERPO PRINCIPAL (VISTAS DINÁMICAS) ---
 
-    # Captura de métricas en tiempo real
-    cpu_val, cpu_msg = obtener_telemetria()
-    ram_val = float(psutil.virtual_memory().percent)
-
-    # Fila de Indicadores (Métricas)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("USO DE CPU", f"{cpu_val}%", delta=cpu_msg)
-    c2.metric("MEMORIA RAM", f"{ram_val}%", delta="Sincronizado")
-    c3.metric("ESTADO DEL NODO", "ACTIVO", delta="Online")
-
-    # Inserción en Base de Datos y Visualización
-    try:
-        conn = conectar_bd()
-        cursor = conn.cursor()
+    if seleccion == "🏠 Inicio":
+        st.markdown(f"<h1 style='color:#003366;'>Bienvenido, {nombre_display}</h1>", unsafe_allow_html=True)
+        st.write("---")
         
-        # Guardar registro en MySQL
-        sql_insert = "INSERT INTO monitoreo_30_nodos (fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado) VALUES (%s, %s, %s, %s, %s)"
-        cursor.execute(sql_insert, (datetime.now(), st.session_state['user_actual'], cpu_val, ram_val, "ESTABLE"))
-        conn.commit()
-
-        # Consultar datos históricos para la gráfica
-        df = pd.read_sql("SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_30_nodos ORDER BY id DESC LIMIT 40", conn)
-        conn.close()
-
-        if not df.empty:
-            df = df.sort_values('fecha_registro')
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.markdown(f"""
+            ### Panel de Control de Nodo
+            Has ingresado al **Sistema de Monitoreo Permanente (SIMPOL)** del Banco Caroní. 
+            Esta plataforma permite supervisar en tiempo real la salud de los recursos críticos del CSU.
             
-            # Creación de Gráfica Plotly Profesional
-            fig = go.Figure()
-            
-            # Traza de CPU
-            fig.add_trace(go.Scatter(
-                x=df['fecha_registro'], y=df['uso_cpu'], 
-                mode='lines', name='Uso CPU %', 
-                line=dict(color='#003366', width=3), 
-                fill='tozeroy', fillcolor='rgba(0, 51, 102, 0.1)'
-            ))
-            
-            # Traza de RAM
-            fig.add_trace(go.Scatter(
-                x=df['fecha_registro'], y=df['uso_ram'], 
-                mode='lines', name='Uso RAM %', 
-                line=dict(color='#D3D3D3', width=2, dash='dot')
-            ))
+            **Instrucciones de uso:**
+            1. Dirígete a **Monitoreo en Vivo** para observar las métricas de CPU y RAM.
+            2. La sección de **Reportes** permite extraer bitácoras históricas.
+            3. Si eres administrador, podrás gestionar los accesos en la pestaña de personal.
+            """)
+        with col2:
+            st.info(f"**Sesión actual:**\n\n**Rol:** {rol_display}\n\n**Servidor:** Local/PRTG\n\n**Estado:** Estable")
 
-            # Diseño de la Gráfica
-            fig.update_layout(
-                plot_bgcolor='white', 
-                paper_bgcolor='rgba(0,0,0,0)', 
-                margin=dict(l=0, r=0, t=30, b=0), 
-                height=400, 
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                yaxis=dict(range=[0, 100], showgrid=True, gridcolor='#F0F0F0')
-            )
-            
-            st.markdown("---")
-            st.plotly_chart(fig, use_container_width=True)
+    elif seleccion == "📊 Monitoreo en Vivo":
+        st.markdown(f"<h2 style='color:#003366; margin-top:-30px;'>Centro de Monitoreo: Nodo {st.session_state['user_actual']}</h2>", unsafe_allow_html=True)
 
-    except Exception as e:
-        st.error(f"Error de sincronización con servidor de datos: {e}")
+        cpu_val, cpu_msg = obtener_telemetria()
+        ram_val = float(psutil.virtual_memory().percent)
 
-    # Intervalo de refresco (5 segundos)
-    time.sleep(5)
-    st.rerun()
+        m1, m2, m3 = st.columns(3)
+        m1.metric("USO DE CPU", f"{cpu_val}%", delta=cpu_msg)
+        m2.metric("MEMORIA RAM", f"{ram_val}%", delta="Sincronizado")
+        m3.metric("ESTADO", "ACTIVO", delta="Online")
+
+        try:
+            conn = conectar_bd()
+            cursor = conn.cursor()
+            sql_insert = "INSERT INTO monitoreo_30_nodos (fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado) VALUES (%s, %s, %s, %s, %s)"
+            cursor.execute(sql_insert, (datetime.now(), st.session_state['user_actual'], cpu_val, ram_val, "ESTABLE"))
+            conn.commit()
+
+            df = pd.read_sql("SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_30_nodos ORDER BY id DESC LIMIT 40", conn)
+            conn.close()
+
+            if not df.empty:
+                df = df.sort_values('fecha_registro')
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df['fecha_registro'], y=df['uso_cpu'], mode='lines', name='CPU %', line=dict(color='#003366', width=3), fill='tozeroy', fillcolor='rgba(0, 51, 102, 0.1)'))
+                fig.add_trace(go.Scatter(x=df['fecha_registro'], y=df['uso_ram'], mode='lines', name='RAM %', line=dict(color='#D3D3D3', width=2, dash='dot')))
+                fig.update_layout(plot_bgcolor='white', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error de sincronización: {e}")
+
+        time.sleep(5)
+        st.rerun()
+
+    elif seleccion == "📄 Reportes PDF":
+        st.header("Generación de Documentación")
+        st.write("Módulo de exportación de auditoría.")
+        st.warning("Esta funcionalidad será activada en el próximo despliegue.")
+
+    elif seleccion == "👥 Gestión de Personal":
+        st.header("Administración de Usuarios")
+        st.write("Registro y control de analistas del nodo.")
+        # Aquí irá el formulario que haremos a continuación
+        st.info("Solo el perfil Administrador puede ver esta sección.")
