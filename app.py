@@ -12,7 +12,7 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, ColumnsAutoSiz
 # Desactivar advertencias de certificados SSL para PRTG
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- 1. CONFIGURACIÓN Y ESTILOS ---
+# --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="SIMPOL | Banco Caroní", layout="wide", page_icon="🏦")
 
 def load_css(file_name):
@@ -21,27 +21,6 @@ def load_css(file_name):
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except:
         pass
-
-# Inyección de CSS para limpiar formularios y personalizar AgGrid (Colores del Banco)
-st.markdown("""
-    <style>
-    /* Quitar fondo oscuro de formularios y popovers */
-    [data-testid="stForm"], [data-testid="stPopoverBody"] {
-        background-color: #ffffff !important;
-        border: 1px solid #d3d3d3 !important;
-    }
-    
-    /* Personalización de AgGrid: Cabecera Azul Banco Caroní */
-    .ag-theme-balham {
-        --ag-header-background-color: #003366 !important;
-        --ag-header-foreground-color: #ffffff !important;
-        --ag-border-color: #d3d3d3;
-    }
-    .ag-header-cell-label {
-        justify-content: center;
-    }
-    </style>
-""", unsafe_allow_html=True)
 
 load_css("style.css")
 
@@ -76,6 +55,29 @@ def obtener_telemetria_completa():
     except:
         pass
     return cpu, ram, msg
+
+# --- Función de Diálogo para Eliminación ---
+@st.dialog("⚠️ Confirmar Eliminación")
+def confirmar_borrado(usuario_id):
+    st.write(f"¿Está seguro de que desea eliminar permanentemente al analista **{usuario_id}**?")
+    st.error("Esta acción es irreversible.")
+    
+    c1, c2 = st.columns(2)
+    if c1.button("SÍ, ELIMINAR", type="primary", use_container_width=True):
+        try:
+            conn = conectar_bd()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM usuarios WHERE usuario = %s", (usuario_id,))
+            conn.commit()
+            conn.close()
+            st.success("Analista eliminado.")
+            time.sleep(1)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+            
+    if c2.button("CANCELAR", use_container_width=True):
+        st.rerun()
 
 # --- 3. LÓGICA DE ACCESO (LOGIN) ---
 if "autenticado" not in st.session_state:
@@ -182,12 +184,11 @@ else:
         st.write("---")
         st.info("Módulo de generación de PDF en fase de integración.")
 
-    # --- VISTA GESTIÓN DE PERSONAL (AgGrid Independiente) ---
+    # --- VISTA GESTIÓN DE PERSONAL ---
     elif seleccion == "👥 Gestión de Personal":
         st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Administración de Personal CSU</h2>", unsafe_allow_html=True)
         st.write("---")
 
-        # 1. BOTÓN REGISTRO (Popover con fondo blanco)
         with st.popover("➕ REGISTRAR NUEVO ANALISTA", use_container_width=True):
             with st.form("reg_user_form", clear_on_submit=True):
                 n_u = st.text_input("Usuario (ID Acceso)")
@@ -203,7 +204,6 @@ else:
                             st.success("Analista registrado correctamente."); st.rerun()
                         except: st.error("Error: El ID de usuario ya existe.")
 
-        # 2. TABLA AgGrid (Independiente y con colores del Banco)
         st.markdown("### 🔍 Listado Maestro de Analistas")
         busqueda = st.text_input("Filtro rápido:", placeholder="Escriba para buscar...")
 
@@ -220,7 +220,6 @@ else:
         gb.configure_column("nombre_completo", headerName="NOMBRE COMPLETO")
         gb.configure_column("rol", headerName="RANGO / ROL")
         gb.configure_column("fecha_creacion", headerName="FECHA REGISTRO")
-        
         grid_options = gb.build()
 
         grid_response = AgGrid(
@@ -233,40 +232,46 @@ else:
             allow_unsafe_jscode=True
         )
 
-        # 3. FORMULARIO DE EDICIÓN (Se activa al seleccionar en la tabla)
+        # --- SECCIÓN DE EDICIÓN ---
         seleccionados = grid_response['selected_rows']
 
         if seleccionados is not None and len(seleccionados) > 0:
-            # Manejo de dataframe o lista según versión de AgGrid
             fila = seleccionados.iloc[0] if isinstance(seleccionados, pd.DataFrame) else seleccionados[0]
             
-            st.markdown("---")
-            st.markdown(f"#### 📝 Modificar Datos: `{fila['usuario']}`")
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader(f"📝 Ficha de Analista: {fila['usuario']}")
             
-            with st.form("edit_form_final"):
-                col_e1, col_e2 = st.columns(2)
-                with col_e1:
-                    st.text_input("ID (No editable)", value=fila['usuario'], disabled=True)
-                    nuevo_nombre = st.text_input("Nombre Completo", value=fila['nombre_completo'])
-                with col_e2:
-                    st.text_input("Rol (No editable)", value=fila['rol'], disabled=True)
-                    nueva_clave = st.text_input("Resetear Contraseña", type="password", placeholder="Dejar vacío para mantener")
-
-                be1, be2, _ = st.columns([1, 1, 2])
-                if be1.form_submit_button("💾 ACTUALIZAR", type="primary", use_container_width=True):
+            # Formulario de Actualización (Espaciado)
+            with st.form("form_edicion_mejorado"):
+                c_edit1, c_edit2 = st.columns(2)
+                with c_edit1:
+                    st.text_input("Identificador único", value=fila['usuario'], disabled=True)
+                    nom_upd = st.text_input("Nombre Completo del Analista", value=fila['nombre_completo'])
+                with c_edit2:
+                    st.text_input("Rol en el sistema", value=fila['rol'], disabled=True)
+                    pass_upd = st.text_input("Actualizar Contraseña", type="password", placeholder="Dejar vacío para no cambiar")
+                
+                st.write("")
+                if st.form_submit_button("💾 GUARDAR CAMBIOS EN FICHA", type="primary", use_container_width=True):
                     conn = conectar_bd(); cursor = conn.cursor()
-                    if nueva_clave:
-                        cursor.execute("UPDATE usuarios SET nombre_completo=%s, clave=%s WHERE usuario=%s", (nuevo_nombre, nueva_clave, fila['usuario']))
+                    if pass_upd:
+                        cursor.execute("UPDATE usuarios SET nombre_completo=%s, clave=%s WHERE usuario=%s", (nom_upd, pass_upd, fila['usuario']))
                     else:
-                        cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo_nombre, fila['usuario']))
+                        cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nom_upd, fila['usuario']))
                     conn.commit(); conn.close()
-                    st.success("Cambios guardados."); time.sleep(1); st.rerun()
+                    st.success("Cambios aplicados exitosamente."); time.sleep(1); st.rerun()
 
-                if be2.form_submit_button("🗑️ ELIMINAR", use_container_width=True):
-                    if fila['usuario'] == st.session_state['user_actual']:
-                        st.error("No puedes eliminar el usuario con sesión activa.")
-                    else:
-                        conn = conectar_bd(); cursor = conn.cursor()
-                        cursor.execute("DELETE FROM usuarios WHERE usuario = %s", (fila['usuario'],))
-                        conn.commit(); conn.close()
-                        st.warning("Usuario eliminado."); time.sleep(1); st.rerun()
+            # Sección de eliminación FUERA del formulario
+            st.markdown('<div class="delete-section">', unsafe_allow_html=True)
+            col_del_text, col_del_btn = st.columns([3, 1])
+            col_del_text.write("**Zona de Peligro:** Si eliminas este usuario, perderá el acceso al nodo CSU inmediatamente.")
+            
+            if col_del_btn.button("🗑️ ELIMINAR ANALISTA", use_container_width=True, help="Eliminar permanentemente"):
+                if fila['usuario'] == st.session_state['user_actual']:
+                    st.error("No puedes eliminar tu propia sesión activa.")
+                else:
+                    confirmar_borrado(fila['usuario'])
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        else:
+            st.info("💡 Seleccione un analista de la tabla para ver su ficha y realizar cambios.")
