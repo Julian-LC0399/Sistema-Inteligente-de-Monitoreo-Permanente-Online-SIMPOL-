@@ -47,6 +47,7 @@ def obtener_telemetria_completa():
     ram = float(psutil.virtual_memory().percent)
     msg = "MODO LOCAL"
     try:
+        # Intentar conectar con el sensor específico de PRTG
         url = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,lastvalue,lastvalue_raw&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
         r = requests.get(url, timeout=0.8, verify=False)
         if r.status_code == 200:
@@ -60,7 +61,7 @@ def obtener_telemetria_completa():
 @st.dialog("⚠️ Confirmar Eliminación")
 def confirmar_borrado(usuario_id):
     st.write(f"¿Está seguro de que desea eliminar permanentemente al analista **{usuario_id}**?")
-    st.error("Esta acción es irreversible.")
+    st.error("Esta acción es irreversible y el usuario perderá acceso inmediato.")
     
     c1, c2 = st.columns(2)
     if c1.button("SÍ, ELIMINAR", type="primary", use_container_width=True):
@@ -70,11 +71,11 @@ def confirmar_borrado(usuario_id):
             cursor.execute("DELETE FROM usuarios WHERE usuario = %s", (usuario_id,))
             conn.commit()
             conn.close()
-            st.success("Analista eliminado.")
+            st.success("Analista eliminado correctamente.")
             time.sleep(1)
             st.rerun()
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error en base de datos: {e}")
             
     if c2.button("CANCELAR", use_container_width=True):
         st.rerun()
@@ -148,16 +149,46 @@ else:
         with col2:
             st.info(f"**Estatus de Conexión**\n\n**Analista:** {st.session_state['user_actual']}\n\n**Rol:** {rol_display}\n\n**Base de Datos:** Conectada")
 
-    # --- VISTA MONITOREO ---
+    # --- VISTA MONITOREO EN VIVO ---
     elif seleccion == "📊 Monitoreo en Vivo":
         st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Monitoreo en Tiempo Real: Nodo CSU</h2>", unsafe_allow_html=True)
+        
+        # Obtener datos de telemetría
         cpu_val, ram_val, fuente_msg = obtener_telemetria_completa()
+        fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-        m1, m2, m3 = st.columns(3)
+        # --- FICHA TÉCNICA DEL DISPOSITIVO ---
+        col_info, col_status = st.columns([2, 1])
+        
+        with col_info:
+            # Aquí definimos visualmente qué dispositivo se mide
+            st.markdown(f"""
+                <div style="background-color: #ffffff; border: 1px solid #d3d3d3; padding: 20px; border-left: 5px solid #003366;">
+                    <div style="background-color: #003366; color: white; padding: 2px 8px; font-size: 10px; font-weight: bold; display: inline-block; margin-bottom: 10px;">DISPOSITIVO ACTIVO</div>
+                    <h3 style="margin:0; color:#003366;">Servidor Central de Operaciones - Nodo CSU</h3>
+                    <p style="margin:0; color:#666; font-size:13px;">
+                        <b>Origen de Datos:</b> {fuente_msg} <br>
+                        <b>ID de Sensor PRTG:</b> 2094 | <b>Interface:</b> Ethernet 0 <br>
+                        <b>Última Lectura:</b> {fecha_actual}
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_status:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.write(f"**Uptime:** 14d 06h 22m")
+            st.progress(cpu_val / 100, text=f"Carga CPU: {cpu_val}%")
+
+        st.write("---")
+
+        # --- MÉTRICAS CUÁDRUPLES ---
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("USO DE CPU", f"{cpu_val}%", delta=fuente_msg)
-        m2.metric("MEMORIA RAM", f"{ram_val}%", delta="Sincronizado")
-        m3.metric("ESTADO", "OPERATIVO", delta="Estable")
+        m2.metric("MEMORIA RAM", f"{ram_val}%", delta="Estable")
+        m3.metric("ESTADO LÓGICO", "OPERATIVO", delta="OK")
 
+        # --- GRÁFICO DE HISTORIAL ---
+        
         try:
             conn = conectar_bd(); cursor = conn.cursor()
             cursor.execute("INSERT INTO monitoreo_30_nodos (fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado) VALUES (%s, %s, %s, %s, %s)",
@@ -170,10 +201,17 @@ else:
                 df_m = df_m.sort_values("fecha_registro")
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=df_m["fecha_registro"], y=df_m["uso_cpu"], mode='lines', name='CPU %', line=dict(color='#003366', width=3), fill='tozeroy'))
-                fig.update_layout(plot_bgcolor="white", paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=30, b=0), height=400)
+                fig.update_layout(
+                    plot_bgcolor="white", 
+                    paper_bgcolor="rgba(0,0,0,0)", 
+                    margin=dict(l=0, r=0, t=30, b=0), 
+                    height=400,
+                    xaxis=dict(showgrid=True, gridcolor='#f0f0f0'),
+                    yaxis=dict(showgrid=True, gridcolor='#f0f0f0', range=[0, 105])
+                )
                 st.plotly_chart(fig, use_container_width=True)
         except:
-            st.error("Error al graficar telemetría.")
+            st.error("Error al graficar telemetría en tiempo real.")
         
         time.sleep(5)
         st.rerun()
@@ -182,7 +220,7 @@ else:
     elif seleccion == "📄 Reportes PDF":
         st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Reportes de Gestión</h2>", unsafe_allow_html=True)
         st.write("---")
-        st.info("Módulo de generación de PDF en fase de integración.")
+        st.info("Módulo de generación de PDF en fase de integración (CSU-Report System).")
 
     # --- VISTA GESTIÓN DE PERSONAL ---
     elif seleccion == "👥 Gestión de Personal":
@@ -232,7 +270,7 @@ else:
             allow_unsafe_jscode=True
         )
 
-        # --- SECCIÓN DE EDICIÓN ---
+        # SECCIÓN DE EDICIÓN MEJORADA
         seleccionados = grid_response['selected_rows']
 
         if seleccionados is not None and len(seleccionados) > 0:
@@ -241,17 +279,15 @@ else:
             st.markdown("<br>", unsafe_allow_html=True)
             st.subheader(f"📝 Ficha de Analista: {fila['usuario']}")
             
-            # Formulario de Actualización (Espaciado)
-            with st.form("form_edicion_mejorado"):
+            with st.form("form_edicion_final"):
                 c_edit1, c_edit2 = st.columns(2)
                 with c_edit1:
                     st.text_input("Identificador único", value=fila['usuario'], disabled=True)
                     nom_upd = st.text_input("Nombre Completo del Analista", value=fila['nombre_completo'])
                 with c_edit2:
                     st.text_input("Rol en el sistema", value=fila['rol'], disabled=True)
-                    pass_upd = st.text_input("Actualizar Contraseña", type="password", placeholder="Dejar vacío para no cambiar")
+                    pass_upd = st.text_input("Actualizar Contraseña", type="password", placeholder="Dejar vacío para mantener")
                 
-                st.write("")
                 if st.form_submit_button("💾 GUARDAR CAMBIOS EN FICHA", type="primary", use_container_width=True):
                     conn = conectar_bd(); cursor = conn.cursor()
                     if pass_upd:
@@ -261,17 +297,16 @@ else:
                     conn.commit(); conn.close()
                     st.success("Cambios aplicados exitosamente."); time.sleep(1); st.rerun()
 
-            # Sección de eliminación FUERA del formulario
+            # Bloque de eliminación separado para mayor seguridad
             st.markdown('<div class="delete-section">', unsafe_allow_html=True)
             col_del_text, col_del_btn = st.columns([3, 1])
-            col_del_text.write("**Zona de Peligro:** Si eliminas este usuario, perderá el acceso al nodo CSU inmediatamente.")
+            col_del_text.write("**Zona de Peligro:** La eliminación de un analista revocará todos sus permisos de monitoreo.")
             
-            if col_del_btn.button("🗑️ ELIMINAR ANALISTA", use_container_width=True, help="Eliminar permanentemente"):
+            if col_del_btn.button("🗑️ ELIMINAR ANALISTA", use_container_width=True):
                 if fila['usuario'] == st.session_state['user_actual']:
-                    st.error("No puedes eliminar tu propia sesión activa.")
+                    st.error("Acción denegada: No puede eliminar su propia cuenta activa.")
                 else:
                     confirmar_borrado(fila['usuario'])
             st.markdown('</div>', unsafe_allow_html=True)
-
         else:
-            st.info("💡 Seleccione un analista de la tabla para ver su ficha y realizar cambios.")
+            st.info("💡 Seleccione un analista de la tabla superior para editar sus datos.")
