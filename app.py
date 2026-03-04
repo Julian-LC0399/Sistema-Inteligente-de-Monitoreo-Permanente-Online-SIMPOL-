@@ -129,12 +129,12 @@ else:
             Has ingresado al sistema de monitoreo de infraestructura del Banco Caroní.
             
             **Guía Rápida:**
-            * **Monitoreo en Vivo:** Visualización de telemetría de CPU y RAM del servidor local o PRTG.
-            * **Reportes PDF:** Generación de documentos para auditoría de procesos.
-            * **Gestión de Personal:** (Solo Administradores) Registro y control de usuarios del sistema.
+            * **Monitoreo en Vivo:** Visualización de telemetría de CPU y RAM.
+            * **Reportes PDF:** Generación de documentos para auditoría.
+            * **Gestión de Personal:** Registro y control de analistas (Solo Admins).
             """)
         with col2:
-            st.info(f"**Estatus de Conexión**\n\n**Analista:** {st.session_state['user_actual']}\n\n**Rol:** {rol_display}\n\n**Base de Datos:** MySQL Online")
+            st.info(f"**Estatus de Conexión**\n\n**Analista:** {st.session_state['user_actual']}\n\n**Rol:** {rol_display}\n\n**Base de Datos:** Conectada")
 
     elif seleccion == "📊 Monitoreo en Vivo":
         st.markdown(f"<h2 style='color:#003366; margin-top:-30px;'>Monitoreo en Tiempo Real: Nodo CSU</h2>", unsafe_allow_html=True)
@@ -144,8 +144,8 @@ else:
 
         m1, m2, m3 = st.columns(3)
         m1.metric("USO DE CPU", f"{cpu_val}%", delta=cpu_msg)
-        m2.metric("MEMORIA RAM", f"{ram_val}%", delta="En línea")
-        m3.metric("ESTADO DEL NODO", "OPERATIVO", delta="Estable")
+        m2.metric("MEMORIA RAM", f"{ram_val}%", delta="Sincronizado")
+        m3.metric("ESTADO", "OPERATIVO", delta="Estable")
 
         try:
             conn = conectar_bd()
@@ -176,40 +176,54 @@ else:
         st.warning("Módulo de impresión en desarrollo. Próximamente disponible.")
 
     elif seleccion == "👥 Gestión de Personal":
-        st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Gestión de Usuarios</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Gestión de Usuarios CSU</h2>", unsafe_allow_html=True)
         st.write("---")
 
-        col_form, col_tabla = st.columns([1, 1.5])
-
+        col_form, _ = st.columns([1.2, 1])
         with col_form:
-            st.markdown("#### 📝 Nuevo Usuario")
+            st.markdown("<h4 style='color:#003366;'>📝 Nuevo Registro de Analista</h4>", unsafe_allow_html=True)
             with st.form("reg_user", clear_on_submit=True):
-                n_user = st.text_input("Usuario ID")
-                n_name = st.text_input("Nombre Completo")
-                n_pass = st.text_input("Contraseña", type="password")
-                n_rol = st.selectbox("Rol", ["operador", "admin"])
+                n_user = st.text_input("ID de Acceso (Usuario)")
+                n_name = st.text_input("Nombre y Apellido")
+                n_pass = st.text_input("Contraseña Temporal", type="password")
+                n_rol = st.selectbox("Nivel de Acceso (Rol)", ["operador", "admin"])
                 
-                if st.form_submit_button("REGISTRAR ANALISTA", use_container_width=True):
+                if st.form_submit_button("REGISTRAR EN SISTEMA", use_container_width=True):
                     if n_user and n_name and n_pass:
                         try:
                             conn = conectar_bd()
                             cursor = conn.cursor()
-                            cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol) VALUES (%s, %s, %s, %s)", (n_user, n_pass, n_name, n_rol))
+                            cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol) VALUES (%s, %s, %s, %s)", 
+                                         (n_user.strip(), n_pass.strip(), n_name.strip(), n_rol))
                             conn.commit()
                             conn.close()
-                            st.success("Analista registrado correctamente.")
+                            st.success(f"Analista {n_user} registrado correctamente.")
                             st.rerun()
                         except:
                             st.error("Error: El ID de usuario ya existe.")
                     else:
-                        st.error("Complete todos los campos.")
+                        st.error("Complete todos los campos obligatorios.")
 
-        with col_tabla:
-            st.markdown("#### 👥 Listado de Personal")
+        st.write(" ")
+        
+        # TABLA DE USUARIOS OCULTA EN UN EXPANDER
+        with st.expander("🔍 CONSULTAR LISTADO DE PERSONAL REGISTRADO"):
             try:
                 conn = conectar_bd()
-                df_u = pd.read_sql("SELECT usuario, nombre_completo, rol FROM usuarios", conn)
+                df_u = pd.read_sql("SELECT usuario, nombre_completo, rol, fecha_creacion FROM usuarios ORDER BY id DESC", conn)
                 conn.close()
-                st.dataframe(df_u, use_container_width=True, hide_index=True)
+
+                if not df_u.empty:
+                    st.dataframe(
+                        df_u, 
+                        column_config={
+                            "usuario": st.column_config.TextColumn("ID Acceso"),
+                            "nombre_completo": st.column_config.TextColumn("Nombre Analista"),
+                            "rol": st.column_config.TextColumn("Rango"),
+                            "fecha_creacion": st.column_config.DatetimeColumn("Fecha Alta", format="DD/MM/YYYY")
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
             except:
-                st.error("Error al cargar la lista.")
+                st.error("Error al cargar la base de datos de usuarios.")
