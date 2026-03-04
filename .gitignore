@@ -1,0 +1,21 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Streamlit ---
+.streamlit/
+
+# --- Entornos Virtuales ---
+venv/
+env/
+.env/
+
+# --- Seguridad ---
+.env
+*.sql
+
+# --- Sistema ---
+.DS_Store
+Thumbs.db
