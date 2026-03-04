@@ -122,11 +122,10 @@ div[data-testid="stFormSubmitButton"] button:hover {
 
 /* --- 7. SIDEBAR (NUEVA MODIFICACIÓN ÚNICAMENTE AQUÍ) --- */
 [data-testid="stSidebar"] { 
-    background-color: #FFFFFF !important; /* Sidebar ahora es blanco */
+    background-color: #FFFFFF !important; 
     border-right: 1px solid #E0E0E0 !important;
 }
 
-/* Caja de información del analista en el sidebar */
 .user-info-box {
     background-color: #F8F9FA !important;
     padding: 15px;
@@ -141,7 +140,6 @@ div[data-testid="stFormSubmitButton"] button:hover {
     font-size: 14px;
 }
 
-/* Títulos de sección en el sidebar */
 .titulo-seccion-sidebar {
     color: #999999 !important;
     font-size: 0.75rem !important;
@@ -154,7 +152,6 @@ div[data-testid="stFormSubmitButton"] button:hover {
     padding-bottom: 5px;
 }
 
-/* Botón de Cerrar Sesión en Sidebar Blanco */
 [data-testid="stSidebar"] .stButton button {
     background-color: #FFFFFF !important;
     border: 1px solid #D3D3D3 !important;
@@ -166,4 +163,35 @@ div[data-testid="stFormSubmitButton"] button:hover {
 [data-testid="stSidebar"] .stButton button:hover {
     background-color: #FFEEF0 !important;
     border: 1px solid #CC0000 !important;
+}
+
+/* --- ADICIONES PARA CORREGIR TABLA Y SELECTBOX --- */
+
+/* 1. Forzar color negro en las opciones del radio del Sidebar */
+[data-testid="stSidebar"] label p {
+    color: #000000 !important;
+    opacity: 1 !important;
+}
+
+/* 2. Corregir cuadro de Rol (Selectbox) para que sea blanco con texto azul */
+div[data-baseweb="select"] > div {
+    background-color: #FFFFFF !important;
+    color: #003366 !important;
+    border: 1px solid #D3D3D3 !important;
+    border-radius: 0px !important;
+}
+
+/* Texto de la opción seleccionada en el selectbox */
+div[data-baseweb="select"] [data-testid="stMarkdownContainer"] p {
+    color: #003366 !important;
+}
+
+/* 3. Forzar estilo de la Tabla (Dataframe) */
+[data-testid="stDataFrame"] {
+    background-color: #FFFFFF !important;
+}
+
+/* Ajuste de colores internos de la tabla para evitar el tema oscuro */
+[data-testid="stDataFrame"] div[role="grid"] {
+    background-color: #FFFFFF !important;
 }
