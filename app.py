@@ -7,7 +7,8 @@ from database import verificar_usuario
 from utils import load_css
 
 # Importamos las vistas (componentes)
-from modulos import inicio, monitoreo, gestion
+# Se añade 'reportes' a la importación modular
+from modulos import inicio, monitoreo, gestion, reportes
 
 # --- 2. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -101,9 +102,8 @@ else:
             monitoreo.mostrar_pantalla(st.session_state["user_actual"])
 
         elif seleccion == "📄 Reportes PDF":
-            st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Centro de Reportes</h2>", unsafe_allow_html=True)
-            st.write("---")
-            st.info("El módulo de exportación PDF está siendo migrado a la estructura modular v2.")
+            # Sustitución del placeholder por la llamada al módulo real
+            reportes.mostrar_pantalla()
 
         elif seleccion == "👥 Gestión de Personal":
             # Solo se ejecuta si el rol es admin (validación adicional)
