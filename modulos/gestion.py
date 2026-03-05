@@ -47,7 +47,7 @@ def mostrar_pantalla(user_actual):
         gb.configure_selection(selection_mode="single", use_checkbox=True)
         gb.configure_default_column(filterable=True, sortable=True, resizable=True)
         
-        gb.configure_column("usuario", headerName="ID USUARIO", pinned='left')
+        gb.configure_column("usuario", headerName="USUARIO", pinned='left')
         gb.configure_column("nombre_completo", headerName="NOMBRE COMPLETO")
         gb.configure_column("rol", headerName="ROL")
         gb.configure_column("estado", hide=True) # Oculto el número

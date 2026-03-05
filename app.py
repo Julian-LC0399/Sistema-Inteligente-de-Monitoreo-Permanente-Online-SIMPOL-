@@ -40,7 +40,7 @@ if not st.session_state["autenticado"]:
                 u = st.text_input("USUARIO", placeholder="Ingrese ID de Analista")
                 p = st.text_input("CONTRASEÑA", type="password", placeholder="••••••••")
                 
-                if st.form_submit_button("AUTENTICAR"):
+                if st.form_submit_button("ACCEDER"):
                     # Uso de la función importada de database.py
                     user_info = verificar_usuario(u, p)
                     
