@@ -3,16 +3,14 @@ import pandas as pd
 from fpdf import FPDF
 from database import conectar_bd
 from datetime import datetime
+import time
+from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
 
 class PDF(FPDF):
     def header(self):
-        # Logo o Título institucional
         self.set_font('Arial', 'B', 14)
-        self.set_text_color(0, 51, 102) # Azul Banco
+        self.set_text_color(0, 51, 102) 
         self.cell(0, 10, 'SISTEMA SIMPOL - REPORTE DE GESTIÓN OPERATIVA', 0, 1, 'C')
-        self.set_font('Arial', 'I', 9)
-        self.set_text_color(100, 100, 100)
-        self.cell(0, 5, f'Centro de Soporte al Usuario (CSU) - Reporte de Telemetría', 0, 1, 'C')
         self.ln(5)
 
     def footer(self):
@@ -29,36 +27,31 @@ def generar_pdf(df):
     pdf.set_text_color(0, 0, 0)
     pdf.cell(0, 10, '1. RESUMEN EJECUTIVO DE CARGA', 0, 1, 'L')
     pdf.set_draw_color(0, 51, 102)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y()) # Línea divisoria
-    pdf.ln(5) # Aumento de espacio después de la línea
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
 
-    # Cálculo de métricas
+    # CORRECCIÓN: Usar los nombres de columna que vienen de AgGrid
     stats = {
-        "CPU": {"max": df['uso_cpu'].max(), "avg": df['uso_cpu'].mean(), "min": df['uso_cpu'].min()},
-        "RAM": {"max": df['uso_ram'].max(), "avg": df['uso_ram'].mean(), "min": df['uso_ram'].min()}
+        "CPU": {"max": df['CPU %'].max(), "avg": df['CPU %'].mean(), "min": df['CPU %'].min()},
+        "RAM": {"max": df['RAM %'].max(), "avg": df['RAM %'].mean(), "min": df['RAM %'].min()}
     }
 
-    # Guardamos la posición Y actual para que ambos cuadros empiecen a la misma altura
     y_inicial = pdf.get_y()
 
-    # --- CUADRO CPU ---
+    # Bloque CPU
     pdf.set_fill_color(240, 240, 240)
     pdf.set_font('Arial', 'B', 10)
-    # Dibujamos el fondo y el título del bloque CPU
     pdf.cell(92, 8, "Métricas de CPU", 1, 1, 'C', True)
     pdf.set_font('Arial', '', 9)
-    # Celdas de datos CPU
     pdf.cell(92, 6, f" - Valor Máximo: {stats['CPU']['max']}%", 'LR', 1, 'L')
     pdf.cell(92, 6, f" - Promedio de Carga: {stats['CPU']['avg']:.2f}%", 'LR', 1, 'L')
     pdf.cell(92, 6, f" - Valor Mínimo: {stats['CPU']['min']}%", 'LRB', 1, 'L')
 
-    # --- CUADRO RAM (Posicionamiento dinámico a la derecha) ---
-    pdf.set_xy(108, y_inicial) # Se mueve a la derecha pero mantiene la altura Y original
-    
+    # Bloque RAM
+    pdf.set_xy(108, y_inicial)
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(92, 8, "Métricas de RAM", 1, 1, 'C', True)
     pdf.set_font('Arial', '', 9)
-    # Celdas de datos RAM
     pdf.set_x(108)
     pdf.cell(92, 6, f" - Valor Máximo: {stats['RAM']['max']}%", 'LR', 1, 'L')
     pdf.set_x(108)
@@ -66,34 +59,31 @@ def generar_pdf(df):
     pdf.set_x(108)
     pdf.cell(92, 6, f" - Valor Mínimo: {stats['RAM']['min']}%", 'LRB', 1, 'L')
     
-    pdf.ln(15) # Salto de línea controlado para separar de la tabla
+    pdf.ln(15)
 
     # --- SECCIÓN 2: TABLA DE DETALLES ---
     pdf.set_font('Arial', 'B', 11)
-    pdf.set_text_color(0, 0, 0)
     pdf.cell(0, 10, '2. DESGLOSE CRONOLÓGICO DE EVENTOS', 0, 1, 'L')
     pdf.ln(2)
 
-    # Encabezados de tabla
+    cols = {'Fecha/Hora': 60, 'Nodo': 45, 'CPU %': 30, 'RAM %': 30, 'Estado': 25}
     pdf.set_fill_color(0, 51, 102)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font('Arial', 'B', 9)
-    
-    cols = {'Fecha/Hora': 60, 'Nodo': 45, 'CPU %': 30, 'RAM %': 30, 'Estado': 25}
     for nombre, ancho in cols.items():
         pdf.cell(ancho, 10, nombre, 1, 0, 'C', True)
     
     pdf.ln()
-    
-    # Filas de la tabla
     pdf.set_font('Arial', '', 8)
     pdf.set_text_color(0, 0, 0)
+    
+    # CORRECCIÓN: Iterar usando los nombres de columna nuevos
     for _, row in df.iterrows():
-        pdf.cell(60, 7, str(row['fecha_registro']), 1)
-        pdf.cell(45, 7, str(row['nodo_nombre']), 1)
-        pdf.cell(30, 7, f"{row['uso_cpu']}%", 1, 0, 'C')
-        pdf.cell(30, 7, f"{row['uso_ram']}%", 1, 0, 'C')
-        pdf.cell(25, 7, str(row['estado']), 1, 0, 'C')
+        pdf.cell(60, 7, str(row['Fecha/Hora']), 1)
+        pdf.cell(45, 7, str(row['Nodo']), 1)
+        pdf.cell(30, 7, f"{row['CPU %']}%", 1, 0, 'C')
+        pdf.cell(30, 7, f"{row['RAM %']}%", 1, 0, 'C')
+        pdf.cell(25, 7, str(row['Estado']), 1, 0, 'C')
         pdf.ln()
         
     return pdf.output(dest='S').encode('latin-1')
@@ -101,32 +91,64 @@ def generar_pdf(df):
 def mostrar_pantalla():
     st.markdown("<h2 style='color:#003366;'>Reportes y Auditoría</h2>", unsafe_allow_html=True)
     
+    if "ver_reporte" not in st.session_state:
+        st.session_state.ver_reporte = False
+
     with st.expander("📅 Filtros de Exportación", expanded=True):
         c1, c2 = st.columns(2)
         f_inicio = c1.date_input("Fecha Inicial", datetime.now())
         f_fin = c2.date_input("Fecha Final", datetime.now())
+        
+        col_btn1, col_btn2 = st.columns(2)
+        if col_btn1.button("📊 INICIAR MONITOREO DE REPORTE", use_container_width=True):
+            st.session_state.ver_reporte = True
+        if col_btn2.button("🛑 DETENER ACTUALIZACIÓN", use_container_width=True):
+            st.session_state.ver_reporte = False
 
-    if st.button("📊 GENERAR VISTA PREVIA"):
-        conn = conectar_bd()
-        query = "SELECT fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado FROM monitoreo_30_nodos WHERE DATE(fecha_registro) BETWEEN %s AND %s ORDER BY id DESC"
-        df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
-        conn.close()
+    if st.session_state.ver_reporte:
+        placeholder = st.empty()
+        
+        with placeholder.container():
+            conn = conectar_bd()
+            # Mantenemos los alias para AgGrid
+            query = """SELECT fecha_registro as 'Fecha/Hora', 
+                              nodo_nombre as 'Nodo', 
+                              uso_cpu as 'CPU %', 
+                              uso_ram as 'RAM %', 
+                              estado as 'Estado' 
+                       FROM monitoreo_30_nodos 
+                       WHERE DATE(fecha_registro) BETWEEN %s AND %s 
+                       ORDER BY id DESC"""
+            df = pd.read_sql(query, conn, params=(f_inicio, f_fin))
+            conn.close()
 
-        if not df.empty:
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Max CPU", f"{df['uso_cpu'].max()}%")
-            m2.metric("Promedio CPU", f"{df['uso_cpu'].mean():.1f}%")
-            m3.metric("Registros", len(df))
+            if not df.empty:
+                st.markdown(f"**Sincronización Agente:** `{datetime.now().strftime('%H:%M:%S')}`")
+                
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Max CPU", f"{df['CPU %'].max()}%")
+                m2.metric("Promedio CPU", f"{df['CPU %'].mean():.1f}%")
+                m3.metric("Total Registros", len(df))
 
-            st.dataframe(df, use_container_width=True)
-            
-            pdf_bytes = generar_pdf(df)
-            st.download_button(
-                label="📄 DESCARGAR INFORME PDF",
-                data=pdf_bytes,
-                file_name=f"Reporte_CSU_{f_inicio}_al_{f_fin}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-        else:
-            st.warning("No existen datos para el rango seleccionado.")
+                # AgGrid
+                gb = GridOptionsBuilder.from_dataframe(df)
+                gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=10)
+                gb.configure_default_column(resizable=True, filterable=True, sortable=True)
+                gridOptions = gb.build()
+
+                AgGrid(df, gridOptions=gridOptions, theme='alpine', height=350)
+
+                # Botón de PDF - Ahora sí recibirá las columnas correctas
+                pdf_bytes = generar_pdf(df)
+                st.download_button(
+                    label="📄 DESCARGAR REPORTE PDF",
+                    data=pdf_bytes,
+                    file_name=f"Reporte_SIMPOL_{f_inicio}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            else:
+                st.warning("No hay datos en el rango seleccionado.")
+
+        time.sleep(10)
+        st.rerun()
