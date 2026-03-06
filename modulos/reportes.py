@@ -30,7 +30,7 @@ def generar_pdf(df):
     pdf.cell(0, 10, '1. RESUMEN EJECUTIVO DE CARGA', 0, 1, 'L')
     pdf.set_draw_color(0, 51, 102)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y()) # Línea divisoria
-    pdf.ln(2)
+    pdf.ln(5) # Aumento de espacio después de la línea
 
     # Cálculo de métricas
     stats = {
@@ -38,34 +38,39 @@ def generar_pdf(df):
         "RAM": {"max": df['uso_ram'].max(), "avg": df['uso_ram'].mean(), "min": df['uso_ram'].min()}
     }
 
-    pdf.set_font('Arial', '', 10)
-    # Cuadro de estadísticas
-    pdf.set_fill_color(240, 240, 240)
-    pdf.cell(95, 25, f"", 1, 0, 'L', True) # Fondo para CPU
-    pdf.set_x(10)
-    pdf.set_font('Arial', 'B', 10)
-    pdf.cell(95, 8, "Métricas de CPU", 0, 1, 'C')
-    pdf.set_font('Arial', '', 9)
-    pdf.cell(95, 5, f" - Valor Máximo: {stats['CPU']['max']}%", 0, 1, 'L')
-    pdf.cell(95, 5, f" - Promedio de Carga: {stats['CPU']['avg']:.2f}%", 0, 1, 'L')
-    pdf.cell(95, 5, f" - Valor Mínimo: {stats['CPU']['min']}%", 0, 1, 'L')
+    # Guardamos la posición Y actual para que ambos cuadros empiecen a la misma altura
+    y_inicial = pdf.get_y()
 
-    # Posicionamiento para la columna de RAM
-    pdf.set_xy(105, 30) 
+    # --- CUADRO CPU ---
     pdf.set_fill_color(240, 240, 240)
-    pdf.cell(95, 25, f"", 1, 0, 'L', True)
-    pdf.set_x(105)
     pdf.set_font('Arial', 'B', 10)
-    pdf.cell(95, 8, "Métricas de RAM", 0, 1, 'C')
+    # Dibujamos el fondo y el título del bloque CPU
+    pdf.cell(92, 8, "Métricas de CPU", 1, 1, 'C', True)
     pdf.set_font('Arial', '', 9)
-    pdf.cell(95, 5, f" - Valor Máximo: {stats['RAM']['max']}%", 0, 1, 'L')
-    pdf.cell(95, 5, f" - Promedio de Carga: {stats['RAM']['avg']:.2f}%", 0, 1, 'L')
-    pdf.cell(95, 5, f" - Valor Mínimo: {stats['RAM']['min']}%", 0, 1, 'L')
+    # Celdas de datos CPU
+    pdf.cell(92, 6, f" - Valor Máximo: {stats['CPU']['max']}%", 'LR', 1, 'L')
+    pdf.cell(92, 6, f" - Promedio de Carga: {stats['CPU']['avg']:.2f}%", 'LR', 1, 'L')
+    pdf.cell(92, 6, f" - Valor Mínimo: {stats['CPU']['min']}%", 'LRB', 1, 'L')
+
+    # --- CUADRO RAM (Posicionamiento dinámico a la derecha) ---
+    pdf.set_xy(108, y_inicial) # Se mueve a la derecha pero mantiene la altura Y original
     
-    pdf.ln(10)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(92, 8, "Métricas de RAM", 1, 1, 'C', True)
+    pdf.set_font('Arial', '', 9)
+    # Celdas de datos RAM
+    pdf.set_x(108)
+    pdf.cell(92, 6, f" - Valor Máximo: {stats['RAM']['max']}%", 'LR', 1, 'L')
+    pdf.set_x(108)
+    pdf.cell(92, 6, f" - Promedio de Carga: {stats['RAM']['avg']:.2f}%", 'LR', 1, 'L')
+    pdf.set_x(108)
+    pdf.cell(92, 6, f" - Valor Mínimo: {stats['RAM']['min']}%", 'LRB', 1, 'L')
+    
+    pdf.ln(15) # Salto de línea controlado para separar de la tabla
 
     # --- SECCIÓN 2: TABLA DE DETALLES ---
     pdf.set_font('Arial', 'B', 11)
+    pdf.set_text_color(0, 0, 0)
     pdf.cell(0, 10, '2. DESGLOSE CRONOLÓGICO DE EVENTOS', 0, 1, 'L')
     pdf.ln(2)
 
@@ -108,7 +113,6 @@ def mostrar_pantalla():
         conn.close()
 
         if not df.empty:
-            # Mostrar métricas rápidas en Streamlit antes de descargar
             m1, m2, m3 = st.columns(3)
             m1.metric("Max CPU", f"{df['uso_cpu'].max()}%")
             m2.metric("Promedio CPU", f"{df['uso_cpu'].mean():.1f}%")
