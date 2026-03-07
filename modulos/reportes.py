@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from fpdf import FPDF
 from database import conectar_bd
 from datetime import datetime
+from datetime import timedelta
 import time
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
 
@@ -172,3 +174,35 @@ def mostrar_pantalla():
         # Ciclo de refresco (Sincronía con el agente)
         time.sleep(10)
         st.rerun()
+
+
+
+def calcular_capacidad_predictiva(df, columna_metrica):
+    """
+    Analiza la tendencia de una métrica (CPU o RAM) y predice 
+    cuántos días faltan para llegar al umbral crítico (95%).
+    """
+    if len(df) < 5: # Necesitamos al menos 5 registros para una tendencia seria
+        return None, "Datos insuficientes para predecir"
+
+    # Preparamos los datos (X = tiempo, Y = consumo)
+    y = df[columna_metrica].values
+    x = np.arange(len(y))
+
+    # Regresión lineal: y = mx + b
+    modelo = np.polyfit(x, y, 1)
+    pendiente = modelo[0]
+    intercepto = modelo[1]
+
+    # Si la pendiente es negativa o cero, el consumo es estable
+    if pendiente <= 0:
+        return "Estable", "No se prevé saturación"
+
+    # Calculamos cuándo 'y' llegará a 95%
+    # 95 = pendiente * x + intercepto  => x = (95 - intercepto) / pendiente
+    indice_colapso = (95 - intercepto) / pendiente
+    dias_restantes = indice_colapso - (len(y) - 1)
+    
+    fecha_estimada = datetime.now() + timedelta(days=int(max(0, dias_restantes)))
+    
+    return int(dias_restantes), fecha_estimada.strftime('%d/%m/%Y')
