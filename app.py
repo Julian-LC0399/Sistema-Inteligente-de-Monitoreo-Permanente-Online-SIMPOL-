@@ -7,8 +7,8 @@ import requests
 
 # --- 1. IMPORTACIONES MODULARES ---
 from database import verificar_usuario
-from utils import load_css
-from modulos import inicio, monitoreo, gestion, reportes, alertas # <-- Agregada importación de alertas
+from utils import load_css, obtener_telemetria 
+from modulos import inicio, monitoreo, gestion, reportes, alertas 
 
 # --- 2. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -24,12 +24,17 @@ load_css("style.css")
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
+# --- INICIALIZACIÓN DE UMBRALES PARA ALERTAS ---
+if "u_cpu_perc" not in st.session_state:
+    st.session_state.u_cpu_perc = 85
+if "u_ram_perc" not in st.session_state:
+    st.session_state.u_ram_perc = 90
+
 # --- FUNCIÓN PARA EL MÓDULO DE CAPACITY PLANNING ---
 def mostrar_capacity_planning():
     st.markdown("<h2 style='color:#003366;'>📈 Análisis de Proyección de Capacidad (Capacity Planning)</h2>", unsafe_allow_html=True)
     st.info("Predicción basada en modelos de regresión lineal sobre el historial del CSU.")
 
-    # --- FILA DE MÉTRICAS (3 columnas) ---
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -40,7 +45,6 @@ def mostrar_capacity_planning():
             </div>
         """, unsafe_allow_html=True)
         st.metric(label="Días para Umbral Crítico", value="22 días", delta="-1 día")
-        st.caption("Estatus: Carga incremental por procesos batch.")
 
     with col2:
         st.markdown("""
@@ -50,7 +54,6 @@ def mostrar_capacity_planning():
             </div>
         """, unsafe_allow_html=True)
         st.metric(label="Días para Agotamiento", value="14 días", delta="-2 días", delta_color="inverse")
-        st.caption("Estatus: Riesgo moderado de swap.")
 
     with col3:
         st.markdown("""
@@ -60,29 +63,21 @@ def mostrar_capacity_planning():
             </div>
         """, unsafe_allow_html=True)
         st.metric(label="Espacio Restante", value="Estable", delta="0")
-        st.caption("Estatus: Capacidad óptima.")
 
     st.divider()
     
-    # --- GRÁFICA PROFESIONAL CON PLOTLY ---
     st.subheader("Visualización de Tendencia Predictiva (CPU)")
-    
-    # Simulación de datos para la gráfica
     dias_reales = np.arange(1, 21)
     valores_reales = np.sort(np.random.randint(40, 70, 20)) 
-    
     z = np.polyfit(dias_reales, valores_reales, 1)
     p = np.poly1d(z)
-    
     dias_prediccion = np.arange(20, 31)
     valores_prediccion = p(dias_prediccion)
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dias_reales, y=valores_reales, mode='lines+markers', name='Historial Real (CSU)', line=dict(color='#003366', width=3)))
     fig.add_trace(go.Scatter(x=dias_prediccion, y=valores_prediccion, mode='lines', name='Proyección (IA)', line=dict(color='#ff4b4b', width=3, dash='dash')))
-    fig.add_hline(y=95, line_dash="dot", line_color="red", annotation_text="Límite Crítico (95%)")
-
-    fig.update_layout(template="plotly_white", xaxis_title="Días de Monitoreo", yaxis_title="Porcentaje de Uso (%)", yaxis=dict(range=[0, 105]), margin=dict(l=0, r=0, t=30, b=0))
+    fig.update_layout(template="plotly_white", yaxis=dict(range=[0, 105]))
     st.plotly_chart(fig, use_container_width=True)
 
 # --- 5. LÓGICA DE ACCESO (LOGIN) ---
@@ -91,47 +86,45 @@ if not st.session_state["autenticado"]:
     with placeholder.container():
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         _, col_login, _ = st.columns([1, 1.2, 1])
-        
         with col_login:
             st.markdown("<h1 class='nombre-sistema'>SIMPOL</h1>", unsafe_allow_html=True)
-            st.markdown("<p class='subtitulo-sistema'>SISTEMA INTELIGENTE DE MONITOREO PERMANENTE ONLINE</p>", unsafe_allow_html=True)
-            
             with st.form("form_acceso"):
                 u = st.text_input("USUARIO", placeholder="Ingrese ID de Analista")
-                p = st.text_input("CONTRASEÑA", type="password", placeholder="••••••••")
-                
+                p = st.text_input("CONTRASEÑA", type="password")
                 if st.form_submit_button("ACCEDER"):
                     user_info = verificar_usuario(u, p)
-                    
                     if user_info:
-                        rol_db = user_info["rol"][0] if isinstance(user_info["rol"], (tuple, list)) else user_info["rol"]
                         st.session_state.update({
-                            "autenticado": True,
-                            "user_actual": user_info["usuario"],
-                            "nombre_analista": user_info["nombre_completo"],
-                            "rol": rol_db
+                            "autenticado": True, 
+                            "user_actual": user_info["usuario"], 
+                            "nombre_analista": user_info["nombre_completo"], 
+                            "rol": user_info["rol"]
                         })
-                        st.success("Acceso concedido. Redirigiendo...")
-                        time.sleep(1)
                         st.rerun()
-                    else:
-                        st.error("Credenciales Inválidas. Intente de nuevo.")
+                    else: st.error("Credenciales Inválidas.")
     st.stop()
 
 # --- 6. PANEL DE CONTROL (POST-LOGIN) ---
 else:
-    # Agregamos "🔔 Alertas" a la navegación
     opciones_menu = ["🏠 Inicio", "📊 Monitoreo en Vivo", "📈 Capacity Planning", "🔔 Alertas", "📄 Reportes PDF"]
     if st.session_state.get("rol") == "admin":
         opciones_menu.append("👥 Gestión de Personal")
 
-    # --- BARRA LATERAL (SIDEBAR) ---
     with st.sidebar:
         st.image("logo-banco.jpg", use_container_width=True)
+        
+        # --- BLOQUE DE ALERTA PERMANENTE ---
+        try:
+            c_sidebar, r_sidebar, _ = obtener_telemetria()
+            if c_sidebar >= st.session_state.u_cpu_perc or r_sidebar >= st.session_state.u_ram_perc:
+                st.error(f"🚨 **ALERTA CRÍTICA**\n\nCPU: {c_sidebar}% | RAM: {r_sidebar}%")
+        except:
+            pass
+
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # --- CUADRO DE IDENTIFICACIÓN ---
         st.markdown('<p class="titulo-seccion-sidebar">Identificación</p>', unsafe_allow_html=True)
-        
         nombre_display = str(st.session_state.get("nombre_analista") or st.session_state.get("user_actual")).upper()
         rol_display = str(st.session_state.get("rol", "USUARIO")).upper()
         
@@ -143,9 +136,8 @@ else:
             </div>
         """, unsafe_allow_html=True)
 
-        # --- INDICADOR DE TELEMETRÍA (PRTG vs LOCAL) ---
+        # --- CUADRO DE TELEMETRÍA (PRTG/LOCAL) ---
         st.markdown('<p class="titulo-seccion-sidebar">Estado de Telemetría</p>', unsafe_allow_html=True)
-        
         msg_enlace = "MODO LOCAL"
         color_status = "#ffc107"
         nombre_sensor = "psutil (Sistema)"
@@ -184,23 +176,17 @@ else:
 
     # --- ÁREA DE TRABAJO DINÁMICA ---
     vista_principal = st.empty()
-
     with vista_principal.container():
         if seleccion == "🏠 Inicio":
             inicio.mostrar_pantalla()
-
         elif seleccion == "📊 Monitoreo en Vivo":
             monitoreo.mostrar_pantalla(st.session_state["user_actual"])
-
         elif seleccion == "📈 Capacity Planning":
             mostrar_capacity_planning()
-
         elif seleccion == "🔔 Alertas":
-            alertas.mostrar_pantalla() # <-- Llamada al nuevo módulo
-
+            alertas.mostrar_pantalla()
         elif seleccion == "📄 Reportes PDF":
             reportes.mostrar_pantalla()
-
         elif seleccion == "👥 Gestión de Personal":
             if st.session_state.get("rol") == "admin":
                 gestion.mostrar_pantalla(st.session_state["user_actual"])
