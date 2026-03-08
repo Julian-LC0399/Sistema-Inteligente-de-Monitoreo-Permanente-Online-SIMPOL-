@@ -1,6 +1,4 @@
 import streamlit as st
-import time
-import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import requests
@@ -113,17 +111,20 @@ else:
     with st.sidebar:
         st.image("logo-banco.jpg", use_container_width=True)
         
-        # --- BLOQUE DE ALERTA PERMANENTE ---
+        # --- NUEVO APARTADO: ALERTAS DE SISTEMA ---
+        st.markdown('<p class="titulo-seccion-sidebar">Alertas de Sistema</p>', unsafe_allow_html=True)
         try:
             c_sidebar, r_sidebar, _ = obtener_telemetria()
             if c_sidebar >= st.session_state.u_cpu_perc or r_sidebar >= st.session_state.u_ram_perc:
-                st.error(f"🚨 **ALERTA CRÍTICA**\n\nCPU: {c_sidebar}% | RAM: {r_sidebar}%")
+                st.error(f"🚨 **ESTADO CRÍTICO**\n\nCPU: {c_sidebar}% | RAM: {r_sidebar}%")
+            else:
+                st.success("✅ Operación Normal")
         except:
-            pass
+            st.warning("⚠️ Sin conexión a sensores")
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # --- CUADRO DE IDENTIFICACIÓN ---
+        # --- APARTADO: IDENTIFICACIÓN ---
         st.markdown('<p class="titulo-seccion-sidebar">Identificación</p>', unsafe_allow_html=True)
         nombre_display = str(st.session_state.get("nombre_analista") or st.session_state.get("user_actual")).upper()
         rol_display = str(st.session_state.get("rol", "USUARIO")).upper()
@@ -136,7 +137,7 @@ else:
             </div>
         """, unsafe_allow_html=True)
 
-        # --- CUADRO DE TELEMETRÍA (PRTG/LOCAL) ---
+        # --- APARTADO: ESTADO DE TELEMETRÍA ---
         st.markdown('<p class="titulo-seccion-sidebar">Estado de Telemetría</p>', unsafe_allow_html=True)
         msg_enlace = "MODO LOCAL"
         color_status = "#ffc107"
