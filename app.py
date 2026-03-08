@@ -2,12 +2,13 @@ import streamlit as st
 import time
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go  # <-- NUEVA IMPORTACIÓN PARA LA GRÁFICA
+import plotly.graph_objects as go
+import requests
 
 # --- 1. IMPORTACIONES MODULARES ---
 from database import verificar_usuario
 from utils import load_css
-from modulos import inicio, monitoreo, gestion, reportes
+from modulos import inicio, monitoreo, gestion, reportes, alertas # <-- Agregada importación de alertas
 
 # --- 2. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -23,7 +24,7 @@ load_css("style.css")
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-# --- FUNCIÓN PARA EL MÓDULO DE CAPACITY PLANNING (CON PLOTLY) ---
+# --- FUNCIÓN PARA EL MÓDULO DE CAPACITY PLANNING ---
 def mostrar_capacity_planning():
     st.markdown("<h2 style='color:#003366;'>📈 Análisis de Proyección de Capacidad (Capacity Planning)</h2>", unsafe_allow_html=True)
     st.info("Predicción basada en modelos de regresión lineal sobre el historial del CSU.")
@@ -63,51 +64,25 @@ def mostrar_capacity_planning():
 
     st.divider()
     
-    # --- GRÁFICA PROFESIONAL CON PLOTLY.GRAPH_OBJECTS ---
+    # --- GRÁFICA PROFESIONAL CON PLOTLY ---
     st.subheader("Visualización de Tendencia Predictiva (CPU)")
     
     # Simulación de datos para la gráfica
     dias_reales = np.arange(1, 21)
-    valores_reales = np.sort(np.random.randint(40, 70, 20)) # Historial
+    valores_reales = np.sort(np.random.randint(40, 70, 20)) 
     
-    # Lógica de Predicción (Regresión Lineal Simple)
     z = np.polyfit(dias_reales, valores_reales, 1)
     p = np.poly1d(z)
     
     dias_prediccion = np.arange(20, 31)
     valores_prediccion = p(dias_prediccion)
 
-    # Crear la figura Plotly
     fig = go.Figure()
-
-    # Añadir Historial
-    fig.add_trace(go.Scatter(
-        x=dias_reales, y=valores_reales,
-        mode='lines+markers',
-        name='Historial Real (CSU)',
-        line=dict(color='#003366', width=3)
-    ))
-
-    # Añadir Proyección
-    fig.add_trace(go.Scatter(
-        x=dias_prediccion, y=valores_prediccion,
-        mode='lines',
-        name='Proyección (IA)',
-        line=dict(color='#ff4b4b', width=3, dash='dash')
-    ))
-
-    # Línea de Umbral Crítico al 95%
+    fig.add_trace(go.Scatter(x=dias_reales, y=valores_reales, mode='lines+markers', name='Historial Real (CSU)', line=dict(color='#003366', width=3)))
+    fig.add_trace(go.Scatter(x=dias_prediccion, y=valores_prediccion, mode='lines', name='Proyección (IA)', line=dict(color='#ff4b4b', width=3, dash='dash')))
     fig.add_hline(y=95, line_dash="dot", line_color="red", annotation_text="Límite Crítico (95%)")
 
-    fig.update_layout(
-        template="plotly_white",
-        xaxis_title="Días de Monitoreo",
-        yaxis_title="Porcentaje de Uso (%)",
-        yaxis=dict(range=[0, 105]),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=0, r=0, t=30, b=0)
-    )
-
+    fig.update_layout(template="plotly_white", xaxis_title="Días de Monitoreo", yaxis_title="Porcentaje de Uso (%)", yaxis=dict(range=[0, 105]), margin=dict(l=0, r=0, t=30, b=0))
     st.plotly_chart(fig, use_container_width=True)
 
 # --- 5. LÓGICA DE ACCESO (LOGIN) ---
@@ -130,7 +105,6 @@ if not st.session_state["autenticado"]:
                     
                     if user_info:
                         rol_db = user_info["rol"][0] if isinstance(user_info["rol"], (tuple, list)) else user_info["rol"]
-                        
                         st.session_state.update({
                             "autenticado": True,
                             "user_actual": user_info["usuario"],
@@ -146,10 +120,12 @@ if not st.session_state["autenticado"]:
 
 # --- 6. PANEL DE CONTROL (POST-LOGIN) ---
 else:
-    opciones_menu = ["🏠 Inicio", "📊 Monitoreo en Vivo", "📈 Capacity Planning", "📄 Reportes PDF"]
+    # Agregamos "🔔 Alertas" a la navegación
+    opciones_menu = ["🏠 Inicio", "📊 Monitoreo en Vivo", "📈 Capacity Planning", "🔔 Alertas", "📄 Reportes PDF"]
     if st.session_state.get("rol") == "admin":
         opciones_menu.append("👥 Gestión de Personal")
 
+    # --- BARRA LATERAL (SIDEBAR) ---
     with st.sidebar:
         st.image("logo-banco.jpg", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -167,6 +143,37 @@ else:
             </div>
         """, unsafe_allow_html=True)
 
+        # --- INDICADOR DE TELEMETRÍA (PRTG vs LOCAL) ---
+        st.markdown('<p class="titulo-seccion-sidebar">Estado de Telemetría</p>', unsafe_allow_html=True)
+        
+        msg_enlace = "MODO LOCAL"
+        color_status = "#ffc107"
+        nombre_sensor = "psutil (Sistema)"
+        
+        try:
+            url_prtg = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,sensor,lastvalue&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
+            r = requests.get(url_prtg, timeout=0.8, verify=False)
+            if r.status_code == 200:
+                msg_enlace = "PRTG ACTIVE"
+                color_status = "#28a745"
+                nombre_sensor = r.json()["sensors"][0].get("sensor", "Sensor 2094")
+        except:
+            pass
+
+        st.markdown(f"""
+            <div style="background-color: #f8f9fa; padding: 12px; border-radius: 10px; border-left: 5px solid {color_status}; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 12px; height: 12px; background-color: {color_status}; border-radius: 50%;"></div>
+                    <span style="font-size: 13px; font-weight: bold; color: #333;">{msg_enlace}</span>
+                </div>
+                <hr style="margin: 8px 0; border: 0.5px solid #eee;">
+                <div style="font-size: 11px; color: #666;">
+                    <b>ORIGEN:</b> ID: 2094<br>
+                    <b>SENSOR:</b> {nombre_sensor}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
         st.markdown('<p class="titulo-seccion-sidebar">Menú Principal</p>', unsafe_allow_html=True)
         seleccion = st.radio("Navegación", opciones_menu, label_visibility="collapsed")
         
@@ -175,6 +182,7 @@ else:
             st.session_state["autenticado"] = False
             st.rerun()
 
+    # --- ÁREA DE TRABAJO DINÁMICA ---
     vista_principal = st.empty()
 
     with vista_principal.container():
@@ -186,6 +194,9 @@ else:
 
         elif seleccion == "📈 Capacity Planning":
             mostrar_capacity_planning()
+
+        elif seleccion == "🔔 Alertas":
+            alertas.mostrar_pantalla() # <-- Llamada al nuevo módulo
 
         elif seleccion == "📄 Reportes PDF":
             reportes.mostrar_pantalla()
