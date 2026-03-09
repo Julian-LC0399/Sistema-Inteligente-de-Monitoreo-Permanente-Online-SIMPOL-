@@ -3,7 +3,6 @@ import pandas as pd
 from database import conectar_bd
 from utils import obtener_telemetria
 from streamlit_autorefresh import st_autorefresh
-# Importamos AgGrid y JsCode para el estilo dinámico
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode, JsCode
 
 def mostrar_pantalla():
