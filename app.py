@@ -98,6 +98,7 @@ if not st.session_state["autenticado"]:
         _, col_login, _ = st.columns([1, 1.2, 1])
         with col_login:
             st.markdown("<h1 class='nombre-sistema'>SIMPOL</h1>", unsafe_allow_html=True)
+            st.markdown("<p class='subtitulo-sistema'>SISTEMA INTELIGENTE DE MONITOREO PERMANENTE ONLINE</p>", unsafe_allow_html=True)
             with st.form("form_acceso"):
                 u = st.text_input("USUARIO", placeholder="Ingrese ID de Analista")
                 p = st.text_input("CONTRASEÑA", type="password")

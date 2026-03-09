@@ -10,7 +10,6 @@ from utils import get_resource_path
 # --- 1. ESTRUCTURA DEL PDF (ENCABEZADO Y FORMATO) ---
 class PDF(FPDF):
     def header(self):
-        # Localización dinámica del logo para el ejecutable
         try: 
             logo_path = get_resource_path('logo-banco.jpg')
             self.image(logo_path, 10, 8, 33) 
@@ -28,9 +27,7 @@ class PDF(FPDF):
         self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
 
 def mostrar_pantalla():
-    # Sincronización automática cada 30 segundos
     st_autorefresh(interval=30000, key="report_refresh")
-
     st.markdown("<h2 style='color:#003366;'>📊 Reportes e Inteligencia Predictiva</h2>", unsafe_allow_html=True)
 
     # --- 2. BLOQUE DE FILTROS ---
@@ -44,16 +41,16 @@ def mostrar_pantalla():
             st.markdown("<br>", unsafe_allow_html=True)
             btn_filtrar = st.form_submit_button("🔍 FILTRAR HISTORIAL")
 
-    # --- 3. OBTENCIÓN DE DATOS DESDE LA BASE DE DATOS ---
+    # --- 3. OBTENCIÓN DE DATOS (CONSULTA CORREGIDA) ---
     try:
         conn = conectar_bd()
-        # Convertimos fechas a string para la consulta SQL
         str_inicio = f_inicio.strftime('%Y-%m-%d 00:00:00')
         str_final = f_final.strftime('%Y-%m-%d 23:59:59')
         
+        # CAMBIO REALIZADO: tabla 'monitoreo_30_nodos' y columna 'nodo_nombre'
         query = """
-            SELECT fecha_registro AS Fecha, nodo AS Nodo, uso_cpu AS 'CPU %', uso_ram AS 'RAM %'
-            FROM telemetria 
+            SELECT fecha_registro AS Fecha, nodo_nombre AS Nodo, uso_cpu AS 'CPU %', uso_ram AS 'RAM %'
+            FROM monitoreo_30_nodos 
             WHERE fecha_registro BETWEEN %s AND %s
             ORDER BY fecha_registro DESC
         """
@@ -61,7 +58,6 @@ def mostrar_pantalla():
         conn.close()
 
         if not df.empty:
-            # Añadimos columna de estado lógica
             u_cpu = st.session_state.get('u_cpu_perc', 85)
             u_ram = st.session_state.get('u_ram_perc', 90)
             
@@ -70,12 +66,12 @@ def mostrar_pantalla():
                 axis=1
             )
 
-            # --- 4. CONFIGURACIÓN DE TABLA INTERACTIVA (AgGrid) ---
+            # --- 4. CONFIGURACIÓN DE TABLA INTERACTIVA ---
             gb = GridOptionsBuilder.from_dataframe(df)
             gb.configure_pagination(paginationAutoPageSize=True)
             gb.configure_side_bar()
             
-            # Código JS para colorear las filas en la interfaz
+            # Ajuste de color en UI: Usando width='stretch' para cumplir con la nueva versión
             cellsytle_jscode = JsCode(f"""
             function(params) {{
                 if (params.data['CPU %'] >= {u_cpu} || params.data['RAM %'] >= {u_ram}) {{
@@ -85,7 +81,6 @@ def mostrar_pantalla():
             }};
             """)
             gb.configure_column("Estado", cellStyle=cellsytle_jscode)
-            
             gridOptions = gb.build()
 
             AgGrid(
@@ -102,12 +97,10 @@ def mostrar_pantalla():
                 pdf = PDF()
                 pdf.add_page()
                 
-                # Resumen de filtros
                 pdf.set_font('Arial', 'B', 10)
                 pdf.cell(0, 10, f"Periodo: {f_inicio} al {f_final}", 0, 1)
                 pdf.ln(5)
 
-                # Encabezados de tabla
                 pdf.set_fill_color(0, 51, 102)
                 pdf.set_text_color(255, 255, 255)
                 pdf.cell(45, 10, 'Fecha/Hora', 1, 0, 'C', 1)
@@ -116,16 +109,14 @@ def mostrar_pantalla():
                 pdf.cell(30, 10, 'RAM %', 1, 0, 'C', 1)
                 pdf.cell(45, 10, 'Estado', 1, 1, 'C', 1)
 
-                # Filas con semáforo
                 pdf.set_font('Arial', '', 9)
                 pdf.set_text_color(0, 0, 0)
                 
                 for _, row in df.iterrows():
-                    # Color según estado
                     if row['Estado'] == 'ALERTA':
-                        pdf.set_fill_color(255, 200, 200) # Rojo suave
+                        pdf.set_fill_color(255, 200, 200)
                     else:
-                        pdf.set_fill_color(200, 255, 200) # Verde suave
+                        pdf.set_fill_color(200, 255, 200)
                     
                     pdf.cell(45, 8, str(row['Fecha']), 1, 0, 'C', 1)
                     pdf.cell(35, 8, str(row['Nodo']), 1, 0, 'C', 1)
@@ -133,17 +124,16 @@ def mostrar_pantalla():
                     pdf.cell(30, 8, f"{row['RAM %']}%", 1, 0, 'C', 1)
                     pdf.cell(45, 8, str(row['Estado']), 1, 1, 'C', 1)
 
-                # Generar blob de datos
                 pdf_output = pdf.output(dest='S').encode('latin-1')
                 
                 st.download_button(
-                    label="💾 Descargar Archivo PDF",
+                    label="Descargar Archivo PDF",
                     data=pdf_output,
                     file_name=f"Reporte_SIMPOL_{datetime.now().strftime('%Y%m%d')}.pdf",
                     mime="application/pdf"
                 )
         else:
-            st.warning("No se encontraron registros para el rango de fechas seleccionado.")
+            st.warning("No se encontraron registros en 'monitoreo_30_nodos' para estas fechas.")
 
     except Exception as e:
-        st.error(f"Error al consultar la base de datos: {e}")
+        st.error(f"Error en consulta: {e}")
