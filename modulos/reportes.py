@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 from fpdf import FPDF
 from database import conectar_bd
 from datetime import datetime, timedelta
