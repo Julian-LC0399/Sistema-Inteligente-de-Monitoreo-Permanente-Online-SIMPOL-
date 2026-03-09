@@ -5,121 +5,145 @@ from database import conectar_bd
 from datetime import datetime, timedelta
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode, JsCode
 from streamlit_autorefresh import st_autorefresh
+from utils import get_resource_path
 
-# --- ESTRUCTURA DEL PDF ---
+# --- 1. ESTRUCTURA DEL PDF (ENCABEZADO Y FORMATO) ---
 class PDF(FPDF):
     def header(self):
-        try: self.image('logo-banco.jpg', 10, 8, 33) 
-        except: pass
+        # Localización dinámica del logo para el ejecutable
+        try: 
+            logo_path = get_resource_path('logo-banco.jpg')
+            self.image(logo_path, 10, 8, 33) 
+        except: 
+            pass
         self.set_font('Arial', 'B', 14)
         self.set_text_color(0, 51, 102)
         self.set_x(45)
         self.cell(0, 10, 'SISTEMA SIMPOL - REPORTE DE GESTIÓN OPERATIVA', 0, 1, 'L')
         self.ln(10)
 
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
+
 def mostrar_pantalla():
-    # Sincronización cada 30 segundos
+    # Sincronización automática cada 30 segundos
     st_autorefresh(interval=30000, key="report_refresh")
 
     st.markdown("<h2 style='color:#003366;'>📊 Reportes e Inteligencia Predictiva</h2>", unsafe_allow_html=True)
 
-    # --- BLOQUE DE FILTROS ---
+    # --- 2. BLOQUE DE FILTROS ---
     with st.form("filtro_reportes"):
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
             f_inicio = st.date_input("Fecha Inicial", datetime.now() - timedelta(days=7))
         with col2:
             f_final = st.date_input("Fecha Final", datetime.now())
-        
-        # BOTÓN PARA DISPARAR EL FILTRADO
-        btn_filtrar = st.form_submit_button("🔍 Filtrar y Actualizar Tabla", use_container_width=True)
+        with col3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            btn_filtrar = st.form_submit_button("🔍 FILTRAR HISTORIAL")
 
-    # --- PROCESAMIENTO DE DATOS ---
+    # --- 3. OBTENCIÓN DE DATOS DESDE LA BASE DE DATOS ---
     try:
         conn = conectar_bd()
-        # Filtro corregido con DATE() para precisión total
+        # Convertimos fechas a string para la consulta SQL
+        str_inicio = f_inicio.strftime('%Y-%m-%d 00:00:00')
+        str_final = f_final.strftime('%Y-%m-%d 23:59:59')
+        
         query = """
-            SELECT fecha_registro as 'Fecha', 
-                   nodo_nombre as 'Nodo', 
-                   uso_cpu as 'CPU %', 
-                   uso_ram as 'RAM %',
-                   estado as 'Estado'
-            FROM monitoreo_30_nodos 
-            WHERE DATE(fecha_registro) >= %s AND DATE(fecha_registro) <= %s
+            SELECT fecha_registro AS Fecha, nodo AS Nodo, uso_cpu AS 'CPU %', uso_ram AS 'RAM %'
+            FROM telemetria 
+            WHERE fecha_registro BETWEEN %s AND %s
             ORDER BY fecha_registro DESC
         """
-        df = pd.read_sql(query, conn, params=(f_inicio, f_final))
+        df = pd.read_sql(query, conn, params=(str_inicio, str_final))
         conn.close()
 
         if not df.empty:
-            # Umbrales desde session_state
-            u_cpu = st.session_state.get('u_cpu_perc', 80)
-            u_ram = st.session_state.get('u_ram_perc', 80)
-
-            # --- TABLA INTERACTIVA (AgGrid) ---
-            st.markdown("### 📋 Historial Filtrado")
-            gb = GridOptionsBuilder.from_dataframe(df)
-            gb.configure_pagination(paginationPageSize=15)
+            # Añadimos columna de estado lógica
+            u_cpu = st.session_state.get('u_cpu_perc', 85)
+            u_ram = st.session_state.get('u_ram_perc', 90)
             
-            # JavaScript para colores en la web
-            row_style_jscode = JsCode(f"""
+            df['Estado'] = df.apply(
+                lambda x: 'ALERTA' if x['CPU %'] >= u_cpu or x['RAM %'] >= u_ram else 'ESTABLE', 
+                axis=1
+            )
+
+            # --- 4. CONFIGURACIÓN DE TABLA INTERACTIVA (AgGrid) ---
+            gb = GridOptionsBuilder.from_dataframe(df)
+            gb.configure_pagination(paginationAutoPageSize=True)
+            gb.configure_side_bar()
+            
+            # Código JS para colorear las filas en la interfaz
+            cellsytle_jscode = JsCode(f"""
             function(params) {{
                 if (params.data['CPU %'] >= {u_cpu} || params.data['RAM %'] >= {u_ram}) {{
                     return {{ 'color': 'white', 'backgroundColor': '#e74c3c' }}
-                }} else {{
-                    return {{ 'color': 'white', 'backgroundColor': '#27ae60' }}
                 }}
+                return null;
             }};
             """)
+            gb.configure_column("Estado", cellStyle=cellsytle_jscode)
+            
             gridOptions = gb.build()
-            gridOptions['getRowStyle'] = row_style_jscode
 
-            AgGrid(df, gridOptions=gridOptions, allow_unsafe_jscode=True, 
-                   columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS, theme="streamlit")
+            AgGrid(
+                df, 
+                gridOptions=gridOptions, 
+                columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
+                theme="streamlit",
+                allow_unsafe_jscode=True
+            )
 
-            # --- GENERACIÓN DE PDF ---
+            # --- 5. GENERACIÓN DE PDF ---
             st.markdown("---")
-            if st.button("📥 Descargar Reporte PDF con Colores de Alerta", use_container_width=True):
+            if st.button("📑 GENERAR Y DESCARGAR REPORTE PDF"):
                 pdf = PDF()
                 pdf.add_page()
                 
-                # Encabezados
+                # Resumen de filtros
                 pdf.set_font('Arial', 'B', 10)
-                pdf.set_fill_color(0, 51, 102) # Azul oscuro para el header
+                pdf.cell(0, 10, f"Periodo: {f_inicio} al {f_final}", 0, 1)
+                pdf.ln(5)
+
+                # Encabezados de tabla
+                pdf.set_fill_color(0, 51, 102)
                 pdf.set_text_color(255, 255, 255)
-                cols = ["Fecha", "Nodo", "CPU %", "RAM %", "Estado"]
-                for col in cols:
-                    pdf.cell(38, 10, col, 1, 0, 'C', 1)
-                pdf.ln()
+                pdf.cell(45, 10, 'Fecha/Hora', 1, 0, 'C', 1)
+                pdf.cell(35, 10, 'Nodo', 1, 0, 'C', 1)
+                pdf.cell(30, 10, 'CPU %', 1, 0, 'C', 1)
+                pdf.cell(30, 10, 'RAM %', 1, 0, 'C', 1)
+                pdf.cell(45, 10, 'Estado', 1, 1, 'C', 1)
 
-                # Datos con semáforo
+                # Filas con semáforo
                 pdf.set_font('Arial', '', 9)
+                pdf.set_text_color(0, 0, 0)
+                
                 for _, row in df.iterrows():
-                    # Lógica de color en PDF
-                    if row['CPU %'] >= u_cpu or row['RAM %'] >= u_ram:
-                        pdf.set_fill_color(231, 76, 60) # Rojo
+                    # Color según estado
+                    if row['Estado'] == 'ALERTA':
+                        pdf.set_fill_color(255, 200, 200) # Rojo suave
                     else:
-                        pdf.set_fill_color(39, 174, 96)  # Verde
+                        pdf.set_fill_color(200, 255, 200) # Verde suave
                     
-                    pdf.set_text_color(255, 255, 255) # Texto blanco para contraste
-                    
-                    # Dibujamos celdas (el 1 final indica que use el fill_color)
-                    pdf.cell(38, 8, str(row['Fecha']), 1, 0, 'C', 1)
-                    pdf.cell(38, 8, str(row['Nodo']), 1, 0, 'C', 1)
-                    pdf.cell(38, 8, f"{row['CPU %']}%", 1, 0, 'C', 1)
-                    pdf.cell(38, 8, f"{row['RAM %']}%", 1, 0, 'C', 1)
-                    pdf.cell(38, 8, str(row['Estado']), 1, 1, 'C', 1)
+                    pdf.cell(45, 8, str(row['Fecha']), 1, 0, 'C', 1)
+                    pdf.cell(35, 8, str(row['Nodo']), 1, 0, 'C', 1)
+                    pdf.cell(30, 8, f"{row['CPU %']}%", 1, 0, 'C', 1)
+                    pdf.cell(30, 8, f"{row['RAM %']}%", 1, 0, 'C', 1)
+                    pdf.cell(45, 8, str(row['Estado']), 1, 1, 'C', 1)
 
-                pdf_data = pdf.output(dest='S').encode('latin-1')
+                # Generar blob de datos
+                pdf_output = pdf.output(dest='S').encode('latin-1')
+                
                 st.download_button(
-                    label="💾 Guardar archivo PDF",
-                    data=pdf_data,
-                    file_name=f"Reporte_SIMPOL_{f_inicio}_al_{f_final}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
+                    label="💾 Descargar Archivo PDF",
+                    data=pdf_output,
+                    file_name=f"Reporte_SIMPOL_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf"
                 )
         else:
-            st.warning(f"No hay datos para el rango: {f_inicio} al {f_final}")
+            st.warning("No se encontraron registros para el rango de fechas seleccionado.")
 
     except Exception as e:
-        st.error(f"Error en el reporte: {e}")
+        st.error(f"Error al consultar la base de datos: {e}")

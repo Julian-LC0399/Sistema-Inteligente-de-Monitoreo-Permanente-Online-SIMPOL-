@@ -2,33 +2,45 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import requests
+import os
+import sys
 
-# --- 1. IMPORTACIONES MODULARES ---
+# --- 1. FUNCIÓN DE RUTAS PARA EL EJECUTABLE ---
+def get_resource_path(relative_path):
+    """ Gestiona rutas internas cuando el archivo está empaquetado """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+# --- 2. IMPORTACIONES MODULARES ---
 from database import verificar_usuario
 from utils import load_css, obtener_telemetria 
 from modulos import inicio, monitoreo, gestion, reportes, alertas 
 
-# --- 2. CONFIGURACIÓN DE LA PÁGINA ---
+# --- 3. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
     page_title="SIMPOL | Banco Caroní", 
     layout="wide", 
     page_icon="🏦"
 )
 
-# --- 3. APLICAR DISEÑO GLOBAL ---
-load_css("style.css")
+# --- 4. APLICAR DISEÑO GLOBAL ---
+# Usamos la ruta dinámica para el archivo CSS
+load_css(get_resource_path("style.css"))
 
-# --- 4. GESTIÓN DE ESTADO DE SESIÓN ---
+# --- 5. GESTIÓN DE ESTADO DE SESIÓN ---
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-# --- INICIALIZACIÓN DE UMBRALES PARA ALERTAS ---
+# Inicialización de umbrales para alertas
 if "u_cpu_perc" not in st.session_state:
     st.session_state.u_cpu_perc = 85
 if "u_ram_perc" not in st.session_state:
     st.session_state.u_ram_perc = 90
 
-# --- FUNCIÓN PARA EL MÓDULO DE CAPACITY PLANNING ---
+# --- 6. FUNCIÓN DE CAPACITY PLANNING ---
 def mostrar_capacity_planning():
     st.markdown("<h2 style='color:#003366;'>📈 Análisis de Proyección de Capacidad (Capacity Planning)</h2>", unsafe_allow_html=True)
     st.info("Predicción basada en modelos de regresión lineal sobre el historial del CSU.")
@@ -78,7 +90,7 @@ def mostrar_capacity_planning():
     fig.update_layout(template="plotly_white", yaxis=dict(range=[0, 105]))
     st.plotly_chart(fig, use_container_width=True)
 
-# --- 5. LÓGICA DE ACCESO (LOGIN) ---
+# --- 7. LÓGICA DE ACCESO (LOGIN) ---
 if not st.session_state["autenticado"]:
     placeholder = st.empty()
     with placeholder.container():
@@ -99,19 +111,21 @@ if not st.session_state["autenticado"]:
                             "rol": user_info["rol"]
                         })
                         st.rerun()
-                    else: st.error("Credenciales Inválidas.")
+                    else:
+                        st.error("Credenciales Inválidas.")
     st.stop()
 
-# --- 6. PANEL DE CONTROL (POST-LOGIN) ---
+# --- 8. PANEL DE CONTROL (POST-LOGIN) ---
 else:
     opciones_menu = ["🏠 Inicio", "📊 Monitoreo en Vivo", "📈 Capacity Planning", "🔔 Alertas", "📄 Reportes PDF"]
     if st.session_state.get("rol") == "admin":
         opciones_menu.append("👥 Gestión de Personal")
 
     with st.sidebar:
-        st.image("logo-banco.jpg", use_container_width=True)
+        # Logo institucional con ruta dinámica
+        st.image(get_resource_path("logo-banco.jpg"), use_container_width=True)
         
-        # --- NUEVO APARTADO: ALERTAS DE SISTEMA ---
+        # --- ALERTAS DE SISTEMA ---
         st.markdown('<p class="titulo-seccion-sidebar">Alertas de Sistema</p>', unsafe_allow_html=True)
         try:
             c_sidebar, r_sidebar, _ = obtener_telemetria()
@@ -124,7 +138,7 @@ else:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # --- APARTADO: IDENTIFICACIÓN ---
+        # --- IDENTIFICACIÓN ---
         st.markdown('<p class="titulo-seccion-sidebar">Identificación</p>', unsafe_allow_html=True)
         nombre_display = str(st.session_state.get("nombre_analista") or st.session_state.get("user_actual")).upper()
         rol_display = str(st.session_state.get("rol", "USUARIO")).upper()
@@ -137,11 +151,10 @@ else:
             </div>
         """, unsafe_allow_html=True)
 
-        # --- APARTADO: ESTADO DE TELEMETRÍA ---
+        # --- ESTADO DE TELEMETRÍA ---
         st.markdown('<p class="titulo-seccion-sidebar">Estado de Telemetría</p>', unsafe_allow_html=True)
         msg_enlace = "MODO LOCAL"
         color_status = "#ffc107"
-        nombre_sensor = "psutil (Sistema)"
         
         try:
             url_prtg = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,sensor,lastvalue&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
@@ -149,20 +162,14 @@ else:
             if r.status_code == 200:
                 msg_enlace = "PRTG conectado"
                 color_status = "#28a745"
-                nombre_sensor = r.json()["sensors"][0].get("sensor", "Sensor 2094")
         except:
             pass
 
         st.markdown(f"""
-            <div style="background-color: #f8f9fa; padding: 12px; border-radius: 10px; border-left: 5px solid {color_status}; margin-bottom: 20px;">
+            <div style="background-color: #f8f9fa; padding: 12px; border-radius: 10px; border-left: 5px solid {color_status};">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="width: 12px; height: 12px; background-color: {color_status}; border-radius: 50%;"></div>
                     <span style="font-size: 13px; font-weight: bold; color: #333;">{msg_enlace}</span>
-                </div>
-                <hr style="margin: 8px 0; border: 0.5px solid #eee;">
-                <div style="font-size: 11px; color: #666;">
-                    <b>ORIGEN:</b> ID: 2094<br>
-                    <b>SENSOR:</b> {nombre_sensor}
                 </div>
             </div>
         """, unsafe_allow_html=True)
