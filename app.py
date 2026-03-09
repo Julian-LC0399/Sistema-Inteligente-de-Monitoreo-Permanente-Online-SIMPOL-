@@ -147,7 +147,7 @@ else:
             url_prtg = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,sensor,lastvalue&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
             r = requests.get(url_prtg, timeout=0.8, verify=False)
             if r.status_code == 200:
-                msg_enlace = "PRTG ACTIVE"
+                msg_enlace = "PRTG conectado"
                 color_status = "#28a745"
                 nombre_sensor = r.json()["sensors"][0].get("sensor", "Sensor 2094")
         except:
