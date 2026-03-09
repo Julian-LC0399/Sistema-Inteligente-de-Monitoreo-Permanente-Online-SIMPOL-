@@ -1,53 +1,49 @@
 import streamlit.web.cli as stcli
 import os, sys, subprocess, time, webbrowser
+import multiprocessing 
 
 def get_resource_path(relative_path):
-    """ Gestiona rutas internas cuando el archivo está empaquetado """
     try:
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-def iniciar_agente():
-    """ Lanza el agente de monitoreo de forma invisible """
-    # En el EXE, el agente debe lanzarse como un proceso de Python 
-    # pero usando los argumentos del motor interno de PyInstaller
-    agente_path = get_resource_path("agente_captura.py")
+if __name__ == "__main__":
+    # Soporte para procesos congelados (PyInstaller)
+    multiprocessing.freeze_support() 
     
-    # IMPORTANTE: Usamos un comando simplificado para evitar bucles en el EXE
+    # 1. EL FILTRO: Si detecta el parámetro --agente, ejecuta el script y muere
+    # Esto evita que el proceso del agente intente abrir Streamlit otra vez
+    if len(sys.argv) > 1 and sys.argv[1] == "--agente":
+        import agente_captura 
+        # Aquí puedes llamar a la función principal de tu agente si tiene una
+        # por ejemplo: agente_captura.main()
+        sys.exit(0)
+
+    # 2. LANZAMIENTO SEGURO:
+    # Llamamos al propio ejecutable (sys.executable) pero le pasamos el parámetro --agente
     subprocess.Popen(
-        [sys.executable, agente_path], 
-        creationflags=subprocess.CREATE_NO_WINDOW,
+        [sys.executable, "--agente"], 
+        creationflags=0x08000000, # CREATE_NO_WINDOW: Oculta la consola del agente
         shell=False
     )
 
-if __name__ == "__main__":
-    # 1. Agregamos la ruta base al sistema para que encuentre 'modulos'
-    base_dir = get_resource_path(".")
-    sys.path.append(base_dir)
-
-    # 2. Arrancamos el agente de captura
-    try:
-        iniciar_agente()
-    except:
-        pass # Evita que el programa principal muera si el agente falla
+    # 3. LANZAR INTERFAZ (Streamlit)
+    # Solo llegamos aquí si NO somos el proceso del agente
+    time.sleep(1) # Pequeña pausa para dejar que el agente respire
     
-    # 3. Esperamos a que el motor caliente
-    time.sleep(2)
-    
-    # 4. Configuramos Streamlit para que apunte a APP.PY
     sys.argv = [
-        "streamlit",
-        "run",
-        get_resource_path("app.py"), # <--- CORREGIDO: Tu Login vive aquí
-        "--server.port=8501",
+        "streamlit", 
+        "run", 
+        get_resource_path("app.py"),
+        "--server.port=8501", 
         "--server.headless=true",
-        "--global.developmentMode=false",
+        "--global.developmentMode=false"
     ]
     
-    # 5. Abrimos el navegador
+    # Abrir navegador
     webbrowser.open("http://localhost:8501")
     
-    # 6. Ejecutamos Streamlit
+    # Iniciar motor de Streamlit
     sys.exit(stcli.main())
