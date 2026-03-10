@@ -55,8 +55,3 @@ static/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# --- VS Code ---
-.vscode/
-*.code-workspace
-.history/
