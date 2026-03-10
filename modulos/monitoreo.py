@@ -1,98 +1,91 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
 import time
 from database import conectar_bd
-from utils import obtener_telemetria
 
 def mostrar_pantalla(user_actual):
+    # Título con estilo original
     st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Monitoreo en Tiempo Real: Nodo CSU</h2>", unsafe_allow_html=True)
     
-    # 1. Obtención de datos instantáneos (Para los indicadores visuales)
-    cpu_val, ram_val, fuente_msg = obtener_telemetria()
-    fecha_actual = datetime.now().strftime("%H:%M:%S")
+    # --- 1. OBTENCIÓN DE DATOS DESDE LA BASE DE DATOS (SENSOR 2094) ---
+    try:
+        conn = conectar_bd()
+        query_last = "SELECT uso_cpu, uso_ram, fecha_registro FROM monitoreo_30_nodos WHERE nodo_nombre = 'SISTEMA_AUTO' ORDER BY id DESC LIMIT 1"
+        df_last = pd.read_sql(query_last, conn)
+        
+        if not df_last.empty:
+            cpu_val = df_last['uso_cpu'].iloc[0]
+            ram_val = df_last['uso_ram'].iloc[0]
+            fecha_actual = df_last['fecha_registro'].iloc[0].strftime("%H:%M:%S")
+            fuente_msg = "Sincronizado con PRTG"
+        else:
+            cpu_val, ram_val, fecha_actual, fuente_msg = 0, 0, "--:--:--", "Esperando Agente..."
+            
+    except Exception as e:
+        st.error(f"Error de base de datos: {e}")
+        cpu_val, ram_val, fecha_actual, fuente_msg = 0, 0, "Error", "Desconectado"
 
-    # Header de información institucional
+    # --- 2. HEADER CON USER ACTUAL Y SEMÁFORO ---
     col_info, col_status = st.columns([2, 1])
     with col_info:
         st.markdown(f"""
             <div style="background-color:#ffffff; border:1px solid #d3d3d3; padding:20px; border-left:5px solid #003366;">
-                <div style="background-color:#003366; color:white; padding:2px 8px; font-size:10px; font-weight:bold; display:inline-block; margin-bottom:10px;">AGENTE DE CAPTURA ACTIVO</div>
+                <div style="background-color:#003366; color:white; padding:2px 8px; font-size:10px; font-weight:bold; display:inline-block; margin-bottom:10px;">SESIÓN ACTIVA: {user_actual.upper()}</div>
                 <h3 style="margin:0; color:#003366;">Servidor Central de Operaciones - Nodo CSU</h3>
-                <p style="margin:0; color:#666; font-size:13px;"><b>Origen:</b> {fuente_msg} | <b>Analista en sesión:</b> {user_actual}<br><b>Sincronización:</b> {fecha_actual}</p>
+                <p style="margin:0; color:#666; font-size:13px;"><b>Sensor PRTG:</b> 2094 | <b>Última Lectura:</b> {fecha_actual}</p>
             </div>
         """, unsafe_allow_html=True)
 
     with col_status:
-        # Un indicador de estado que cambia de color según la carga
-        color_alert = "#28a745" if cpu_val < 80 else "#dc3545"
+        color_alert = "#28a745" if cpu_val < 75 else ("#ffc107" if cpu_val < 90 else "#dc3545")
         st.markdown(f"""
             <div style="background-color:{color_alert}; color:white; padding:15px; border-radius:10px; text-align:center;">
                 <h2 style="margin:0;">{cpu_val}%</h2>
-                <p style="margin:0; font-size:12px;">CARGA DE CPU</p>
+                <p style="margin:0; font-size:12px;">CARGA ACTUAL</p>
             </div>
         """, unsafe_allow_html=True)
 
     st.write("---")
-    
-    # Métricas principales
-    m1, m2, m3 = st.columns(3)
-    m1.metric("USO DE CPU", f"{cpu_val}%")
-    m2.metric("MEMORIA RAM", f"{ram_val}%")
-    m3.metric("ESTADO LÓGICO", "OPERATIVO" if cpu_val < 90 else "CRÍTICO")
 
-    # 2. Lógica de CONSULTA (Leemos lo que el Agente de Captura está guardando)
-    
+    # --- 3. MÉTRICAS TRIPLES ---
+    m1, m2, m3 = st.columns(3)
+    m1.metric("CARGA CPU", f"{cpu_val}%")
+    m2.metric("USO RAM", f"{ram_val}%")
+    m3.metric("OPERADOR", user_actual)
+
+    # --- 4. GRÁFICO DE TENDENCIA (ORIGINAL CON FILL) ---
     try:
-        conn = conectar_bd()
-        # SE ELIMINÓ EL INSERT: Ahora solo consultamos el historial generado por el agente
-        df_m = pd.read_sql("SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_30_nodos ORDER BY id DESC LIMIT 50", conn)
+        query_hist = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_30_nodos WHERE nodo_nombre = 'SISTEMA_AUTO' ORDER BY id DESC LIMIT 50"
+        df_m = pd.read_sql(query_hist, conn)
         conn.close()
 
         if not df_m.empty:
-            df_m = df_m.sort_values("fecha_registro") 
-            
+            df_m = df_m.sort_values("fecha_registro")
             fig = go.Figure()
-            # Línea de CPU
             fig.add_trace(go.Scatter(
-                x=df_m["fecha_registro"], 
-                y=df_m["uso_cpu"], 
-                mode='lines',
-                name='Carga CPU %',
+                x=df_m["fecha_registro"], y=df_m["uso_cpu"], 
+                mode='lines', name='CPU %',
                 line=dict(color='#003366', width=3),
-                fill='tozeroy',
-                fillcolor='rgba(0, 51, 102, 0.1)'
+                fill='tozeroy', fillcolor='rgba(0, 51, 102, 0.1)'
             ))
-            
-            # Línea de RAM
             fig.add_trace(go.Scatter(
-                x=df_m["fecha_registro"], 
-                y=df_m["uso_ram"], 
-                mode='lines',
-                name='Carga RAM %',
+                x=df_m["fecha_registro"], y=df_m["uso_ram"], 
+                mode='lines', name='RAM %',
                 line=dict(color='#28a745', width=2, dash='dot')
             ))
 
             fig.update_layout(
-                title="Tendencia de Telemetría (Datos en Tiempo Real)",
-                xaxis_title="Registro Cronológico",
-                yaxis_title="Porcentaje de Uso",
+                title="Historial Sincronizado (PRTG -> DB)",
                 yaxis=dict(range=[0, 105]),
                 plot_bgcolor="white",
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                height=400,
                 margin=dict(l=10, r=10, t=40, b=10),
-                height=400
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        else:
-            st.info("Esperando datos del Agente de Captura...")
-
-    except Exception as e:
-        st.error(f"Error al consultar el historial: {e}")
+    except:
+        pass
     
-    # 3. Ciclo de refresco de pantalla
     time.sleep(5)
     st.rerun()
