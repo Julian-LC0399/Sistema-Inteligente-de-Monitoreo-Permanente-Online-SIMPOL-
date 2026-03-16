@@ -3,7 +3,7 @@ import mysql.connector
 from datetime import datetime
 from utils import obtener_telemetria 
 
-# Configuración de BD que ya probamos con el "LOGRADO"
+# Configuración de BD compatible con MySQL 8+
 DB_CONFIG = {
     'host': '127.0.0.1',
     'user': 'root',
@@ -17,13 +17,12 @@ def iniciar_agente():
     
     while True:
         try:
-            # Extraemos los datos usando tu lógica de PRTG
+            # Extraemos los datos usando la lógica de PRTG definida en utils.py
             cpu, ram, origen = obtener_telemetria()
-            
             fecha = datetime.now()
-            # Si el origen dice "MODO LOCAL", es que PRTG falló
+            
             if "LOCAL" in origen:
-                print(f"⚠️ Alerta: PRTG no respondió. Usando datos locales.")
+                print(f"[{fecha.strftime('%H:%M:%S')}] ⚠️ PRTG no respondió. Usando datos locales.")
             
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
@@ -33,21 +32,24 @@ def iniciar_agente():
                 (fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado) 
                 VALUES (%s, %s, %s, %s, %s)
             """
-            # Guardamos 'PRTG_SENSOR' o 'MODO LOCAL' en la columna nodo_nombre
-            valores = (fecha, origen, cpu, ram, "ESTABLE" if cpu < 75 else "ALERTA")
+            
+            # Determinamos estado simple
+            estado_actual = "ESTABLE" if cpu < 85 else "ALERTA"
+            valores = (fecha, origen, cpu, ram, estado_actual)
             
             cursor.execute(query, valores)
             conn.commit()
             
-            print(f"[{fecha.strftime('%H:%M:%S')}] ✅ Guardado: {origen} (CPU: {cpu}%)")
+            print(f"[{fecha.strftime('%H:%M:%S')}] ✅ Guardado: {origen} (CPU: {cpu}% | RAM: {ram}%)")
             
             cursor.close()
             conn.close()
             
         except Exception as e:
-            print(f"❌ Error crítico: {e}")
-            
-        time.sleep(10)
+            print(f"❌ Error en el ciclo del agente: {e}")
+        
+        # Espera de 30 segundos entre capturas
+        time.sleep(30)
 
 if __name__ == "__main__":
     iniciar_agente()
