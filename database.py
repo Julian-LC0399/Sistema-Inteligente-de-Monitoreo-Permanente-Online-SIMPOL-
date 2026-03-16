@@ -1,30 +1,30 @@
 import mysql.connector
 
 def conectar_bd():
-    # Usamos el plugin de autenticación moderno compatible con MySQL 8+
-    # Esto requiere que tengas instalada la librería 'cryptography' en el banco
-    return mysql.connector.connect(
-        host="localhost", 
-        user="root", 
-        password="1234", 
-        database="monitoreo_banco",
-        auth_plugin='caching_sha2_password'
-    )
-
-def verificar_usuario(user, password):
+    """Establece la conexión con la base de datos usando el plugin compatible."""
     try:
-        conn = conectar_bd()
-        cursor = conn.cursor(dictionary=True)
-        # BINARY asegura que la comparación sea exacta (distingue mayúsculas/minúsculas)
-        query = "SELECT * FROM usuarios WHERE BINARY usuario = %s AND BINARY clave = %s"
-        cursor.execute(query, (user.strip(), password.strip()))
-        resultado = cursor.fetchone()
-        conn.close()
-        return resultado
+        config = {
+            'host': '127.0.0.1',
+            'user': 'root',
+            'password': '1234',
+            'database': 'monitoreo_banco',
+            'auth_plugin': 'mysql_native_password'
+        }
+        conexion = mysql.connector.connect(**config)
+        return conexion
     except mysql.connector.Error as err:
-        # Si falla por autenticación, mostramos un mensaje descriptivo en consola
-        print(f"Error de base de datos: {err}")
+        print(f"Error al conectar: {err}")
         return None
-    except Exception as e:
-        print(f"Error inesperado: {e}")
-        return None
+
+def verificar_usuario(usuario, clave):
+    """Tu función de login que ya tienes, pero usando conectar_bd()"""
+    conexion = conectar_bd()
+    if conexion:
+        cursor = conexion.cursor(dictionary=True)
+        query = "SELECT usuario, nombre_completo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
+        cursor.execute(query, (usuario, clave))
+        resultado = cursor.fetchone()
+        cursor.close()
+        conexion.close()
+        return resultado
+    return None

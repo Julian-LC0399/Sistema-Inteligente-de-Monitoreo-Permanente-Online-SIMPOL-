@@ -1,53 +1,53 @@
 import time
-import sys
+import mysql.connector
 from datetime import datetime
-from database import conectar_bd
-from utils import obtener_telemetria
+from utils import obtener_telemetria 
+
+# Configuración de BD que ya probamos con el "LOGRADO"
+DB_CONFIG = {
+    'host': '127.0.0.1',
+    'user': 'root',
+    'password': '1234',
+    'database': 'monitoreo_banco',
+    'auth_plugin': 'mysql_native_password'
+}
 
 def iniciar_agente():
-    print("====================================================")
-    print("🚀 SISTEMA SIMPOL - AGENTE DE CAPTURA AUTOMÁTICA")
-    print(f"Iniciado el: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    print("Registro continuo activo (Ctrl+C para detener)")
-    print("====================================================\n")
+    print("--- 🚀 AGENTE SIMPOL ACTIVADO (FUENTE: UTILS.PY) ---")
     
     while True:
         try:
-            # 1. Obtener telemetría real (PRTG / Simulado)
-            cpu_val, ram_val, fuente_msg = obtener_telemetria()
+            # Extraemos los datos usando tu lógica de PRTG
+            cpu, ram, origen = obtener_telemetria()
             
-            # Lógica de estado bancario
-            estado = "CRÍTICO" if cpu_val > 90 or ram_val > 90 else "ALERTA" if cpu_val > 75 else "ESTABLE"
+            fecha = datetime.now()
+            # Si el origen dice "MODO LOCAL", es que PRTG falló
+            if "LOCAL" in origen:
+                print(f"⚠️ Alerta: PRTG no respondió. Usando datos locales.")
             
-            # 2. Guardar en Base de Datos
-            conn = conectar_bd()
+            conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
             
             query = """
                 INSERT INTO monitoreo_nodos 
-                (nodo_nombre, uso_cpu, uso_ram, estado, fecha_registro) 
+                (fecha_registro, nodo_nombre, uso_cpu, uso_ram, estado) 
                 VALUES (%s, %s, %s, %s, %s)
             """
-            # Registramos bajo el nombre 'SISTEMA_AUTO' para auditoría
-            cursor.execute(query, ("SISTEMA_AUTO", cpu_val, ram_val, estado, datetime.now()))
+            # Guardamos 'PRTG_SENSOR' o 'MODO LOCAL' en la columna nodo_nombre
+            valores = (fecha, origen, cpu, ram, "ESTABLE" if cpu < 75 else "ALERTA")
             
+            cursor.execute(query, valores)
             conn.commit()
+            
+            print(f"[{fecha.strftime('%H:%M:%S')}] ✅ Guardado: {origen} (CPU: {cpu}%)")
+            
+            cursor.close()
             conn.close()
             
-            # Log en terminal para que veas que está trabajando
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Registro Exitoso: CPU {cpu_val}% | RAM {ram_val}% | Status: {estado}")
-            
-            # 3. Frecuencia de muestreo
-            # Para el banco se recomienda cada 5 minutos (300 seg). 
-            # Para tu defensa o pruebas, puedes usar 30 o 60 segundos.
-            time.sleep(60) 
-            
-        except KeyboardInterrupt:
-            print("\n🛑 Agente detenido por el usuario.")
-            sys.exit()
         except Exception as e:
-            print(f"\n❌ ERROR EN EL AGENTE: {e}")
-            time.sleep(10) # Espera antes de reintentar
+            print(f"❌ Error crítico: {e}")
+            
+        time.sleep(10)
 
 if __name__ == "__main__":
     iniciar_agente()
