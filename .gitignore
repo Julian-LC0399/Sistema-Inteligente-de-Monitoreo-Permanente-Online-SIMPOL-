@@ -1,21 +1,26 @@
 # --- Python ---
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# --- PyInstaller (Compilación) ---
+# Ignoramos estas porque se generan solas y pesan mucho
+build/
+dist/
+*.spec
 
 # --- Streamlit ---
 .streamlit/
 
-# --- Entornos Virtuales ---
-venv/
-env/
-.env/
+# --- Bases de Datos y Logs ---
+*.db
+*.log
+# Si tienes un archivo de configuración con el Token de PRTG:
+config_privada.json
 
-# --- Seguridad ---
-.env
-*.sql
-
-# --- Sistema ---
+# --- OS ---
 .DS_Store
 Thumbs.db
