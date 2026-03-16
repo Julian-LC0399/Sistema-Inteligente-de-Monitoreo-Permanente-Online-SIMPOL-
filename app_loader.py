@@ -13,7 +13,7 @@ if __name__ == "__main__":
     multiprocessing.freeze_support() # EVITA BUCLE INFINITO EN EL EXE
     
     if len(sys.argv) > 1 and sys.argv[1] == "--agente":
-        import agente_captura
+        import agente
         sys.exit(0)
 
     # Lanzar agente en segundo plano de forma oculta

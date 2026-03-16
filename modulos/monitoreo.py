@@ -47,7 +47,7 @@ def mostrar_pantalla(user_actual):
     try:
         conn = conectar_bd()
         # SE ELIMINÓ EL INSERT: Ahora solo consultamos el historial generado por el agente
-        df_m = pd.read_sql("SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_30_nodos ORDER BY id DESC LIMIT 50", conn)
+        df_m = pd.read_sql("SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_nodos ORDER BY id DESC LIMIT 50", conn)
         conn.close()
 
         if not df_m.empty:
