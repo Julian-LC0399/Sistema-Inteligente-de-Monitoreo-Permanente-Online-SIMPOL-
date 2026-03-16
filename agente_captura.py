@@ -24,7 +24,7 @@ def iniciar_agente():
             cursor = conn.cursor()
             
             query = """
-                INSERT INTO monitoreo_30_nodos 
+                INSERT INTO monitoreo_nodos 
                 (nodo_nombre, uso_cpu, uso_ram, estado, fecha_registro) 
                 VALUES (%s, %s, %s, %s, %s)
             """

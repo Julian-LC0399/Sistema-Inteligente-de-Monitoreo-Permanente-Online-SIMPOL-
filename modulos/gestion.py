@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+# Eliminamos AgGrid y usamos los componentes nativos de Streamlit
 from database import conectar_bd
 
 def mostrar_pantalla(user_actual):
@@ -42,7 +42,6 @@ def mostrar_pantalla(user_actual):
                             conn.commit()
                             conn.close()
                             st.success(f"✅ Analista {n} registrado")
-                            # Cerramos el formulario y refrescamos
                             st.session_state.mostrar_registro = False
                             st.rerun()
                         except Exception as e:
@@ -60,42 +59,37 @@ def mostrar_pantalla(user_actual):
             # Texto para el borrado lógico
             df['estado_visual'] = df['estado'].apply(lambda x: "ACTIVO" if x == 1 else "INACTIVO")
 
-            gb = GridOptionsBuilder.from_dataframe(df)
-            gb.configure_selection(selection_mode="single", use_checkbox=True)
-            gb.configure_default_column(filterable=True, sortable=True, resizable=True)
+            # --- NUEVA TABLA NATIVA (REEMPLAZA AGGRID) ---
+            # Usamos dataframe con selección de filas
+            st.markdown("#### 👥 Listado de Personal")
             
-            # Formateo de columnas
-            gb.configure_column("usuario", headerName="ID USUARIO", pinned='left')
-            gb.configure_column("nombre_completo", headerName="NOMBRE Y APELLIDO", width=250)
-            gb.configure_column("estado", hide=True) # Ocultamos el 0/1 original
-            
-            # JS para colores de estado
-            color_js = JsCode("""
-            function(params) {
-                if (params.value === 'ACTIVO') {
-                    return {'color': 'white', 'backgroundColor': '#27ae60', 'fontWeight': 'bold'};
-                } else {
-                    return {'color': 'white', 'backgroundColor': '#e74c3c', 'fontWeight': 'bold'};
-                }
+            # Configuramos las columnas para que se vean bien
+            config_columnas = {
+                "usuario": st.column_config.TextColumn("ID USUARIO"),
+                "nombre_completo": st.column_config.TextColumn("NOMBRE Y APELLIDO"),
+                "rol": st.column_config.TextColumn("ROL"),
+                "estado_visual": st.column_config.StatusColumn("ESTADO"),
+                "estado": None # Esto oculta la columna original 0/1
             }
-            """)
-            gb.configure_column("estado_visual", headerName="ESTADO", cellStyle=color_js)
 
-            grid_response = AgGrid(
-                df, 
-                gridOptions=gb.build(), 
-                theme='balham', 
-                update_mode=GridUpdateMode.SELECTION_CHANGED,
-                allow_unsafe_jscode=True,
-                height=350
+            # Mostramos el editor/tabla con selección habilitada
+            seleccion_dict = st.dataframe(
+                df,
+                column_config=config_columnas,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun", # Permite que al seleccionar se active el formulario de abajo
+                selection_mode="single"
             )
 
             # --- 3. FORMULARIO DE EDICIÓN (Aparece al seleccionar fila) ---
-            seleccion = grid_response['selected_rows']
+            # En la nueva versión, accedemos a la fila seleccionada así:
+            indices_seleccionados = seleccion_dict.get("selection", {}).get("rows", [])
             
-            # Validación de selección según versión de AgGrid
-            if seleccion is not None and len(seleccion) > 0:
-                fila = seleccion.iloc[0] if isinstance(seleccion, pd.DataFrame) else seleccion[0]
+            if indices_seleccionados:
+                # Obtenemos la fila real del dataframe usando el índice
+                idx = indices_seleccionados[0]
+                fila = df.iloc[idx]
                 
                 st.markdown("---")
                 with st.container(border=True):
@@ -115,7 +109,7 @@ def mostrar_pantalla(user_actual):
                                 cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo_nombre, fila['usuario']))
                                 conn.commit(); conn.close()
                                 st.success("Cambios aplicados")
-                                st.rerun() # Esto limpia la selección y cierra el form
+                                st.rerun()
                         
                         # Acción 2: Borrado Lógico (Cambiar Estado)
                         label_borrado = "🗑️ DESACTIVAR" if fila['estado'] == 1 else "✅ REACTIVAR"
@@ -130,7 +124,7 @@ def mostrar_pantalla(user_actual):
                             else:
                                 st.warning("No puedes desactivar tu propio usuario.")
             else:
-                st.info("💡 Seleccione un analista de la tabla para editar o gestionar su estado.")
+                st.info("💡 Seleccione una fila de la tabla para editar o gestionar su estado.")
 
         else:
             st.warning("No hay usuarios registrados en la base de datos.")
