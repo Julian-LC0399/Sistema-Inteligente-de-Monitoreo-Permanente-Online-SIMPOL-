@@ -2,10 +2,12 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import requests
+import os
 
 # --- 1. IMPORTACIONES MODULARES ---
 from database import verificar_usuario
-from utils import load_css, obtener_telemetria 
+# Se añade get_resource_path a las importaciones
+from utils import load_css, obtener_telemetria, get_resource_path 
 from modulos import inicio, monitoreo, gestion, reportes, alertas 
 
 # --- 2. CONFIGURACIÓN DE LA PÁGINA ---
@@ -109,7 +111,9 @@ else:
         opciones_menu.append("👥 Gestión de Personal")
 
     with st.sidebar:
-        st.image("logo-banco.jpg", use_container_width=True)
+        # CORRECCIÓN: Se usa get_resource_path para el logo en el sidebar
+        ruta_logo = get_resource_path("logo-banco.jpg")
+        st.image(ruta_logo, use_container_width=True)
         
         # --- NUEVO APARTADO: ALERTAS DE SISTEMA ---
         st.markdown('<p class="titulo-seccion-sidebar">Alertas de Sistema</p>', unsafe_allow_html=True)
