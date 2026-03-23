@@ -13,10 +13,9 @@ def generar_menu():
         
         st.divider()
         
-        # Telemetría segura para el Server
         try:
-            cpu, ram, fuente = obtener_telemetria()
-            st.metric("CPU Server", f"{cpu}%", help=f"Fuente: {fuente}")
+            cpu, ram, _ = obtener_telemetria()
+            st.metric("CPU Server", f"{cpu}%")
             st.metric("RAM Server", f"{ram}%")
         except:
             st.warning("⚠️ Telemetría no disponible")
@@ -25,13 +24,11 @@ def generar_menu():
         
         opciones = ["🏠 Inicio", "📊 Monitoreo en Vivo", "📈 Capacity Planning", "🔔 Alertas", "📄 Reportes PDF"]
         
-        # Validación de rol unificada
         if st.session_state.get("rol") == "admin":
             opciones.append("👥 Gestión de Personal")
             
         seleccion = st.radio("Navegación:", opciones)
         
-        st.markdown("<br><br>", unsafe_allow_html=True)
         if st.button("🚪 CERRAR SESIÓN", use_container_width=True):
             st.session_state["autenticado"] = False
             st.rerun()
