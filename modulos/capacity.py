@@ -1,56 +1,69 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
-from database import obtener_datos_historicos # Asumiendo que tienes esta función
+from database import obtener_datos_historicos
 
 def mostrar_pantalla():
-    st.title("📈 Capacity Planning (IA Predictiva)")
-    st.markdown("""
-        Este módulo utiliza **Regresión Polinómica** para proyectar el crecimiento 
-        de los recursos del servidor en los próximos 30, 60 y 90 días.
-    """)
+    st.markdown("<h2 style='color: #003366;'>📈 Planificación de Capacidad (Capacity Planning)</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #333;'>Análisis predictivo basado en regresión polinómica para el Nodo CSU.</p>", unsafe_allow_html=True)
 
+    # 1. Obtención de datos
+    df = obtener_datos_historicos()
+
+    if df.empty:
+        st.warning("⚠️ No hay suficientes datos en 'monitoreo_nodos' para realizar una predicción.")
+        return
+
+    # 2. Configuración del análisis
+    with st.container(border=True):
+        st.markdown("<b style='color: #003366;'>Parámetros de Predicción</b>", unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        dias_proyectar = col1.slider("Días a proyectar hacia el futuro:", 1, 30, 7)
+        metrica = col2.selectbox("Métrica a analizar:", ["uso_cpu", "uso_ram"])
+
+    # 3. Lógica Matemática (NumPy)
     try:
-        # IMPORTACIÓN LOCAL: Solo carga NumPy cuando se entra a esta pantalla
-        import numpy as np
-        
-        # Simulación de datos (Sustituir por llamada a database.py)
-        # dias = np.array([1, 2, 3, 4, 5, 6, 7])
-        # carga = np.array([45, 48, 50, 49, 52, 55, 58])
-        
-        # 1. Obtención de datos
-        datos = obtener_datos_historicos(limit=30)
-        if not datos:
-            st.warning("No hay suficientes datos históricos para realizar la proyección.")
-            return
+        # Convertimos fechas a números para que NumPy pueda procesarlos
+        df['timestamp'] = pd.to_datetime(df['fecha_registro']).map(pd.Timestamp.timestamp)
+        x = df['timestamp'].values
+        y = df[metrica].values
 
-        # Ejemplo de lógica de cálculo
-        x = np.array([d[0] for d in datos]) # Días
-        y = np.array([d[1] for d in datos]) # % Carga
-        
-        # 2. Cálculo de tendencia (Polinomio de grado 2)
-        modelo = np.polyfit(x, y, 2)
-        p = np.poly1d(modelo)
-        
-        # 3. Proyección a futuro
-        x_futuro = np.linspace(max(x), max(x) + 30, 10)
-        y_futuro = p(x_futuro)
+        # Creamos el modelo (Polinomio de grado 2 para capturar curvas)
+        modelo = np.poly1d(np.polyfit(x, y, 2))
 
-        # 4. Visualización con Plotly
+        # Generamos la línea de tiempo futura
+        ultima_fecha = x[-1]
+        futuro_x = np.linspace(x[0], ultima_fecha + (dias_proyectar * 86400), 100)
+        futuro_y = modelo(futuro_x)
+
+        # 4. Visualización Proyectada
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=x, y=y, name="Histórico", mode="lines+markers"))
-        fig.add_trace(go.Scatter(x=x_futuro, y=y_futuro, name="Proyección 30d", line=dict(dash='dash', color='red')))
+
+        # Datos Reales
+        fig.add_trace(go.Scatter(x=pd.to_datetime(x, unit='s'), y=y, name='Datos Reales', mode='markers', marker=dict(color='#003366')))
         
-        fig.update_layout(title="Predicción de Carga de CPU", xaxis_title="Días", yaxis_title="% Utilización")
+        # Tendencia Predictiva
+        fig.add_trace(go.Scatter(x=pd.to_datetime(futuro_x, unit='s'), y=futuro_y, name='Tendencia Predictiva', line=dict(color='#e74c3c', width=3, dash='dash')))
+
+        fig.update_layout(
+            title=f"Predicción de {metrica.upper()} a {dias_proyectar} días",
+            xaxis_title="Tiempo",
+            yaxis_title="Porcentaje %",
+            yaxis=dict(range=[0, 110]),
+            plot_bgcolor="white"
+        )
+
         st.plotly_chart(fig, use_container_width=True)
 
-        # 5. Diagnóstico
-        if y_futuro[-1] > 85:
-            st.error(f"⚠️ ALERTA: Según la tendencia, el servidor superará el 85% de carga en 30 días.")
+        # 5. Conclusión del Sistema
+        valor_final = futuro_y[-1]
+        if valor_final > 90:
+            st.error(f"🚨 ALERTA CRÍTICA: Se estima que en {dias_proyectar} días el uso superará el 90%. Se recomienda ampliación de recursos.")
+        elif valor_final > 75:
+            st.warning(f"⚠️ PRECAUCIÓN: Tendencia creciente. El uso podría llegar al {valor_final:.2f}% en el periodo seleccionado.")
         else:
-            st.success("✅ La capacidad proyectada se mantiene dentro de los límites operativos.")
+            st.success(f"✅ ESTABLE: La proyección a {dias_proyectar} días se mantiene bajo niveles controlados ({valor_final:.2f}%).")
 
-    except ImportError:
-        st.error("❌ Error: NumPy no está disponible o es incompatible con la arquitectura del servidor.")
-        st.info("Por favor, verifica la instalación de la versión 1.26.4 como Administrador.")
     except Exception as e:
-        st.error(f"Ocurrió un error en el cálculo: {e}")
+        st.error(f"Error en el cálculo matemático: {e}")
