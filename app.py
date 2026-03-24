@@ -16,19 +16,19 @@ def orquestar_paginas(seleccion):
     if seleccion == "🏠 Inicio":
         from modulos import inicio
         inicio.mostrar_pantalla()
-    elif seleccion == "📊 Monitoreo en Vivo":
+    elif seleccion == "📊 Monitoreo en vivo":
         from modulos import monitoreo
         monitoreo.mostrar_pantalla(st.session_state.get("nombre_analista"))
-    elif seleccion == "📈 Capacity Planning":
+    elif seleccion == "📈 Capacity planning":
         from modulos import capacity
         capacity.mostrar_pantalla()
     elif seleccion == "🔔 Alertas":
         from modulos import alertas
         alertas.mostrar_pantalla()
-    elif seleccion == "📄 Reportes PDF":
+    elif seleccion == "📄 Reportes":
         from modulos import reportes
         reportes.mostrar_pantalla()
-    elif seleccion == "👥 Gestión de Personal":
+    elif seleccion == "👥 Gestión de personal":
         from modulos import gestion
         gestion.mostrar_pantalla(st.session_state.get("user_actual"))
 
