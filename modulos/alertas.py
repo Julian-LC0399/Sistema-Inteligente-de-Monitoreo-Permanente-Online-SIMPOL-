@@ -4,12 +4,16 @@ from database import conectar_bd
 from utils import obtener_telemetria
 from streamlit_autorefresh import st_autorefresh
 
+
 def mostrar_pantalla():
     # Refresco automático cada 10 segundos para detectar estados críticos
     st_autorefresh(interval=10000, key="alertas_sync_runtime")
-    
-    st.markdown("<h2 style='color:#003366;'>🚨 Panel de alertas y notificaciones</h2>", unsafe_allow_html=True)
-    
+
+    st.markdown(
+        "<h2 style='color:#003366;'>🚨 Panel de alertas y notificaciones</h2>",
+        unsafe_allow_html=True,
+    )
+
     # 1. ESTADO ACTUAL (Lectura rápida)
     try:
         cpu_act, ram_act, fuente = obtener_telemetria()
@@ -21,19 +25,15 @@ def mostrar_pantalla():
     st.markdown("### ⚙️ Configuración de límites gríticos")
     with st.expander("Ajustar sensibilidad de alertas", expanded=True):
         col1, col2 = st.columns(2)
-        
+
         # Usamos .get() para evitar el error si la llave no existe
         u_cpu = col1.number_input(
-            "Umbral grítico CPU (%)", 
-            1, 100, 
-            st.session_state.get("u_cpu_perc", 85)
+            "Umbral grítico CPU (%)", 1, 100, st.session_state.get("u_cpu_perc", 85)
         )
         u_ram = col2.number_input(
-            "Umbral grítico RAM (%)", 
-            1, 100, 
-            st.session_state.get("u_ram_perc", 90)
+            "Umbral grítico RAM (%)", 1, 100, st.session_state.get("u_ram_perc", 90)
         )
-        
+
         if st.button("Guardar cambios y re-evaluar", use_container_width=True):
             st.session_state["u_cpu_perc"] = u_cpu
             st.session_state["u_ram_perc"] = u_ram
@@ -55,23 +55,29 @@ def mostrar_pantalla():
             def evaluar(row):
                 limite_cpu = st.session_state.get("u_cpu_perc", 85)
                 limite_ram = st.session_state.get("u_ram_perc", 90)
-                
-                if row['CPU %'] >= limite_cpu or row['RAM %'] >= limite_ram:
+
+                if row["CPU %"] >= limite_cpu or row["RAM %"] >= limite_ram:
                     return "🔴 CRÍTICO"
                 return "🟢 NORMAL"
 
-            df['ESTATUS'] = df.apply(evaluar, axis=1)
+            df["ESTATUS"] = df.apply(evaluar, axis=1)
 
             # Tabla con formato profesional
             st.dataframe(
                 df,
                 column_config={
-                    "Fecha": st.column_config.DatetimeColumn("Hora del Evento", format="hh:mm:ss a"),
-                    "CPU %": st.column_config.ProgressColumn("Carga CPU", min_value=0, max_value=100),
-                    "RAM %": st.column_config.ProgressColumn("Carga RAM", min_value=0, max_value=100)
+                    "Fecha": st.column_config.DatetimeColumn(
+                        "Hora del Evento", format="hh:mm:ss a"
+                    ),
+                    "CPU %": st.column_config.ProgressColumn(
+                        "Carga CPU", min_value=0, max_value=100
+                    ),
+                    "RAM %": st.column_config.ProgressColumn(
+                        "Carga RAM", min_value=0, max_value=100
+                    ),
                 },
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
             )
         else:
             st.info("No se encontraron registros previos para analizar.")

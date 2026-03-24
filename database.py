@@ -2,21 +2,23 @@ import mysql.connector
 import pandas as pd
 import streamlit as st
 
+
 def conectar_bd():
     """Establece la conexión con la base de datos usando el plugin compatible."""
     try:
         config = {
-            'host': '127.0.0.1',
-            'user': 'root',
-            'password': '1234',
-            'database': 'monitoreo_banco',
-            'auth_plugin': 'mysql_native_password' # Crucial para evitar errores de autenticación
+            "host": "127.0.0.1",
+            "user": "root",
+            "password": "1234",
+            "database": "monitoreo_banco",
+            "auth_plugin": "mysql_native_password",  # Crucial para evitar errores de autenticación
         }
         conexion = mysql.connector.connect(**config)
         return conexion
     except mysql.connector.Error as err:
         st.error(f"Error crítico de conexión a la base de datos: {err}")
         return None
+
 
 def verificar_usuario(usuario, clave):
     """Valida credenciales y retorna datos del analista si está activo."""
@@ -36,6 +38,7 @@ def verificar_usuario(usuario, clave):
             return None
     return None
 
+
 def obtener_datos_historicos():
     """Extrae los datos de la tabla monitoreo_nodos para análisis de capacidad y alertas."""
     conexion = conectar_bd()
@@ -43,10 +46,10 @@ def obtener_datos_historicos():
         try:
             # Consultamos los datos necesarios para la regresión polinómica en Capacity Planning
             query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_nodos ORDER BY fecha_registro ASC"
-            
+
             # Leemos directamente a un DataFrame de Pandas
             df = pd.read_sql(query, conexion)
-            
+
             conexion.close()
             return df
         except Exception as e:

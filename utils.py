@@ -8,6 +8,7 @@ import sys
 # Desactivar advertencias de certificados SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+
 def get_resource_path(relative_path):
     """Obtiene la ruta absoluta para recursos, compatible con PyInstaller"""
     try:
@@ -16,6 +17,7 @@ def get_resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
 
 def load_css(file_name):
     """Lee el archivo CSS e inyecta el código en el HTML de Streamlit"""
@@ -26,6 +28,7 @@ def load_css(file_name):
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except Exception as e:
         st.error(f"No se pudo cargar el CSS: {e}")
+
 
 def obtener_telemetria():
     """Obtiene datos de CPU y RAM (Local o PRTG)"""
