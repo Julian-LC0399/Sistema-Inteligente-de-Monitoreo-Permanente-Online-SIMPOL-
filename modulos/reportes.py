@@ -25,7 +25,7 @@ class PDF(FPDF):
         self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
 
 def mostrar_pantalla():
-    st.markdown("<h2 style='color:#003366;'>📊 Reportes e Inteligencia Predictiva</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003366;'>📊 Reportes e inteligencia predictiva</h2>", unsafe_allow_html=True)
 
     with st.form("filtro_reportes"):
         col1, col2 = st.columns(2)

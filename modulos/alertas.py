@@ -8,33 +8,33 @@ def mostrar_pantalla():
     # Refresco automático cada 10 segundos para detectar estados críticos
     st_autorefresh(interval=10000, key="alertas_sync_runtime")
     
-    st.markdown("<h2 style='color:#003366;'>🚨 Panel de Alertas y Notificaciones</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003366;'>🚨 Panel de alertas y notificaciones</h2>", unsafe_allow_html=True)
     
     # 1. ESTADO ACTUAL (Lectura rápida)
     try:
         cpu_act, ram_act, fuente = obtener_telemetria()
-        st.info(f"Estado actual del Nodo CSU: CPU {cpu_act}% | RAM {ram_act}% (Fuente: {fuente})")
+        st.info(f"Estado actual: CPU {cpu_act}% | RAM {ram_act}% (Fuente: {fuente})")
     except:
         st.warning("No se pudo obtener la telemetría en tiempo real.")
 
     # 2. CONFIGURACIÓN DE UMBRALES
-    st.markdown("### ⚙️ Configuración de Límites Críticos")
+    st.markdown("### ⚙️ Configuración de límites gríticos")
     with st.expander("Ajustar sensibilidad de alertas", expanded=True):
         col1, col2 = st.columns(2)
         
         # Usamos .get() para evitar el error si la llave no existe
         u_cpu = col1.number_input(
-            "Umbral Crítico CPU (%)", 
+            "Umbral grítico CPU (%)", 
             1, 100, 
             st.session_state.get("u_cpu_perc", 85)
         )
         u_ram = col2.number_input(
-            "Umbral Crítico RAM (%)", 
+            "Umbral grítico RAM (%)", 
             1, 100, 
             st.session_state.get("u_ram_perc", 90)
         )
         
-        if st.button("Guardar Cambios y Re-evaluar", use_container_width=True):
+        if st.button("Guardar cambios y re-evaluar", use_container_width=True):
             st.session_state["u_cpu_perc"] = u_cpu
             st.session_state["u_ram_perc"] = u_ram
             st.success("Umbrales actualizados correctamente.")
@@ -42,7 +42,7 @@ def mostrar_pantalla():
     st.divider()
 
     # 3. HISTORIAL DE ALERTAS (Desde monitoreo_nodos)
-    st.markdown("### 📋 Registro de Eventos Recientes")
+    st.markdown("### 📋 Registro de eventos recientes")
     try:
         conn = conectar_bd()
         # Nota: Usamos tu tabla real 'monitoreo_nodos'

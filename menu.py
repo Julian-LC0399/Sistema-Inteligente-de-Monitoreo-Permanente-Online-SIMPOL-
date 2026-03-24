@@ -74,9 +74,9 @@ def generar_menu():
 
         # --- 4. MENÚ DE NAVEGACIÓN ---
         st.markdown('<p class="titulo-seccion-sidebar">Menú Principal</p>', unsafe_allow_html=True)
-        opciones_menu = ["🏠 Inicio", "📊 Monitoreo en Vivo", "📈 Capacity Planning", "🔔 Alertas", "📄 Reportes PDF"]
+        opciones_menu = ["🏠 Inicio", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes PDF"]
         if st.session_state.get("rol") == "admin":
-            opciones_menu.append("👥 Gestión de Personal")
+            opciones_menu.append("👥 Gestión de personal")
             
         seleccion = st.radio("Navegación", opciones_menu, label_visibility="collapsed")
         

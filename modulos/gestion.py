@@ -10,7 +10,7 @@ def mostrar_pantalla(user_actual):
     # --- ENCABEZADO Y BOTÓN DE CREACIÓN ---
     col_tit, col_btn = st.columns([3, 1])
     with col_tit:
-        st.markdown("<h2 style='color:#003366; margin-top:0;'>Gestión de Analistas CSU</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='color:#003366; margin-top:0;'>Gestión de Analistas </h2>", unsafe_allow_html=True)
     
     with col_btn:
         label = "❌ CANCELAR" if st.session_state.mostrar_registro else "➕ NUEVO ANALISTA"

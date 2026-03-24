@@ -13,7 +13,7 @@ DB_CONFIG = {
 }
 
 def iniciar_agente():
-    print("--- 🚀 AGENTE SIMPOL ACTIVADO (FUENTE: UTILS.PY) ---")
+    print("--- 🚀 AGENTE SIMPOL ACTIVADO ---")
     
     while True:
         try:

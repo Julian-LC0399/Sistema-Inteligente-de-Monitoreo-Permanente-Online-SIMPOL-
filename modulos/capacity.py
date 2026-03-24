@@ -6,7 +6,7 @@ from database import obtener_datos_historicos
 
 def mostrar_pantalla():
     st.markdown("<h2 style='color: #003366;'>📈 Planificación de Capacidad (Capacity Planning)</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #333;'>Análisis predictivo basado en regresión polinómica para el Nodo CSU.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #333;'>Análisis predictivo basado en regresión polinómica.</p>", unsafe_allow_html=True)
 
     # 1. Obtención de datos
     df = obtener_datos_historicos()

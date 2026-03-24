@@ -69,7 +69,7 @@ def mostrar_pantalla(user_actual):
             ))
 
             fig.update_layout(
-                title="Análisis de Tendencia Reciente (Nodo CSU)",
+                title="Análisis de Tendencia Reciente",
                 xaxis_title="Registro de Tiempo",
                 yaxis_title="Porcentaje de Carga",
                 yaxis=dict(range=[0, 105]),

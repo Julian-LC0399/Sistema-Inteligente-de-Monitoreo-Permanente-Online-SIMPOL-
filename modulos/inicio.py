@@ -11,7 +11,7 @@ def mostrar_pantalla():
     with col1:
         st.markdown(f"""
         ### Estatus de Sesión
-        Usted ha ingresado al **SIMPOL v2** (Sistema Inteligente de Monitoreo Permanente Online).
+        Usted ha ingresado al **SIMPOL** (Sistema Inteligente de Monitoreo Permanente Online).
         
         * **Rango:** {rol}
         * **Ubicación:** Central Banco Caroní
