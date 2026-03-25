@@ -2,59 +2,85 @@ import mysql.connector
 import pandas as pd
 import streamlit as st
 
-
 def conectar_bd():
-    """Establece la conexión con la base de datos usando el plugin compatible."""
+    """Establece conexión con los parámetros del Banco Caroní."""
     try:
         config = {
             "host": "127.0.0.1",
             "user": "root",
             "password": "1234",
             "database": "monitoreo_banco",
-            "auth_plugin": "mysql_native_password",  # Crucial para evitar errores de autenticación
+            # Plugin forzado para evitar el error 4058 que vimos antes
+            "auth_plugin": "mysql_native_password", 
         }
-        conexion = mysql.connector.connect(**config)
-        return conexion
+        return mysql.connector.connect(**config)
     except mysql.connector.Error as err:
-        st.error(f"Error crítico de conexión a la base de datos: {err}")
+        st.error(f"Error crítico de conexión: {err}")
         return None
 
-
 def verificar_usuario(usuario, clave):
-    """Valida credenciales y retorna datos del analista si está activo."""
-    conexion = conectar_bd()
-    if conexion:
+    """Valida credenciales y el nuevo rol de seguridad."""
+    conn = conectar_bd()
+    if conn:
         try:
-            cursor = conexion.cursor(dictionary=True)
-            # Asegúrate de que la tabla 'usuarios' tenga la columna 'estado'
+            cursor = conn.cursor(dictionary=True)
+            # Buscamos en la tabla 'usuarios' con el nuevo esquema
             query = "SELECT usuario, nombre_completo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
             cursor.execute(query, (usuario, clave))
             resultado = cursor.fetchone()
             cursor.close()
-            conexion.close()
+            conn.close()
             return resultado
-        except mysql.connector.Error as err:
-            st.error(f"Error en la consulta de usuario: {err}")
-            return None
+        except Exception as e:
+            st.error(f"Error en login: {e}")
     return None
 
-
 def obtener_datos_historicos():
-    """Extrae los datos de la tabla monitoreo_nodos para análisis de capacidad y alertas."""
-    conexion = conectar_bd()
-    if conexion:
+    """Extrae datos de la nueva tabla 'monitoreo' (Sin la palabra nodo)."""
+    conn = conectar_bd()
+    if conn:
         try:
-            # Consultamos los datos necesarios para la regresión polinómica en Capacity Planning
-            query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_nodos ORDER BY fecha_registro ASC"
-
-            # Leemos directamente a un DataFrame de Pandas
-            df = pd.read_sql(query, conexion)
-
-            conexion.close()
+            # Cambio de tabla: monitoreo_nodos -> monitoreo
+            query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo ORDER BY fecha_registro ASC"
+            df = pd.read_sql(query, conn)
+            conn.close()
             return df
         except Exception as e:
-            st.error(f"Error al extraer datos históricos: {e}")
-            if conexion.is_connected():
-                conexion.close()
-            return pd.DataFrame()
+            st.error(f"Error al extraer telemetría: {e}")
     return pd.DataFrame()
+
+# --- NUEVAS FUNCIONES DE AUDITORÍA (Idea aprobada por el Banco) ---
+
+def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor):
+    """Guarda cambios de personal en 'historico_usuarios'."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO historico_usuarios 
+                (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (afectado, accion, str(anterior), str(nuevo), ejecutor))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error de auditoría (User): {e}")
+
+def registrar_auditoria_umbral(metrica, anterior, nuevo, ejecutor):
+    """Guarda cambios de alertas en 'historico_umbrales'."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO historico_umbrales 
+                (metrica, umbral_anterior, umbral_nuevo, modificado_por)
+                VALUES (%s, %s, %s, %s)
+            """
+            cursor.execute(query, (metrica, anterior, nuevo, ejecutor))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error de auditoría (Alerta): {e}")

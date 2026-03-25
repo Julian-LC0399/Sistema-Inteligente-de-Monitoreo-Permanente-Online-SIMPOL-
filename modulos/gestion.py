@@ -37,7 +37,8 @@ def mostrar_pantalla(user_actual):
                 u = c1.text_input("Usuario (ID / Cédula)")
                 n = c2.text_input("Nombre Completo")
                 p = c1.text_input("Contraseña Temporal", type="password")
-                r = c2.selectbox("Rol de Acceso", ["operador", "admin"])
+                # SQL ACTUALIZADO: Incluye el rol 'seguridad'
+                r = c2.selectbox("Rol de Acceso", ["operador", "admin", "seguridad"])
 
                 if st.form_submit_button(
                     "CONFIRMAR REGISTRO", use_container_width=True
@@ -46,6 +47,7 @@ def mostrar_pantalla(user_actual):
                         try:
                             conn = conectar_bd()
                             cursor = conn.cursor()
+                            # SQL ACTUALIZADO: Tabla usuarios
                             cursor.execute(
                                 "INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s, 1)",
                                 (u, p, n, r),
@@ -66,7 +68,7 @@ def mostrar_pantalla(user_actual):
     try:
         conn = conectar_bd()
         if conn:
-            # Consulta a la tabla de usuarios
+            # SQL ACTUALIZADO: Tabla usuarios
             df = pd.read_sql(
                 "SELECT usuario, nombre_completo, rol, estado FROM usuarios", conn
             )
@@ -75,7 +77,7 @@ def mostrar_pantalla(user_actual):
             if not df.empty:
                 st.markdown("#### 👥 Listado de Personal")
 
-                # --- SOLUCIÓN VISUAL PARA ESTADO (Sin StatusColumn) ---
+                # --- SOLUCIÓN VISUAL PARA ESTADO ---
                 df["ESTADO_VISUAL"] = df["estado"].apply(
                     lambda x: "🟢 ACTIVO" if x == 1 else "🔴 INACTIVO"
                 )
@@ -86,21 +88,20 @@ def mostrar_pantalla(user_actual):
                     "nombre_completo": st.column_config.TextColumn("NOMBRE Y APELLIDO"),
                     "rol": st.column_config.TextColumn("ROL"),
                     "ESTADO_VISUAL": st.column_config.TextColumn("ESTADO"),
-                    "estado": None,  # Ocultamos la columna numérica original
+                    "estado": None,  
                 }
 
-                # --- TABLA CON SELECCIÓN CORREGIDA ---
+                # --- TABLA CON SELECCIÓN ---
                 event = st.dataframe(
                     df,
                     column_config=config_columnas,
                     use_container_width=True,
                     hide_index=True,
                     on_select="rerun",
-                    selection_mode="single-row",  # <-- Corregido: single-row es el parámetro válido
+                    selection_mode="single-row", 
                 )
 
                 # --- 3. LÓGICA DE EDICIÓN / DESACTIVACIÓN ---
-                # Extraemos la fila seleccionada del evento de la tabla
                 indices_seleccionados = event.get("selection", {}).get("rows", [])
 
                 if indices_seleccionados:
@@ -129,6 +130,7 @@ def mostrar_pantalla(user_actual):
                                 if nuevo_nombre:
                                     conn = conectar_bd()
                                     cursor = conn.cursor()
+                                    # SQL ACTUALIZADO: Tabla usuarios
                                     cursor.execute(
                                         "UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s",
                                         (nuevo_nombre, fila["usuario"]),
@@ -151,6 +153,7 @@ def mostrar_pantalla(user_actual):
                                     nuevo_estado = 0 if fila["estado"] == 1 else 1
                                     conn = conectar_bd()
                                     cursor = conn.cursor()
+                                    # SQL ACTUALIZADO: Tabla usuarios
                                     cursor.execute(
                                         "UPDATE usuarios SET estado=%s WHERE usuario=%s",
                                         (nuevo_estado, fila["usuario"]),

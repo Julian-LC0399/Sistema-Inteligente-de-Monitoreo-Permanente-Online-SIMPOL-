@@ -9,10 +9,10 @@ from streamlit_autorefresh import st_autorefresh
 
 def mostrar_pantalla(user_actual):
     # 1. Sincronización: Refresco automático cada 15 segundos
-    st_autorefresh(interval=15000, key="monitoreo_nodos_refresh")
+    st_autorefresh(interval=15000, key="monitoreo_refresh")
 
     st.markdown(
-        "<h2 style='color:#003366; margin-top:-30px;'>Monitoreo en Tiempo Real: Nodo CSU</h2>",
+        "<h2 style='color:#003366; margin-top:-30px;'>Monitoreo en Tiempo Real: CSU</h2>",
         unsafe_allow_html=True,
     )
 
@@ -41,11 +41,11 @@ def mostrar_pantalla(user_actual):
 
     st.divider()
 
-    # 3. Visualización de Tendencia Histórica (Tabla monitoreo_nodos)
+    # 3. Visualización de Tendencia Histórica (Tabla monitoreo)
     try:
         conn = conectar_bd()
-        # Consulta a la tabla especificada por el usuario
-        query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo_nodos ORDER BY id DESC LIMIT 20"
+        # SQL ACTUALIZADO: Tabla 'monitoreo'
+        query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo ORDER BY id DESC LIMIT 20"
         df_m = pd.read_sql(query, conn)
         conn.close()
 
@@ -97,11 +97,11 @@ def mostrar_pantalla(user_actual):
 
         else:
             st.info(
-                "💡 No se encontraron registros en la tabla 'monitoreo_nodos'. Verifique que el agente de base de datos esté activo."
+                "💡 No se encontraron registros en la tabla 'monitoreo'. Verifique que el agente de base de datos esté activo."
             )
 
     except Exception as e:
-        st.error(f"⚠️ Error de base de datos (monitoreo_nodos): {e}")
+        st.error(f"⚠️ Error de base de datos (monitoreo): {e}")
 
     # 4. Panel de sugerencias proactivas
     with st.expander("Ver recomendaciones de optimización"):
