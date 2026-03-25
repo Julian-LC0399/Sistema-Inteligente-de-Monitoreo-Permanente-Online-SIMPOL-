@@ -8,33 +8,47 @@ from utils import get_resource_path
 class PDF(FPDF):
     def header(self):
         try:
-            # Uso de la utilidad de ruta para el logo institucional
+            # Intentar cargar el logo institucional del banco
             ruta_logo = get_resource_path("logo-banco.jpg")
             self.image(ruta_logo, 10, 8, 33)
         except: 
             pass
         self.set_font("Arial", "B", 14)
-        self.set_text_color(0, 51, 102) # Azul Banco Caroní
+        self.set_text_color(0, 51, 102) # Azul Corporativo
         self.set_x(45)
         self.cell(0, 10, "SIMPOL - REPORTE DE GESTIÓN CSU", 0, 1, "L")
+        self.set_font("Arial", "", 10)
+        self.set_x(45)
+        self.cell(0, 5, f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 1, "L")
         self.ln(10)
 
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Arial", "I", 8)
+        self.cell(0, 10, f"Página {self.page_no()} - Confidencial Banco Caroní", 0, 0, "C")
+
 def mostrar_pantalla():
-    st.markdown("<h2 style='color:#003366;'>📊 Reportes e inteligencia predictiva</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003366;'>📊 Reportes e Inteligencia de Auditoría</h2>", unsafe_allow_html=True)
+    st.info("Nota: Los estados (Normal/Precaución/Crítico) son inmutables y reflejan la configuración vigente al momento de la captura.")
 
     # --- FORMULARIO DE FILTRADO ---
     with st.form("filtro_reportes"):
         col1, col2 = st.columns(2)
         f_inicio = col1.date_input("Desde", datetime.now() - timedelta(days=7))
         f_fin = col2.date_input("Hasta", datetime.now())
-        btn_generar = st.form_submit_button("Consultar Histórico", use_container_width=True)
+        btn_generar = st.form_submit_button("🔍 Generar Vista Previa", use_container_width=True)
 
     if btn_generar:
         try:
             conn = conectar_bd()
-            # SQL ACTUALIZADO: Se usa la tabla 'monitoreo' y la columna 'nombre_csu'
+            # SELECCIÓN INMUTABLE: Traemos 'estado_sistema' tal cual está en la BD
             query = f"""
-                SELECT fecha_registro as Fecha, nombre_csu as CSU, uso_cpu as 'CPU %', uso_ram as 'RAM %' 
+                SELECT 
+                    fecha_registro as Fecha, 
+                    nombre_csu as CSU, 
+                    uso_cpu as 'CPU %', 
+                    uso_ram as 'RAM %', 
+                    estado_sistema as ESTADO 
                 FROM monitoreo 
                 WHERE DATE(fecha_registro) BETWEEN '{f_inicio}' AND '{f_fin}' 
                 ORDER BY fecha_registro DESC
@@ -43,86 +57,68 @@ def mostrar_pantalla():
             conn.close()
 
             if not df.empty:
-                # --- LÓGICA DE SEMÁFORO (3 NIVELES: NORMAL, PRECAUCIÓN, CRÍTICO) ---
-                # Recuperar umbrales de la sesión (con valores por defecto si no existen)
-                u_cpu_crit = st.session_state.get("u_cpu_perc", 85)
-                u_ram_crit = st.session_state.get("u_ram_perc", 90)
-                u_cpu_warn = st.session_state.get("u_cpu_warn", 70)
-                u_ram_warn = st.session_state.get("u_ram_warn", 75)
+                # 1. Visualización en Pantalla con Iconos
+                iconos = {
+                    "CRITICO": "🔴 CRÍTICO", 
+                    "CRÍTICO": "🔴 CRÍTICO", 
+                    "ADVERTENCIA": "🟠 PRECAUCIÓN", 
+                    "PRECAUCIÓN": "🟠 PRECAUCIÓN", 
+                    "NORMAL": "🟢 NORMAL"
+                }
                 
-                def definir_estado(r):
-                    # 1. Evaluación de nivel CRÍTICO (Rojo)
-                    if r["CPU %"] >= u_cpu_crit or r["RAM %"] >= u_ram_crit:
-                        return "🔴 CRÍTICO"
-                    # 2. Evaluación de nivel PRECAUCIÓN (Amarillo)
-                    elif r["CPU %"] >= u_cpu_warn or r["RAM %"] >= u_ram_warn:
-                        return "🟠 PRECAUCIÓN"
-                    # 3. Nivel NORMAL (Verde)
-                    return "🟢 NORMAL"
+                df_visual = df.copy()
+                df_visual["ESTADO"] = df_visual["ESTADO"].apply(lambda x: iconos.get(str(x).upper(), x))
 
-                # Insertar la columna de estado visible solicitada
-                df["ESTADO"] = df.apply(definir_estado, axis=1)
-                
-                st.success(f"Se encontraron {len(df)} registros en el periodo seleccionado.")
-                
-                # Visualización en la interfaz de Streamlit
+                st.markdown(f"### Se encontraron {len(df)} registros")
                 st.dataframe(
-                    df, 
+                    df_visual,
                     column_config={
-                        "Fecha": st.column_config.DatetimeColumn("Fecha y Hora", format="D/M/Y h:mm A"),
-                        "ESTADO": st.column_config.TextColumn("Estatus del Sistema")
-                    }, 
-                    use_container_width=True, 
+                        "Fecha": st.column_config.DatetimeColumn("Fecha/Hora", format="DD/MM/YY HH:mm"),
+                        "CPU %": st.column_config.NumberColumn(format="%d%%"),
+                        "RAM %": st.column_config.NumberColumn(format="%d%%"),
+                    },
+                    use_container_width=True,
                     hide_index=True
                 )
 
-                # --- GENERACIÓN DE ARCHIVO PDF ---
+                # 2. Generación de PDF (Auditoría)
                 pdf = PDF()
                 pdf.add_page()
                 pdf.set_font("Arial", "B", 10)
                 
-                # Encabezados de la tabla PDF
-                pdf.set_fill_color(0, 51, 102)
-                pdf.set_text_color(255, 255, 255)
+                # Encabezados de tabla
+                pdf.set_fill_color(240, 240, 240)
+                columnas = ["Fecha/Hora", "CSU", "CPU", "RAM", "Estado Histórico"]
+                anchos = [45, 35, 25, 25, 60]
                 
-                columnas = ["Fecha", "CSU", "CPU %", "RAM %", "Estatus"]
-                anchos = [45, 35, 30, 30, 50] # Ajuste de anchos para el reporte
-                
-                for i in range(len(columnas)):
-                    pdf.cell(anchos[i], 10, columnas[i], 1, 0, "C", 1)
+                for i, col in enumerate(columnas):
+                    pdf.cell(anchos[i], 10, col, 1, 0, "C", True)
                 pdf.ln()
 
-                # Contenido de la tabla PDF
                 pdf.set_font("Arial", "", 9)
-                pdf.set_text_color(0, 0, 0)
-                
-                # Limitamos a los primeros 200 registros en el PDF para evitar saturación de memoria
-                for _, row in df.head(200).iterrows():
+                # Solo exportamos los últimos 500 para el PDF por rendimiento
+                for _, row in df.head(500).iterrows():
                     pdf.cell(anchos[0], 8, str(row["Fecha"]), 1)
                     pdf.cell(anchos[1], 8, str(row["CSU"]), 1)
-                    pdf.cell(anchos[2], 8, f"{row['CPU %']}%", 1)
-                    pdf.cell(anchos[3], 8, f"{row['RAM %']}%", 1)
-                    # Limpiamos los emojis para el PDF ya que FPDF estándar no soporta Unicode/Emojis fácilmente
-                    texto_estado = row["ESTADO"].replace("🟢 ", "").replace("🔴 ", "").replace("🟠 ", "")
-                    pdf.cell(anchos[4], 8, texto_estado, 1, 1)
+                    pdf.cell(anchos[2], 8, f"{row['CPU %']}%", 1, 0, "C")
+                    pdf.cell(anchos[3], 8, f"{row['RAM %']}%", 1, 0, "C")
+                    
+                    # Limpiar el texto para el PDF (Sin emojis para evitar errores de fuente)
+                    status_raw = str(row["ESTADO"]).upper().replace("ADVERTENCIA", "PRECAUCION")
+                    pdf.cell(anchos[4], 8, status_raw, 1, 1, "C")
 
-                # Preparar descarga
-                pdf_output = pdf.output(dest="S").encode("latin-1", "ignore")
+                # Botón de Descarga
+                pdf_bytes = pdf.output(dest="S").encode("latin-1", "ignore")
                 
-                st.divider()
                 st.download_button(
-                    label="💾 Descargar Reporte en PDF", 
-                    data=pdf_output, 
-                    file_name=f"Reporte_CSU_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf", 
+                    label="💾 Descargar Reporte PDF de Auditoría",
+                    data=pdf_bytes,
+                    file_name=f"SIMPOL_Reporte_{f_inicio}_al_{f_fin}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
             else:
-                st.warning("No se encontraron datos para el rango de fechas seleccionado.")
-                
-        except Exception as e:
-            st.error(f"Error al generar el reporte: {e}")
+                st.warning("No existen registros para el período seleccionado.")
 
-# Ejecución del módulo
-if __name__ == "__main__":
-    mostrar_pantalla()
+        except Exception as e:
+            st.error(f"Error al generar reporte: {e}")
