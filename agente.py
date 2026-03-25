@@ -11,49 +11,49 @@ DB_CONFIG = {
     "auth_plugin": "mysql_native_password",
 }
 
-def obtener_umbrales_vigentes():
-    """Recupera los últimos umbrales guardados por el usuario en la BD."""
+def obtener_umbrales_actuales():
+    """Consulta la tabla historico_umbrales para aplicar la última regla guardada."""
     u = {"c_crit": 85, "r_crit": 90, "c_warn": 70, "r_warn": 75}
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        # Mapeo de métricas según alertas.py
+        # Buscamos por la columna 'metrica' y ordenamos por 'fecha_cambio'
         mapa = {"CPU_CRIT": "c_crit", "RAM_CRIT": "r_crit", "CPU_WARN": "c_warn", "RAM_WARN": "r_warn"}
-        for db_key, dict_key in mapa.items():
-            cursor.execute(f"SELECT valor_nuevo FROM historico_umbrales WHERE metrica = '{db_key}' ORDER BY id_hist_umb DESC LIMIT 1")
+        
+        for metrica_sql, clave_dict in mapa.items():
+            cursor.execute(f"SELECT umbral_nuevo FROM historico_umbrales WHERE metrica = '{metrica_sql}' ORDER BY fecha_cambio DESC LIMIT 1")
             res = cursor.fetchone()
-            if res: u[dict_key] = int(res['valor_nuevo'])
+            if res:
+                u[clave_dict] = int(res['umbral_nuevo'])
+        
         cursor.close()
         conn.close()
     except:
-        pass # Si falla, usa los valores por defecto definidos arriba
+        pass
     return u
 
 def iniciar_agente():
     print("--- 🚀 AGENTE SIMPOL ACTIVADO (SISTEMA CSU) ---")
     while True:
         try:
-            cpu, ram, origen = obtener_telemetria()
-            u = obtener_umbrales_vigentes()
+            cpu, ram, _ = obtener_telemetria()
+            umbrales = obtener_umbrales_actuales()
             fecha = datetime.now()
 
-            # DETERMINACIÓN DEL ESTADO INMUTABLE
-            if cpu >= u["c_crit"] or ram >= u["r_crit"]:
-                estado_fijo = "CRÍTICO"
-            elif cpu >= u["c_warn"] or ram >= u["r_warn"]:
-                estado_fijo = "PRECAUCIÓN"
+            # Clasificación dinámica basada en la BD
+            if cpu >= umbrales["c_crit"] or ram >= umbrales["r_crit"]:
+                estado = "CRÍTICO"
+            elif cpu >= umbrales["c_warn"] or ram >= umbrales["r_warn"]:
+                estado = "PRECAUCIÓN"
             else:
-                estado_fijo = "NORMAL"
+                estado = "NORMAL"
 
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-            query = """
-                INSERT INTO monitoreo (fecha_registro, nombre_csu, uso_cpu, uso_ram, estado_sistema) 
-                VALUES (%s, %s, %s, %s, %s)
-            """
-            cursor.execute(query, (fecha, "CSU-Principal", cpu, ram, estado_fijo))
+            query = "INSERT INTO monitoreo (fecha_registro, uso_cpu, uso_ram, estado_sistema) VALUES (%s, %s, %s, %s)"
+            cursor.execute(query, (fecha, cpu, ram, estado))
             conn.commit()
-            print(f"[{fecha.strftime('%H:%M:%S')}] ✅ Guardado: {estado_fijo}")
+            print(f"[{fecha.strftime('%H:%M:%S')}] Registro guardado: {estado}")
             cursor.close()
             conn.close()
         except Exception as e:
