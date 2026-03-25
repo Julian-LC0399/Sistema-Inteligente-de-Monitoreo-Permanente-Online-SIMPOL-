@@ -3,62 +3,61 @@ import mysql.connector
 from datetime import datetime
 from utils import obtener_telemetria
 
-# Configuración de BD compatible con el Script Maestro y MySQL 8+
 DB_CONFIG = {
     "host": "127.0.0.1",
     "user": "root",
     "password": "1234",
     "database": "monitoreo_banco",
-    "auth_plugin": "mysql_native_password", # Crucial para evitar error 4058
+    "auth_plugin": "mysql_native_password",
 }
+
+def obtener_umbrales_vigentes():
+    """Recupera los últimos umbrales guardados por el usuario en la BD."""
+    u = {"c_crit": 85, "r_crit": 90, "c_warn": 70, "r_warn": 75}
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        # Mapeo de métricas según alertas.py
+        mapa = {"CPU_CRIT": "c_crit", "RAM_CRIT": "r_crit", "CPU_WARN": "c_warn", "RAM_WARN": "r_warn"}
+        for db_key, dict_key in mapa.items():
+            cursor.execute(f"SELECT valor_nuevo FROM historico_umbrales WHERE metrica = '{db_key}' ORDER BY id_hist_umb DESC LIMIT 1")
+            res = cursor.fetchone()
+            if res: u[dict_key] = int(res['valor_nuevo'])
+        cursor.close()
+        conn.close()
+    except:
+        pass # Si falla, usa los valores por defecto definidos arriba
+    return u
 
 def iniciar_agente():
     print("--- 🚀 AGENTE SIMPOL ACTIVADO (SISTEMA CSU) ---")
-    print("Capturando métricas con lógica de Semáforo: Normal, Advertencia, Critico")
-
     while True:
         try:
-            # 1. Extraemos los datos (PRTG o Local vía utils.py)
             cpu, ram, origen = obtener_telemetria()
+            u = obtener_umbrales_vigentes()
             fecha = datetime.now()
 
-            # 2. LÓGICA DE CLASIFICACIÓN PROFESIONAL (3 NIVELES)
-            # Definimos los umbrales base para el guardado automático
-            estado_actual = "Normal" # Por defecto
-            
-            if cpu >= 85 or ram >= 90:
-                estado_actual = "Critico"
-            elif cpu >= 70 or ram >= 75:
-                estado_actual = "Advertencia" # Nivel de precaución solicitado
+            # DETERMINACIÓN DEL ESTADO INMUTABLE
+            if cpu >= u["c_crit"] or ram >= u["r_crit"]:
+                estado_fijo = "CRÍTICO"
+            elif cpu >= u["c_warn"] or ram >= u["r_warn"]:
+                estado_fijo = "PRECAUCIÓN"
+            else:
+                estado_fijo = "NORMAL"
 
-            # 3. Conexión e Inserción en la BBDD Profesional
             conn = mysql.connector.connect(**DB_CONFIG)
             cursor = conn.cursor()
-
-            # SQL ACTUALIZADO: Tabla 'monitoreo' y columna 'nombre_csu'
             query = """
-                INSERT INTO monitoreo 
-                (fecha_registro, nombre_csu, uso_cpu, uso_ram, estado_sistema) 
+                INSERT INTO monitoreo (fecha_registro, nombre_csu, uso_cpu, uso_ram, estado_sistema) 
                 VALUES (%s, %s, %s, %s, %s)
             """
-
-            valores = (fecha, "CSU-Principal", cpu, ram, estado_actual)
-
-            cursor.execute(query, valores)
+            cursor.execute(query, (fecha, "CSU-Principal", cpu, ram, estado_fijo))
             conn.commit()
-
-            # Log en consola para el técnico de guardia
-            print(
-                f"[{fecha.strftime('%H:%M:%S')}] ✅ Guardado en CSU: CPU {cpu}% | RAM {ram}% | ESTADO: {estado_actual.upper()}"
-            )
-
+            print(f"[{fecha.strftime('%H:%M:%S')}] ✅ Guardado: {estado_fijo}")
             cursor.close()
             conn.close()
-
         except Exception as e:
-            print(f"❌ Error en el ciclo del agente: {e}")
-
-        # Intervalo de 30 segundos para no saturar los logs del banco
+            print(f"❌ Error: {e}")
         time.sleep(30)
 
 if __name__ == "__main__":
