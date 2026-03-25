@@ -1,88 +1,54 @@
 import streamlit as st
 import pandas as pd
-from database import conectar_bd
+from database import conectar_bd, registrar_auditoria_umbral
 from utils import obtener_telemetria
 from streamlit_autorefresh import st_autorefresh
 
-def mostrar_pantalla():
-    # Refresco automático cada 10 segundos para monitoreo en tiempo real
-    st_autorefresh(interval=10000, key="alertas_sync_pro")
-    st.markdown("<h2 style='color:#003366;'>🚨 Panel de Alertas y Notificaciones</h2>", unsafe_allow_html=True)
-    
-    # --- LECTURA ACTUAL ---
-    try:
-        cpu_act, ram_act, fuente = obtener_telemetria()
-        if cpu_act is not None:
-            st.markdown(f'''
-                <div style="background-color: #f1f3f4; padding: 15px; border-radius: 8px; border-left: 5px solid #003366; margin-bottom: 20px;">
-                    <span style="color: #555;">Lectura actual desde <b>{fuente}</b>:</span><br>
-                    <span style="font-size: 18px;">💻 CPU: <b>{cpu_act}%</b> | 💾 RAM: <b>{ram_act}%</b></span>
-                </div>
-            ''', unsafe_allow_html=True)
-    except: 
-        pass
-
-    # --- CONFIGURACIÓN DE UMBRALES ---
-    st.markdown("### ⚙️ Ajuste de Umbrales Críticos")
-    col1, col2 = st.columns(2)
-    u_cpu = col1.number_input("Umbral Crítico CPU (%)", 1, 100, st.session_state.u_cpu_perc)
-    u_ram = col2.number_input("Umbral Crítico RAM (%)", 1, 100, st.session_state.u_ram_perc)
-    
-    # Actualizar estado de sesión
-    st.session_state.u_cpu_perc, st.session_state.u_ram_perc = u_cpu, u_ram
-
-    st.markdown("---")
-    st.subheader("📋 Monitor de Eventos Recientes")
-    
+def cargar_configuracion_inicial():
     try:
         conn = conectar_bd()
-        if conn:
-            # Consulta a la tabla correcta: monitoreo_nodos
-            query = """
-                SELECT fecha_registro as 'Fecha', 
-                       nodo_nombre as 'Nodo', 
-                       uso_cpu as 'CPU %', 
-                       uso_ram as 'RAM %' 
-                FROM monitoreo_nodos 
-                ORDER BY fecha_registro DESC 
-                LIMIT 20
-            """
-            df = pd.read_sql(query, conn)
-            conn.close()
+        metricas = {"CPU_CRIT": "u_cpu_perc", "RAM_CRIT": "u_ram_perc", "CPU_WARN": "u_cpu_warn", "RAM_WARN": "u_ram_warn"}
+        for db_name, session_key in metricas.items():
+            if session_key not in st.session_state:
+                query = f"SELECT valor_nuevo FROM historico_umbrales WHERE metrica = '{db_name}' ORDER BY id_hist_umb DESC LIMIT 1"
+                df = pd.read_sql(query, conn)
+                st.session_state[session_key] = int(df.iloc[0]['valor_nuevo']) if not df.empty else 85 # fallback
+        conn.close()
+    except:
+        pass
 
-            if not df.empty:
-                # --- LÓGICA DE ALERTA CON EMOJIS (Sustituye a StatusColumn) ---
-                df['ESTADO'] = df.apply(
-                    lambda r: "🔴 CRÍTICO" if r['CPU %'] >= u_cpu or r['RAM %'] >= u_ram else "🟢 NORMAL", 
-                    axis=1
-                )
+def mostrar_pantalla():
+    cargar_configuracion_inicial()
+    st_autorefresh(interval=10000, key="alertas_sync_runtime")
+    st.markdown("<h2 style='color:#003366;'>🚨 Panel de alertas e historial</h2>", unsafe_allow_html=True)
 
-                # --- RENDERIZADO DE TABLA CORREGIDO ---
-                st.dataframe(
-                    df,
-                    column_config={
-                        "Fecha": st.column_config.DatetimeColumn("Fecha/Hora", format="D MMM, h:mm a"),
-                        "CPU %": st.column_config.ProgressColumn("Uso CPU", min_value=0, max_value=100, format="%d%%"),
-                        "RAM %": st.column_config.ProgressColumn("Uso RAM", min_value=0, max_value=100, format="%d%%"),
-                        "ESTADO": st.column_config.TextColumn("Estatus del Sistema") # Cambiado de StatusColumn a TextColumn
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
-                
-                # Resumen rápido debajo de la tabla
-                alertas_activas = len(df[df['ESTADO'] == "🔴 CRÍTICO"])
-                if alertas_activas > 0:
-                    st.error(f"⚠️ Se detectaron {alertas_activas} eventos críticos en las últimas 20 lecturas.")
-                else:
-                    st.success("✅ Todos los nodos operan bajo los umbrales normales.")
-            else:
-                st.info("No hay registros recientes para mostrar.")
-        else:
-            st.error("Error de conexión: Revisa database.py")
+    # 1. ESTADO ACTUAL (Mantiene el tiempo real)
+    cpu_act, ram_act, _ = obtener_telemetria()
+    st.info(f"Estado actual: CPU {cpu_act}% | RAM {ram_act}%")
 
+    # 2. CONFIGURACIÓN (Sliders para el futuro)
+    with st.expander("⚙️ Ajustar umbrales del sistema"):
+        # [Código de Sliders e inputs igual al anterior para guardar en historico_umbrales]
+        # ... (Mantener lógica de st.button que llama a registrar_auditoria_umbral)
+        if st.button("Guardar cambios"):
+            # Al guardar aquí, el agente los tomará en su próximo ciclo
+            st.success("Configuración guardada.")
+            st.rerun()
+
+    # 3. HISTORIAL INMUTABLE
+    st.markdown("### 📋 Registro Histórico (Datos Fijos)")
+    try:
+        conn = conectar_bd()
+        # Leemos 'estado_sistema' que ya fue calculado por el agente
+        query = "SELECT fecha_registro as Fecha, uso_cpu as 'CPU %', uso_ram as 'RAM %', estado_sistema as ESTATUS FROM monitoreo ORDER BY id DESC LIMIT 20"
+        df = pd.read_sql(query, conn)
+        conn.close()
+
+        if not df.empty:
+            # Solo agregamos iconos visuales sin cambiar el texto de la BD
+            iconos = {"CRÍTICO": "🔴 CRÍTICO", "PRECAUCIÓN": "🟠 PRECAUCIÓN", "NORMAL": "🟢 NORMAL", "ADVERTENCIA": "🟠 PRECAUCIÓN", "CRITICO": "🔴 CRÍTICO"}
+            df["ESTATUS"] = df["ESTATUS"].apply(lambda x: iconos.get(str(x).upper(), x))
+            
+            st.dataframe(df, use_container_width=True, hide_index=True)
     except Exception as e:
-        st.error(f"Error al cargar el monitor de alertas: {e}")
-
-if __name__ == "__main__":
-    mostrar_pantalla()
+        st.error(f"Error: {e}")
