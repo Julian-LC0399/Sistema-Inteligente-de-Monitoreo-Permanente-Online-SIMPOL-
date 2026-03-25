@@ -11,7 +11,7 @@ def generar_menu():
         except:
             st.markdown("<h2 style='color:#003366; text-align:center;'>SIMPOL</h2>", unsafe_allow_html=True)
         
-        # --- 1. APARTADO: ALERTAS DE SISTEMA (CSS Personalizado para contraste) ---
+        # --- 1. APARTADO: ALERTAS DE SISTEMA ---
         st.markdown('<p class="titulo-seccion-sidebar">Alertas de Sistema</p>', unsafe_allow_html=True)
         try:
             c_sidebar, r_sidebar, _ = obtener_telemetria()
@@ -21,7 +21,6 @@ def generar_menu():
             u_ram_w = st.session_state.get("u_ram_warn", 75)
             
             if c_sidebar >= u_cpu or r_sidebar >= u_ram:
-                # Fondo Rojo - Letras Blancas
                 st.markdown(f"""
                     <div style="background-color:#ff4b4b; padding:15px; border-radius:5px; color:white; border:1px solid #ff4b4b;">
                         <strong>🚨 ESTADO CRÍTICO</strong><br>
@@ -29,7 +28,6 @@ def generar_menu():
                     </div>
                 """, unsafe_allow_html=True)
             elif c_sidebar >= u_cpu_w or r_sidebar >= u_ram_w:
-                # Fondo Naranja - Letras Negras para legibilidad
                 st.markdown(f"""
                     <div style="background-color:#ffa500; padding:15px; border-radius:5px; color:#1a1a1a; border:1px solid #cc8400;">
                         <strong>🟠 PRECAUCIÓN</strong><br>
@@ -37,7 +35,6 @@ def generar_menu():
                     </div>
                 """, unsafe_allow_html=True)
             else:
-                # Fondo Verde - Letras Blancas
                 st.markdown(f"""
                     <div style="background-color:#28a745; padding:15px; border-radius:5px; color:white; border:1px solid #28a745;">
                         <strong>✅ Operación Normal</strong>
@@ -93,10 +90,18 @@ def generar_menu():
 
         # --- 4. MENÚ DE NAVEGACIÓN ---
         st.markdown('<p class="titulo-seccion-sidebar">Menú Principal</p>', unsafe_allow_html=True)
+        
+        # Opciones base para todos los usuarios
         opciones_menu = ["🏠 Inicio", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
         
-        if st.session_state.get("rol") == "seguridad":
+        # Obtener el rol actual
+        rol_actual = st.session_state.get("rol")
+        
+        # Lógica de visibilidad solicitada:
+        # Admin y Seguridad ven Gestión y Auditoría. Operador no.
+        if rol_actual in ["admin", "seguridad"]:
             opciones_menu.append("👥 Gestión de personal")
+            opciones_menu.append("🕵️ Auditoría de Accesos")
             
         seleccion = st.radio("Navegación", opciones_menu, label_visibility="collapsed")
         
