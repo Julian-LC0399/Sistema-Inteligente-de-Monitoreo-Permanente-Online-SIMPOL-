@@ -101,7 +101,7 @@ def generar_menu():
         # Admin y Seguridad ven Gestión y Auditoría. Operador no.
         if rol_actual in ["admin", "seguridad"]:
             opciones_menu.append("👥 Gestión de personal")
-            opciones_menu.append("🕵️ Auditoría de Accesos")
+            opciones_menu.append("🕵️ Auditoría")
             
         seleccion = st.radio("Navegación", opciones_menu, label_visibility="collapsed")
         
