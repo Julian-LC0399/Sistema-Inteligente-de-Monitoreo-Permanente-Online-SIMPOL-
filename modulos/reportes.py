@@ -28,7 +28,7 @@ class PDF(FPDF):
         self.cell(0, 10, f"Página {self.page_no()} - Confidencial Banco Caroní", 0, 0, "C")
 
 def mostrar_pantalla():
-    st.markdown("<h2 style='color:#003366;'>📊 Reportes e Inteligencia de Auditoría</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003366;'>📊 Reportes</h2>", unsafe_allow_html=True)
     st.info("Nota: Los estados (Normal/Precaución/Crítico) son inmutables y reflejan la configuración vigente al momento de la captura.")
 
     # --- FORMULARIO DE FILTRADO ---
@@ -88,7 +88,7 @@ def mostrar_pantalla():
                 
                 # Encabezados de tabla
                 pdf.set_fill_color(240, 240, 240)
-                columnas = ["Fecha/Hora", "CSU", "CPU", "RAM", "Estado Histórico"]
+                columnas = ["Fecha/Hora", "CSU", "CPU", "RAM", "Estado"]
                 anchos = [45, 35, 25, 25, 60]
                 
                 for i, col in enumerate(columnas):
@@ -111,7 +111,7 @@ def mostrar_pantalla():
                 pdf_bytes = pdf.output(dest="S").encode("latin-1", "ignore")
                 
                 st.download_button(
-                    label="💾 Descargar Reporte PDF de Auditoría",
+                    label="💾 Descargar Reporte PDF",
                     data=pdf_bytes,
                     file_name=f"SIMPOL_Reporte_{f_inicio}_al_{f_fin}.pdf",
                     mime="application/pdf",
