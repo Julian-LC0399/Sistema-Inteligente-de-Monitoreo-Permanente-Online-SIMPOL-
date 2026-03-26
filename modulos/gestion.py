@@ -16,7 +16,7 @@ def mostrar_pantalla(user_actual):
     if "mostrar_registro" not in st.session_state:
         st.session_state.mostrar_registro = False
 
-    # --- ENCABEZADO ---
+    # --- ENCABEZADO (Texto Visible) ---
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal y Analistas</h2>", unsafe_allow_html=True)
 
     # --- 1. FORMULARIO DE REGISTRO (SOLO SEGURIDAD) ---
@@ -30,85 +30,121 @@ def mostrar_pantalla(user_actual):
 
         if st.session_state.mostrar_registro:
             with st.container(border=True):
-                st.markdown("#### 📝 Registro de Nuevo Personal")
+                st.markdown("<h4 style='color:#333333;'>📝 Registro de Nuevo Personal</h4>", unsafe_allow_html=True)
                 with st.form("form_nuevo_usuario", clear_on_submit=True):
                     c1, c2 = st.columns(2)
-                    nuevo_user = c1.text_input("ID de Usuario")
-                    nuevo_nombre = c2.text_input("Nombre Completo")
-                    c3, c4 = st.columns(2)
-                    nueva_clave = c3.text_input("Contraseña", type="password")
-                    nuevo_rol = c4.selectbox("Rol", ["operador", "admin", "seguridad"])
-                    
-                    if st.form_submit_button("🚀 REGISTRAR", use_container_width=True):
-                        if nuevo_user and nueva_clave and nuevo_nombre:
+                    u = c1.text_input("Usuario (Cédula o ID)")
+                    n = c2.text_input("Nombre Completo")
+                    p = c1.text_input("Contraseña Temporal", type="password")
+                    r = c2.selectbox("Rol", ["operador", "admin", "seguridad"])
+
+                    if st.form_submit_button("REGISTRAR ANALISTA", use_container_width=True):
+                        if u and n and p:
                             try:
                                 conn = conectar_bd()
                                 cursor = conn.cursor()
-                                cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s, %s, %s, %s, 1)",
-                                              (nuevo_user, nueva_clave, nuevo_nombre, nuevo_rol))
-                                # Auditoría de creación
-                                cursor.execute("INSERT INTO historico_usuarios (usuario_afectado, accion_realizada, valor_nuevo, ejecutado_por) VALUES (%s, %s, %s, %s)",
-                                              (nuevo_user, "CREACIÓN", "ACTIVO", user_actual))
+                                cursor.execute(
+                                    "INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s,1)",
+                                    (u, p, n, r)
+                                )
                                 conn.commit()
+                                cursor.close()
                                 conn.close()
-                                st.success("Usuario registrado.")
+                                st.success(f"Analista {n} creado exitosamente.")
+                                st.session_state.mostrar_registro = False
                                 st.rerun()
-                            except: st.error("Error al registrar.")
-    else:
-        st.info("ℹ️ **Modo Lectura:** Como Administrador, puede visualizar el personal pero no realizar cambios.")
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                        else:
+                            st.warning("Complete todos los campos.")
 
-    # --- 2. TABLA DE PERSONAL (ADMIN Y SEGURIDAD) ---
+    # --- 2. TABLA DE USUARIOS ---
     try:
         conn = conectar_bd()
-        df = pd.read_sql("SELECT usuario, nombre_completo, rol, estado, fecha_creacion FROM usuarios", conn)
-        conn.close()
+        if conn:
+            df = pd.read_sql("SELECT usuario, nombre_completo, rol, estado FROM usuarios", conn)
+            conn.close()
 
-        if not df.empty:
-            df_mostrar = df.copy()
-            df_mostrar["estado"] = df_mostrar["estado"].apply(lambda x: "🟢 ACTIVO" if x == 1 else "🔴 INACTIVO")
-            
-            # Si es admin, no permitimos selección para evitar que intente editar
-            seleccion_mode = "single-row" if rol_actual == "seguridad" else "none"
-            
-            event = st.dataframe(
-                df_mostrar,
-                column_config={
-                    "usuario": "ID", "nombre_completo": "Nombre", "rol": "Perfil",
-                    "estado": "Estatus", "fecha_creacion": st.column_config.DatetimeColumn("Alta")
-                },
-                use_container_width=True,
-                hide_index=True,
-                on_select="rerun" if rol_actual == "seguridad" else None,
-                selection_mode=seleccion_mode
-            )
-
-            # --- 3. ACCIONES DE EDICIÓN (SOLO SEGURIDAD) ---
-            if rol_actual == "seguridad" and len(event.selection.rows) > 0:
-                idx = event.selection.rows[0]
-                fila = df.iloc[idx]
+            if not df.empty:
+                st.markdown("<h4 style='color:#333333;'>📋 Analistas Registrados</h4>", unsafe_allow_html=True)
+                df["ESTATUS"] = df["estado"].apply(lambda x: "🟢 ACTIVO" if x == 1 else "🔴 INACTIVO")
                 
-                st.divider()
-                with st.container(border=True):
-                    st.markdown(f"#### ⚙️ Cambiar estado: {fila['usuario']}")
-                    label_btn = "🗑️ DESACTIVAR" if fila["estado"] == 1 else "✅ ACTIVAR"
+                event = st.dataframe(
+                    df,
+                    column_config={
+                        "usuario": "ID USUARIO",
+                        "nombre_completo": "NOMBRE Y APELLIDO",
+                        "rol": "NIVEL",
+                        "ESTATUS": "ESTADO",
+                        "estado": None 
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row"
+                )
+
+                # --- 3. FORMULARIO DE EDICIÓN RESTAURADO ---
+                seleccion = event.get("selection", {}).get("rows", [])
+                if seleccion:
+                    fila = df.iloc[seleccion[0]]
+                    st.markdown("---")
                     
-                    if st.button(label_btn, use_container_width=True):
-                        if fila["usuario"] == user_actual:
-                            st.error("No puedes desactivarte a ti mismo.")
-                        else:
-                            nuevo_estado = 0 if fila["estado"] == 1 else 1
-                            try:
-                                conn = conectar_bd()
-                                cursor = conn.cursor()
-                                cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (nuevo_estado, fila["usuario"]))
-                                # Auditoría
-                                cursor.execute("INSERT INTO historico_usuarios (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por) VALUES (%s, %s, %s, %s, %s)",
-                                              (fila["usuario"], "CAMBIO DE ESTADO", "ACTIVO" if nuevo_estado==0 else "INACTIVO", "INACTIVO" if nuevo_estado==0 else "ACTIVO", user_actual))
-                                conn.commit()
-                                conn.close()
-                                st.rerun()
-                            except: st.error("Fallo en BD.")
-        else:
-            st.warning("No hay analistas en la base de datos.")
+                    with st.container(border=True):
+                        st.markdown(f"<h4 style='color:#333333;'>⚙️ Editar Analista: <span style='color:#003366;'>{fila['usuario']}</span></h4>", unsafe_allow_html=True)
+                        
+                        # Formulario para actualizar datos
+                        with st.form("form_edicion"):
+                            nuevo_nombre = st.text_input("Modificar Nombre Completo", value=fila["nombre_completo"])
+                            
+                            col_f1, col_f2 = st.columns(2)
+                            label_btn = "🗑️ DESACTIVAR USUARIO" if fila["estado"] == 1 else "✅ ACTIVAR USUARIO"
+                            
+                            btn_save = col_f1.form_submit_button("💾 GUARDAR CAMBIOS", use_container_width=True)
+                            btn_state = col_f2.form_submit_button(label_btn, use_container_width=True)
+
+                            if btn_save:
+                                try:
+                                    conn = conectar_bd()
+                                    cursor = conn.cursor()
+                                    # Actualización de nombre
+                                    cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo_nombre, fila["usuario"]))
+                                    # Auditoría de nombre
+                                    cursor.execute("""
+                                        INSERT INTO historico_usuarios (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por) 
+                                        VALUES (%s, %s, %s, %s, %s)
+                                    """, (fila["usuario"], "EDICIÓN NOMBRE", fila["nombre_completo"], nuevo_nombre, user_actual))
+                                    conn.commit()
+                                    cursor.close()
+                                    conn.close()
+                                    st.success("Cambios guardados.")
+                                    st.rerun()
+                                except Exception as e:
+                                    if "RerunData" in str(type(e)): raise e
+                                    st.error(f"Fallo en BD: {e}")
+
+                            if btn_state:
+                                if fila["usuario"] == user_actual:
+                                    st.error("No puedes cambiar tu propio estado.")
+                                else:
+                                    nuevo_estado = 0 if fila["estado"] == 1 else 1
+                                    v_ant, v_nue = ("ACTIVO", "INACTIVO") if nuevo_estado == 0 else ("INACTIVO", "ACTIVO")
+                                    try:
+                                        conn = conectar_bd()
+                                        cursor = conn.cursor()
+                                        cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (nuevo_estado, fila["usuario"]))
+                                        cursor.execute("""
+                                            INSERT INTO historico_usuarios (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por) 
+                                            VALUES (%s, %s, %s, %s, %s)
+                                        """, (fila["usuario"], "CAMBIO DE ESTADO", v_ant, v_nue, user_actual))
+                                        conn.commit()
+                                        cursor.close()
+                                        conn.close()
+                                        st.rerun()
+                                    except Exception as e:
+                                        if "RerunData" in str(type(e)): raise e
+                                        st.error(f"Fallo en BD: {e}")
+            else:
+                st.markdown("<p style='color:#333333;'>No hay analistas registrados.</p>", unsafe_allow_html=True)
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error general: {e}")
