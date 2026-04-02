@@ -1,12 +1,16 @@
 import streamlit as st
-import pandas as pd
 from database import conectar_bd, registrar_auditoria_umbral
-from utils import obtener_telemetria
 from streamlit_autorefresh import st_autorefresh
 
+# --- INTENTO DE IMPORTACIÓN SEGURA ---
+try:
+    import pandas as pd
+    PANDAS_OK = True
+except ImportError:
+    PANDAS_OK = False
+
 def cargar_configuracion_inicial():
-    """Busca la última configuración real en la tabla historico_umbrales."""
-    # 1. Valores por defecto si la tabla está vacía
+    """Busca la última configuración usando cursores nativos."""
     defaults = {
         "u_cpu_perc": 85, "u_ram_perc": 90,
         "u_cpu_warn": 70, "u_ram_warn": 75
@@ -16,39 +20,34 @@ def cargar_configuracion_inicial():
         if key not in st.session_state:
             st.session_state[key] = val
 
-    # 2. Sincronización con los nombres de columna de tu SQL
     try:
         conn = conectar_bd()
-        # Mapeamos lo que hay en la BD con las variables de Streamlit
-        mapa = {
-            "CPU_CRIT": "u_cpu_perc", "RAM_CRIT": "u_ram_perc",
-            "CPU_WARN": "u_cpu_warn", "RAM_WARN": "u_ram_warn"
-        }
-        
-        for metrica_db, key_st in mapa.items():
-            # CORRECCIÓN: Usamos 'umbral_nuevo' y 'fecha_cambio' según tu .sql
-            query = f"""
-                SELECT umbral_nuevo 
-                FROM historico_umbrales 
-                WHERE metrica = '{metrica_db}' 
-                ORDER BY fecha_cambio DESC LIMIT 1
-            """
-            df = pd.read_sql(query, conn)
-            if not df.empty:
-                st.session_state[key_st] = int(df.iloc[0]['umbral_nuevo'])
-        conn.close()
-    except Exception as e:
-        # Si hay error de conexión, se mantienen los valores por defecto
-        pass
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            mapa = {
+                "CPU_CRIT": "u_cpu_perc", "RAM_CRIT": "u_ram_perc",
+                "CPU_WARN": "u_cpu_warn", "RAM_WARN": "u_ram_warn"
+            }
+            
+            for metrica_db, key_st in mapa.items():
+                query = f"SELECT umbral_nuevo FROM historico_umbrales WHERE metrica = %s ORDER BY fecha_cambio DESC LIMIT 1"
+                cursor.execute(query, (metrica_db,))
+                res = cursor.fetchone()
+                if res:
+                    st.session_state[key_st] = int(res['umbral_nuevo'])
+            
+            cursor.close()
+            conn.close()
+    except:
+        pass # Mantiene defaults si la BD falla
 
 def mostrar_pantalla():
-    # Esta llamada al inicio garantiza que al recargar (F5) se lea la BD
     cargar_configuracion_inicial()
     
     st_autorefresh(interval=10000, key="refresco_alertas")
     st.markdown("<h2 style='color:#003366;'>🚨 Panel de Control de Alertas</h2>", unsafe_allow_html=True)
 
-    # --- SECCIÓN DE REGULACIÓN ---
+    # --- SECCIÓN DE CONFIGURACIÓN (Nativa, no usa Pandas) ---
     with st.expander("⚙️ Ajustar Umbrales de Sensibilidad", expanded=True):
         col1, col2 = st.columns(2)
         
@@ -68,32 +67,42 @@ def mostrar_pantalla():
             else:
                 user = st.session_state.get("user_actual", "Admin_CSU")
                 
-                # Guardamos los 4 valores en la tabla historico_umbrales
+                # Guardamos usando la función de database.py (que ya limpiamos)
                 registrar_auditoria_umbral("CPU_CRIT", st.session_state.u_cpu_perc, u_cpu_crit, user)
                 registrar_auditoria_umbral("RAM_CRIT", st.session_state.u_ram_perc, u_ram_crit, user)
                 registrar_auditoria_umbral("CPU_WARN", st.session_state.u_cpu_warn, u_cpu_warn, user)
                 registrar_auditoria_umbral("RAM_WARN", st.session_state.u_ram_warn, u_ram_warn, user)
 
-                # Actualizamos la sesión para que el cambio sea instantáneo
-                st.session_state.u_cpu_perc = u_cpu_crit
-                st.session_state.u_ram_perc = u_ram_crit
-                st.session_state.u_cpu_warn = u_cpu_warn
-                st.session_state.u_ram_warn = u_ram_warn
+                st.session_state.u_cpu_perc, st.session_state.u_ram_perc = u_cpu_crit, u_ram_crit
+                st.session_state.u_cpu_warn, st.session_state.u_ram_warn = u_cpu_warn, u_ram_warn
                 
                 st.success("✅ Configuración guardada permanentemente.")
                 st.rerun()
 
-    # --- REGISTRO HISTÓRICO ---
+    # --- REGISTRO HISTÓRICO (Lógica Dual) ---
     st.markdown("### 📋 Historial Inmutable de Eventos")
     try:
         conn = conectar_bd()
-        query = "SELECT fecha_registro as Fecha, uso_cpu as 'CPU %', uso_ram as 'RAM %', estado_sistema as ESTATUS FROM monitoreo ORDER BY id DESC LIMIT 15"
-        df = pd.read_sql(query, conn)
-        conn.close()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT fecha_registro as Fecha, uso_cpu as 'CPU %', uso_ram as 'RAM %', estado_sistema as ESTATUS FROM monitoreo ORDER BY id DESC LIMIT 15"
+            cursor.execute(query)
+            datos = cursor.fetchall()
+            cursor.close()
+            conn.close()
 
-        if not df.empty:
-            iconos = {"CRÍTICO": "🔴 CRÍTICO", "PRECAUCIÓN": "🟠 PRECAUCIÓN", "NORMAL": "🟢 NORMAL"}
-            df["ESTATUS"] = df["ESTATUS"].apply(lambda x: iconos.get(str(x).upper(), x))
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            if datos:
+                iconos = {"CRÍTICO": "🔴 CRÍTICO", "PRECAUCIÓN": "🟠 PRECAUCIÓN", "NORMAL": "🟢 NORMAL"}
+                
+                if PANDAS_OK:
+                    df = pd.DataFrame(datos)
+                    df["ESTATUS"] = df["ESTATUS"].apply(lambda x: iconos.get(str(x).upper(), x))
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                else:
+                    st.warning("⚠️ Modo de compatibilidad activa (Sin Pandas)")
+                    # Formateamos un poco la lista para que se vea bien en st.table
+                    for d in datos:
+                        d["ESTATUS"] = iconos.get(str(d["ESTATUS"]).upper(), d["ESTATUS"])
+                    st.table(datos)
     except:
         st.warning("No se pudo cargar el historial de telemetría.")
