@@ -1,5 +1,4 @@
 import mysql.connector
-import pandas as pd
 import streamlit as st
 
 def conectar_bd():
@@ -10,7 +9,7 @@ def conectar_bd():
             "user": "root",
             "password": "1234",
             "database": "monitoreo_banco",
-            # Plugin forzado para evitar el error 4058 que vimos antes
+            # Plugin forzado para evitar el error 4058 en Windows Server
             "auth_plugin": "mysql_native_password", 
         }
         return mysql.connector.connect(**config)
@@ -36,20 +35,29 @@ def verificar_usuario(usuario, clave):
     return None
 
 def obtener_datos_historicos():
-    """Extrae datos de la nueva tabla 'monitoreo' (Sin la palabra nodo)."""
+    """
+    Extrae datos usando cursores nativos.
+    Ya no usa Pandas (pd.read_sql) para evitar errores de DLL en el servidor.
+    """
     conn = conectar_bd()
+    datos = []
     if conn:
         try:
-            # Cambio de tabla: monitoreo_nodos -> monitoreo
+            # dictionary=True hace que cada fila sea un diccionario {'columna': valor}
+            cursor = conn.cursor(dictionary=True)
             query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo ORDER BY fecha_registro ASC"
-            df = pd.read_sql(query, conn)
+            cursor.execute(query)
+            datos = cursor.fetchall()  # Retorna una lista de diccionarios
+            cursor.close()
             conn.close()
-            return df
+            return datos 
         except Exception as e:
             st.error(f"Error al extraer telemetría: {e}")
-    return pd.DataFrame()
+    
+    # Si falla o no hay datos, devuelve una lista vacía compatible con bucles
+    return datos
 
-# --- NUEVAS FUNCIONES DE AUDITORÍA (Idea aprobada por el Banco) ---
+# --- FUNCIONES DE AUDITORÍA (Mantenidas como código nativo seguro) ---
 
 def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor):
     """Guarda cambios de personal en 'historico_usuarios'."""
@@ -79,8 +87,8 @@ def registrar_auditoria_umbral(metrica, anterior, nuevo, ejecutor):
                 (metrica, umbral_anterior, umbral_nuevo, modificado_por)
                 VALUES (%s, %s, %s, %s)
             """
-            cursor.execute(query, (metrica, anterior, nuevo, ejecutor))
+            cursor.execute(query, (metrica, str(anterior), str(nuevo), ejecutor))
             conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Error de auditoría (Alerta): {e}")
+            print(f"Error de auditoría (Umbral): {e}")
