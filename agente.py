@@ -77,8 +77,8 @@ def iniciar_agente():
             except mysql.connector.Error as err:
                 print(f"❌ Error de Base de Datos: {err}")
             
-            # 4. Espera de 30 segundos
-            time.sleep(30)
+            # 4. Espera de 5 segundos
+            time.sleep(5)
 
     except KeyboardInterrupt:
         # Captura el cierre manual (Ctrl+C)

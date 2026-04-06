@@ -3,86 +3,59 @@ from datetime import datetime
 from database import conectar_bd
 from utils import obtener_telemetria
 
-def mostrar_pantalla(user_actual):
-    # --- 1. CAMBIO NATIVO: Eliminamos st_autorefresh ---
-    # En su lugar, usamos un botón de actualización manual para el servidor
-    col_t, col_refresh = st.columns([4, 1])
-    with col_t:
-        st.markdown(
-            "<h2 style='color:#003366; margin-top:-30px;'>Monitoreo en Tiempo Real: CSU</h2>",
-            unsafe_allow_html=True,
-        )
-    with col_refresh:
-        if st.button("🔄 ACTUALIZAR", use_container_width=True):
-            st.rerun()
-
-    # 2. Captura de datos instantáneos (Nativo, no usa Pandas)
+@st.fragment(run_every=5)
+def fragmento_tiempo_real():
+    # 1. Obtención de métricas (vía SNMP/PSUTIL)
     cpu_val, ram_val, fuente_msg = obtener_telemetria()
     fecha_actual = datetime.now().strftime("%H:%M:%S")
 
-    # Panel de indicadores superiores (Métricas nativas de Streamlit)
+    # Panel de indicadores visuales
     col_info, col_status = st.columns([2, 1])
     with col_info:
         st.markdown(
             f"""
             <div style="background-color:#ffffff; border:1px solid #d3d3d3; padding:20px; border-left:5px solid #003366;">
-                <div style="background-color:#003366; color:white; padding:2px 8px; font-size:10px; font-weight:bold; display:inline-block; margin-bottom:10px;">CAPTURA EN VIVO</div>
-                <h3 style="margin:0; color:#003366;">Infraestructura de Red - Banco Caroní</h3>
-                <p style="margin:0; color:#666; font-size:13px;">Última lectura: {fecha_actual} | Origen: {fuente_msg}</p>
+                <div style="background-color:#003366; color:white; padding:2px 8px; font-size:10px; font-weight:bold; display:inline-block; margin-bottom:10px;">MONITOREO CRÍTICO (5s)</div>
+                <h3 style="margin:0; color:#003366;">Infraestructura CSU - Banco Caroní</h3>
+                <p style="margin:0; color:#666; font-size:13px;">Última actualización: <b>{fecha_actual}</b></p>
+                <p style="margin:0; color:#999; font-size:11px;">Nodo: {fuente_msg}</p>
             </div>
-        """,
+            """,
             unsafe_allow_html=True,
         )
 
     with col_status:
         c1, c2 = st.columns(2)
-        # st.metric es nativo y muy eficiente
+        # Métricas nativas con delta (opcional si quieres comparar con el anterior)
         c1.metric("CPU", f"{cpu_val}%")
         c2.metric("RAM", f"{ram_val}%")
 
     st.divider()
 
-    # 3. Visualización de Tendencia (100% Nativa - Sin Pandas ni Plotly)
+    # 2. Gráfico de línea nativo (Sin Pandas/Numpy)
     try:
         conn = conectar_bd()
         if conn:
-            # EXTRACCIÓN NATIVA: Usamos el cursor de MySQL directamente
             cursor = conn.cursor(dictionary=True)
-            query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo ORDER BY id DESC LIMIT 20"
+            # Traemos los últimos 30 puntos para ver una ventana de tiempo decente
+            query = "SELECT uso_cpu, uso_ram FROM monitoreo ORDER BY id DESC LIMIT 30"
             cursor.execute(query)
-            datos_raw = cursor.fetchall() # Lista de diccionarios
+            datos_raw = cursor.fetchall()
             cursor.close()
             conn.close()
 
             if datos_raw:
-                st.markdown("### 📊 Tendencia de Carga Reciente")
-                
-                # --- GRÁFICO NATIVO DE STREAMLIT ---
-                # Preparamos los datos usando 'Comprensión de Listas' de Python puro
-                # Esto es ultra rápido y no requiere Numpy ni Pandas
+                st.markdown("### 📊 Gráfico de Carga Dinámica")
                 chart_data = {
-                    "Carga CPU %": [d['uso_cpu'] for d in reversed(datos_raw)],
-                    "Uso RAM %": [d['uso_ram'] for d in reversed(datos_raw)]
+                    "CPU %": [d['uso_cpu'] for d in reversed(datos_raw)],
+                    "RAM %": [d['uso_ram'] for d in reversed(datos_raw)]
                 }
-                
-                # st.line_chart es una función interna de Streamlit que dibuja gráficos limpios
-                st.line_chart(chart_data, height=300)
-                
-                # Tabla de datos para auditoría visual opcional
-                with st.expander("Ver tabla de datos detallada"):
-                    st.table(datos_raw)
-
-            else:
-                st.info("💡 No se encontraron registros. Verifique el agente.")
-
+                st.line_chart(chart_data, height=350, use_container_width=True)
     except Exception as e:
-        st.error(f"⚠️ Error de telemetría: {e}")
+        st.error(f"Error en flujo de datos: {e}")
 
-    # 4. Panel de sugerencias (Nativo)
-    with st.expander("Ver recomendaciones de optimización", expanded=True):
-        if cpu_val > 80:
-            st.warning("Se detecta una carga alta de CPU. Revise procesos de PRTG.")
-        elif ram_val > 85:
-            st.warning("Uso de RAM elevado. Considere revisar la caché del servidor.")
-        else:
-            st.success("El rendimiento se mantiene dentro de los parámetros estables.")
+def mostrar_pantalla(user_actual):
+    st.markdown("<h2 style='color:#003366; margin-top:-30px;'>Monitoreo en Tiempo Real</h2>", unsafe_allow_html=True)
+    
+    # Ejecución del fragmento continuo
+    fragmento_tiempo_real()

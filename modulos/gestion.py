@@ -14,7 +14,7 @@ def mostrar_pantalla(user_actual):
 
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal y Analistas</h2>", unsafe_allow_html=True)
 
-    # --- 1. FORMULARIO DE REGISTRO (Código Nativo) ---
+    # --- 1. FORMULARIO DE REGISTRO ---
     if rol_actual == "seguridad":
         col_tit, col_btn = st.columns([3, 1])
         with col_btn:
@@ -53,12 +53,12 @@ def mostrar_pantalla(user_actual):
                         else:
                             st.warning("Complete todos los campos.")
 
-    # --- 2. TABLA DE USUARIOS (100% Nativa - Sin Pandas) ---
+    # --- 2. TABLA DE USUARIOS (CORREGIDA PARA VISUALIZACIÓN) ---
     try:
         conn = conectar_bd()
         if conn:
-            # Extraemos datos usando el cursor de diccionario de MySQL
-            cursor = conn.cursor(dictionary=True)
+            # Usamos un cursor normal para máxima compatibilidad con el servidor
+            cursor = conn.cursor()
             cursor.execute("SELECT usuario, nombre_completo, rol, estado FROM usuarios")
             usuarios_lista = cursor.fetchall()
             cursor.close()
@@ -67,20 +67,21 @@ def mostrar_pantalla(user_actual):
             if usuarios_lista:
                 st.markdown("<h4 style='color:#333333;'>📋 Analistas Registrados</h4>", unsafe_allow_html=True)
                 
-                # Formateamos los datos manualmente para st.table
                 datos_para_tabla = []
                 ids_disponibles = []
                 
+                # Accedemos por índice (0, 1, 2, 3) para evitar errores de nombre de columna
                 for u in usuarios_lista:
-                    ids_disponibles.append(u['usuario'])
+                    id_user = str(u[0])
+                    ids_disponibles.append(id_user)
                     datos_para_tabla.append({
-                        "ID USUARIO": u['usuario'],
-                        "NOMBRE Y APELLIDO": u['nombre_completo'],
-                        "NIVEL": u['rol'].upper(),
-                        "ESTADO": "🟢 ACTIVO" if u['estado'] == 1 else "🔴 INACTIVO"
+                        "ID USUARIO": id_user,
+                        "NOMBRE Y APELLIDO": u[1],
+                        "NIVEL": str(u[2]).upper(),
+                        "ESTADO": "🟢 ACTIVO" if u[3] == 1 else "🔴 INACTIVO"
                     })
                 
-                # Visualización Nativa
+                # Mostramos la tabla nativa
                 st.table(datos_para_tabla)
 
                 # --- 3. LÓGICA DE EDICIÓN NATIVA ---
@@ -90,37 +91,40 @@ def mostrar_pantalla(user_actual):
                 
                 usuario_a_editar = col_sel.selectbox(
                     "Seleccione un ID para modificar:", 
-                    [""] + ids_disponibles,
-                    help="Elija el ID del analista que desea editar o cambiar de estado"
+                    [""] + ids_disponibles
                 )
 
                 if usuario_a_editar:
-                    # Buscamos los datos del usuario seleccionado en la lista nativa
-                    fila_seleccionada = next(item for item in usuarios_lista if item["usuario"] == usuario_a_editar)
-                    renderizar_formulario_edicion(fila_seleccionada, user_actual)
+                    # Buscamos la fila correspondiente por ID
+                    fila_raw = next(item for item in usuarios_lista if str(item[0]) == usuario_a_editar)
+                    # Convertimos a diccionario temporal solo para el formulario de edición
+                    fila_dict = {
+                        "usuario": fila_raw[0],
+                        "nombre_completo": fila_raw[1],
+                        "rol": fila_raw[2],
+                        "estado": fila_raw[3]
+                    }
+                    renderizar_formulario_edicion(fila_dict, user_actual)
             else:
-                st.markdown("<p style='color:#333333;'>No hay analistas registrados.</p>", unsafe_allow_html=True)
+                st.info("No hay analistas registrados.")
     except Exception as e:
-        st.error(f"Error de acceso a datos: {e}")
+        st.error(f"Error de visualización: {e}")
 
+# Las funciones renderizar_formulario_edicion, ejecutar_update_nombre 
+# y ejecutar_update_estado se mantienen exactamente igual que en tu original.
 def renderizar_formulario_edicion(fila, user_actual):
     with st.container(border=True):
         st.markdown(f"#### Editando: {fila['nombre_completo']} ({fila['usuario']})")
         with st.form("form_edicion"):
             nuevo_nombre = st.text_input("Modificar Nombre Completo", value=fila["nombre_completo"])
             col_f1, col_f2 = st.columns(2)
-            
             estado_texto = "ACTIVO" if fila["estado"] == 1 else "INACTIVO"
             label_btn = "🗑️ DESACTIVAR" if fila["estado"] == 1 else "✅ ACTIVAR"
-            
             st.info(f"Estado actual: {estado_texto}")
-            
             btn_save = col_f1.form_submit_button("💾 GUARDAR NOMBRE", use_container_width=True)
             btn_state = col_f2.form_submit_button(label_btn, use_container_width=True)
-
             if btn_save:
                 ejecutar_update_nombre(fila['usuario'], nuevo_nombre, fila['nombre_completo'], user_actual)
-
             if btn_state:
                 ejecutar_update_estado(fila['usuario'], fila['estado'], user_actual)
 

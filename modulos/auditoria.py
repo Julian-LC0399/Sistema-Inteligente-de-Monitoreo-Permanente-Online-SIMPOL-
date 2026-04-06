@@ -9,17 +9,19 @@ def mostrar_pantalla():
     try:
         conn = conectar_bd()
         if conn:
-            # 1. Obtener estadísticas rápidas (Nativo)
-            cursor = conn.cursor(dictionary=True)
+            # Usamos un cursor normal para evitar conflictos de configuración
+            cursor = conn.cursor()
             
+            # 1. Obtener estadísticas rápidas (Ajustado a nombres de SQL real)
             # Conteo total
-            cursor.execute("SELECT COUNT(*) as total FROM historico_accesos")
-            total_ingresos = cursor.fetchone()['total']
+            cursor.execute("SELECT COUNT(*) FROM log_accesos")
+            res_total = cursor.fetchone()
+            total_ingresos = res_total[0] if res_total else 0
             
             # Último acceso
-            cursor.execute("SELECT fecha_acceso FROM historico_accesos ORDER BY id DESC LIMIT 1")
+            cursor.execute("SELECT fecha_acceso FROM log_accesos ORDER BY id_log DESC LIMIT 1")
             ultimo = cursor.fetchone()
-            fecha_u = ultimo['fecha_acceso'].strftime('%Y-%m-%d %H:%M') if ultimo else "N/A"
+            fecha_u = ultimo[0].strftime('%d/%m/%Y %H:%M') if ultimo else "N/A"
 
             # 2. Renderizar métricas superiores
             c1, c2 = st.columns(2)
@@ -30,13 +32,12 @@ def mostrar_pantalla():
 
             st.divider()
 
-            # 3. Tabla de registros (100% Nativa - Sin Pandas)
+            # 3. Tabla de registros (Ajustada a columnas del SQL: usuario, fecha_acceso, ip_cliente, resultado)
             st.markdown("### 📋 Historial Detallado")
             
-            # Traemos los últimos 50 registros
             cursor.execute("""
-                SELECT usuario, fecha_acceso, ip_origen, terminal_nombre 
-                FROM historico_accesos 
+                SELECT usuario, fecha_acceso, ip_cliente, resultado 
+                FROM log_accesos 
                 ORDER BY fecha_acceso DESC LIMIT 50
             """)
             logs = cursor.fetchall()
@@ -44,21 +45,19 @@ def mostrar_pantalla():
             conn.close()
 
             if logs:
-                # Formateamos para que se vea limpio en st.table
                 tabla_limpia = []
                 for l in logs:
                     tabla_limpia.append({
-                        "USUARIO": l['usuario'],
-                        "FECHA Y HORA": l['fecha_acceso'].strftime('%d/%m/%Y %H:%M:%S'),
-                        "IP ORIGEN": l['ip_origen'],
-                        "ESTACIÓN": l['terminal_nombre']
+                        "USUARIO": l[0],
+                        "FECHA Y HORA": l[1].strftime('%d/%m/%Y %H:%M:%S'),
+                        "IP CLIENTE": l[2],
+                        "ESTADO": l[3]
                     })
                 
-                # Usamos st.table porque no requiere librerías externas
+                # Visualización nativa
                 st.table(tabla_limpia)
             else:
-                st.warning("No hay registros de auditoría disponibles.")
+                st.warning("No hay registros de auditoría disponibles en la tabla 'log_accesos'.")
 
     except Exception as e:
-        # Si algo falla aquí, es por la base de datos, no por Numpy
-        st.error(f"Error técnico en auditoría: {e}")
+        st.error(f"⚠️ Error de base de datos: {e}")
