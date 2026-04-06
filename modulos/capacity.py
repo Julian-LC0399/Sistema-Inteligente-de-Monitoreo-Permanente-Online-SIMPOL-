@@ -1,116 +1,70 @@
 import streamlit as st
-import plotly.graph_objects as go
 from database import obtener_datos_historicos
 from datetime import datetime, timedelta
-
-# --- PROTECCIÓN DE LIBRERÍAS CRÍTICAS ---
-# Intentamos importar las librerías que suelen fallar en el servidor
-try:
-    import pandas as pd
-    import numpy as np
-    MODO_PREDICTIVO_ACTIVO = True
-except ImportError:
-    MODO_PREDICTIVO_ACTIVO = False
 
 def mostrar_pantalla():
     st.markdown("<h2 style='color: #003366;'>📈 Planificación de Capacidad (Capacity Planning)</h2>", unsafe_allow_html=True)
     
-    # 1. Verificación de infraestructura (Resiliencia)
-    if not MODO_PREDICTIVO_ACTIVO:
-        st.error("⚠️ El motor de predicción matemática no está disponible en este servidor.")
-        st.info("""
-            **Nota Técnica para el Analista:** Este módulo requiere componentes de C++ (Numpy/Pandas) que están restringidos por las políticas de seguridad del Windows Server 2019.
-            \n- El monitoreo en tiempo real y las auditorías siguen funcionando.
-            \n- Para ver proyecciones, ejecute SIMPOL desde una estación de trabajo con las librerías completas.
-        """)
-        
-        # Intentamos mostrar al menos los datos históricos en una tabla simple
-        datos_raw = obtener_datos_historicos()
-        if datos_raw:
-            st.markdown("### Histórico de Carga (Datos Crudos)")
-            st.table(datos_raw[:10])
+    # 1. Obtención de datos nativa (Lista de diccionarios)
+    datos_raw = obtener_datos_historicos()
+
+    if not datos_raw or len(datos_raw) < 5:
+        st.warning("⚠️ Se requieren al menos 5 registros históricos para generar un análisis de tendencia.")
         return
 
-    # --- 2. LÓGICA CON PANDAS/NUMPY (Solo si están disponibles) ---
-    datos_bd = obtener_datos_historicos()
-
-    # Convertimos la lista de la BD a DataFrame
-    if isinstance(datos_bd, list):
-        df = pd.DataFrame(datos_bd)
-    else:
-        df = datos_bd
-
-    if df.empty or len(df) < 5:
-        st.warning("⚠️ Se requieren al menos 5 registros históricos para generar una tendencia confiable.")
-        return
-
-    # 3. Configuración de la Proyección
+    # 2. Configuración de la Proyección
     with st.container(border=True):
         col1, col2 = st.columns(2)
         dias_proyectar = col1.slider("Días a proyectar hacia el futuro:", 1, 30, 7)
         metrica = col2.selectbox("Métrica a analizar:", ["uso_cpu", "uso_ram"], 
                                 format_func=lambda x: x.replace("_", " ").upper())
 
+    # --- 3. LÓGICA MATEMÁTICA NATIVA (Sin Numpy ni Pandas) ---
     try:
-        # Preparación de datos para la regresión
-        df['fecha_registro'] = pd.to_datetime(df['fecha_registro'])
-        df['timestamp'] = df['fecha_registro'].map(pd.Timestamp.timestamp)
+        # Extraemos solo los valores numéricos de la métrica seleccionada
+        valores = [d[metrica] for d in datos_raw]
+        n = len(valores)
         
-        x_real = df['timestamp'].values
-        y_real = df[metrica].values
-
-        # Cálculo de la tendencia (Regresión Polinómica Grado 2)
-        # Aquí es donde Numpy podría fallar si las DLLs no están
-        z = np.polyfit(x_real, y_real, 2)
-        modelo = np.poly1d(z)
-
-        # Generar puntos futuros
-        ultimo_ts = x_real[-1]
-        paso_segundos = 3600 * 6 # Proyectamos cada 6 horas
-        puntos_futuros = (dias_proyectar * 24) // 6
-        x_futuro_unix = np.linspace(ultimo_ts, ultimo_ts + (dias_proyectar * 86400), puntos_futuros)
-        y_futuro = modelo(x_futuro_unix)
-
-        # 4. Construcción del Gráfico Plotly
-        fig = go.Figure()
-
-        # Datos Reales
-        fig.add_trace(go.Scatter(
-            x=df['fecha_registro'], y=y_real,
-            mode='lines+markers', name='Histórico Real',
-            line=dict(color='#003366', width=2)
-        ))
-
-        # Línea de Proyección
-        fechas_futuras = [datetime.fromtimestamp(ts) for ts in x_futuro_unix]
-        fig.add_trace(go.Scatter(
-            x=fechas_futuras, y=y_futuro,
-            name='Proyección de Tendencia',
-            line=dict(color='#e74c3c', width=3, dash='dash')
-        ))
-
-        fig.update_layout(
-            title=f"Análisis de Crecimiento: {metrica.upper()}",
-            xaxis_title="Tiempo",
-            yaxis_title="Porcentaje %",
-            yaxis=dict(range=[0, 110]),
-            plot_bgcolor="white",
-            hovermode="x unified"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # 5. Conclusión Inteligente
-        valor_final = y_futuro[-1]
-        fecha_meta = fechas_futuras[-1].strftime('%d/%m/%Y')
+        # Cálculo de tendencia: Diferencia entre el último y el primer registro
+        # Esto nos da el crecimiento total en el periodo capturado
+        cambio_total = valores[-1] - valores[0]
+        tendencia_por_registro = cambio_total / n
         
-        with st.expander("📝 Interpretación del Análisis", expanded=True):
-            if valor_final > 90:
-                st.error(f"🚨 **ALERTA DE CAPACIDAD:** La tendencia indica que el recurso podría saturarse ({valor_final:.1f}%) para el {fecha_meta}.")
-            elif valor_final > 75:
-                st.warning(f"⚠️ **PRECAUCIÓN:** Se prevé un incremento sostenido hasta el {valor_final:.1f}% en la fecha indicada.")
+        # Estimación: Asumimos que el agente registra datos cada hora (24 al día)
+        puntos_a_proyectar = dias_proyectar * 24
+        valor_estimado_futuro = valores[-1] + (tendencia_por_registro * puntos_a_proyectar)
+        
+        # Aseguramos que el porcentaje se mantenga en límites reales (0-100)
+        valor_estimado_futuro = max(0, min(100, valor_estimado_futuro))
+
+        # --- 4. VISUALIZACIÓN NATIVA (st.line_chart) ---
+        st.markdown(f"### 📊 Histórico y Tendencia: {metrica.upper()}")
+        
+        # Preparamos los datos para el gráfico nativo de Streamlit
+        # st.line_chart es extremadamente rápido y no depende de Plotly
+        chart_data = {
+            "Carga Real %": valores
+        }
+        st.line_chart(chart_data, height=300)
+
+        # --- 5. CONCLUSIÓN Y FECHA ESTIMADA ---
+        fecha_meta = (datetime.now() + timedelta(days=dias_proyectar)).strftime('%d/%m/%Y')
+        
+        with st.expander("📝 Interpretación del Análisis (Modo Nativo)", expanded=True):
+            st.write(f"Basado en el comportamiento de los últimos **{n} registros**:")
+            
+            if valor_estimado_futuro > 90:
+                st.error(f"🚨 **ALERTA DE CAPACIDAD:** Se estima una saturación del **{valor_estimado_futuro:.1f}%** para el {fecha_meta}.")
+                st.info("Sugerencia: Revisar procesos en segundo plano o ampliar recursos de hardware.")
+            elif valor_estimado_futuro > 75:
+                st.warning(f"⚠️ **PRECAUCIÓN:** El uso proyectado asciende al **{valor_estimado_futuro:.1f}%** en la fecha indicada.")
             else:
-                st.success(f"✅ **ESTABILIDAD:** Los recursos proyectan un uso saludable del {valor_final:.1f}% para la próxima semana.")
+                st.success(f"✅ **ESTABILIDAD:** Los recursos proyectan un uso saludable del **{valor_estimado_futuro:.1f}%** para la próxima semana.")
+
+        # 6. Tabla de soporte (Datos Crudos)
+        with st.expander("📄 Ver registros históricos detallados"):
+            # Mostramos los últimos 15 de forma elegante
+            st.table(datos_raw[:15])
 
     except Exception as e:
-        st.error(f"Error en el cálculo matemático: {e}")
+        st.error(f"Error en el cálculo de capacidad: {e}")

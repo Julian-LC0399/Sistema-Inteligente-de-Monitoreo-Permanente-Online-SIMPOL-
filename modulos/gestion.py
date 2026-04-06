@@ -2,13 +2,6 @@ import streamlit as st
 from database import conectar_bd
 from datetime import datetime
 
-# --- INTENTO DE IMPORTACIÓN SEGURA ---
-try:
-    import pandas as pd
-    PANDAS_OK = True
-except ImportError:
-    PANDAS_OK = False
-
 def mostrar_pantalla(user_actual):
     rol_actual = st.session_state.get("rol", "operador")
 
@@ -21,7 +14,7 @@ def mostrar_pantalla(user_actual):
 
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal y Analistas</h2>", unsafe_allow_html=True)
 
-    # --- 1. FORMULARIO DE REGISTRO (Código Nativo, siempre funciona) ---
+    # --- 1. FORMULARIO DE REGISTRO (Código Nativo) ---
     if rol_actual == "seguridad":
         col_tit, col_btn = st.columns([3, 1])
         with col_btn:
@@ -60,11 +53,11 @@ def mostrar_pantalla(user_actual):
                         else:
                             st.warning("Complete todos los campos.")
 
-    # --- 2. TABLA DE USUARIOS (Lógica Dual) ---
+    # --- 2. TABLA DE USUARIOS (100% Nativa - Sin Pandas) ---
     try:
         conn = conectar_bd()
         if conn:
-            # Extraemos datos de forma nativa (lista de diccionarios)
+            # Extraemos datos usando el cursor de diccionario de MySQL
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT usuario, nombre_completo, rol, estado FROM usuarios")
             usuarios_lista = cursor.fetchall()
@@ -74,61 +67,61 @@ def mostrar_pantalla(user_actual):
             if usuarios_lista:
                 st.markdown("<h4 style='color:#333333;'>📋 Analistas Registrados</h4>", unsafe_allow_html=True)
                 
-                # --- MODO CON PANDAS (Interactivo) ---
-                if PANDAS_OK:
-                    df = pd.DataFrame(usuarios_lista)
-                    df["ESTATUS"] = df["estado"].apply(lambda x: "🟢 ACTIVO" if x == 1 else "🔴 INACTIVO")
-                    
-                    event = st.dataframe(
-                        df,
-                        column_config={
-                            "usuario": "ID USUARIO",
-                            "nombre_completo": "NOMBRE Y APELLIDO",
-                            "rol": "NIVEL",
-                            "ESTATUS": "ESTADO",
-                            "estado": None 
-                        },
-                        use_container_width=True,
-                        hide_index=True,
-                        on_select="rerun",
-                        selection_mode="single-row"
-                    )
+                # Formateamos los datos manualmente para st.table
+                datos_para_tabla = []
+                ids_disponibles = []
+                
+                for u in usuarios_lista:
+                    ids_disponibles.append(u['usuario'])
+                    datos_para_tabla.append({
+                        "ID USUARIO": u['usuario'],
+                        "NOMBRE Y APELLIDO": u['nombre_completo'],
+                        "NIVEL": u['rol'].upper(),
+                        "ESTADO": "🟢 ACTIVO" if u['estado'] == 1 else "🔴 INACTIVO"
+                    })
+                
+                # Visualización Nativa
+                st.table(datos_para_tabla)
 
-                    # Lógica de edición basada en selección
-                    seleccion = event.get("selection", {}).get("rows", [])
-                    if seleccion:
-                        fila = df.iloc[seleccion[0]]
-                        renderizar_formulario_edicion(fila, user_actual)
+                # --- 3. LÓGICA DE EDICIÓN NATIVA ---
+                st.markdown("---")
+                st.subheader("⚙️ Panel de Edición")
+                col_sel, col_esp = st.columns([2, 2])
+                
+                usuario_a_editar = col_sel.selectbox(
+                    "Seleccione un ID para modificar:", 
+                    [""] + ids_disponibles,
+                    help="Elija el ID del analista que desea editar o cambiar de estado"
+                )
 
-                # --- MODO SIN PANDAS (Servidor con Error) ---
-                else:
-                    st.warning("⚠️ Modo de compatibilidad: Selección deshabilitada (Sin Pandas)")
-                    # Mostramos los datos en una tabla estática
-                    st.table(usuarios_lista)
-                    st.info("Para editar un usuario en el servidor, use la consola de base de datos mientras se resuelve el error de DLL.")
+                if usuario_a_editar:
+                    # Buscamos los datos del usuario seleccionado en la lista nativa
+                    fila_seleccionada = next(item for item in usuarios_lista if item["usuario"] == usuario_a_editar)
+                    renderizar_formulario_edicion(fila_seleccionada, user_actual)
             else:
                 st.markdown("<p style='color:#333333;'>No hay analistas registrados.</p>", unsafe_allow_html=True)
     except Exception as e:
-        st.error(f"Error general: {e}")
+        st.error(f"Error de acceso a datos: {e}")
 
-# Función auxiliar para no ensuciar el código principal
 def renderizar_formulario_edicion(fila, user_actual):
-    st.markdown("---")
     with st.container(border=True):
-        st.markdown(f"<h4 style='color:#333333;'>⚙️ Editar Analista: <span style='color:#003366;'>{fila['usuario']}</span></h4>", unsafe_allow_html=True)
+        st.markdown(f"#### Editando: {fila['nombre_completo']} ({fila['usuario']})")
         with st.form("form_edicion"):
             nuevo_nombre = st.text_input("Modificar Nombre Completo", value=fila["nombre_completo"])
             col_f1, col_f2 = st.columns(2)
+            
+            estado_texto = "ACTIVO" if fila["estado"] == 1 else "INACTIVO"
             label_btn = "🗑️ DESACTIVAR" if fila["estado"] == 1 else "✅ ACTIVAR"
-            btn_save = col_f1.form_submit_button("💾 GUARDAR", use_container_width=True)
+            
+            st.info(f"Estado actual: {estado_texto}")
+            
+            btn_save = col_f1.form_submit_button("💾 GUARDAR NOMBRE", use_container_width=True)
             btn_state = col_f2.form_submit_button(label_btn, use_container_width=True)
 
             if btn_save:
-                # ... (Lógica de UPDATE igual que tu original)
                 ejecutar_update_nombre(fila['usuario'], nuevo_nombre, fila['nombre_completo'], user_actual)
 
             if btn_state:
-                # ... (Lógica de UPDATE estado igual que tu original)
                 ejecutar_update_estado(fila['usuario'], fila['estado'], user_actual)
 
 def ejecutar_update_nombre(usuario_id, nuevo, anterior, ejecutor):
@@ -145,7 +138,7 @@ def ejecutar_update_nombre(usuario_id, nuevo, anterior, ejecutor):
     except Exception as e: st.error(f"Error: {e}")
 
 def ejecutar_update_estado(usuario_id, estado_actual, ejecutor):
-    if usuario_id == ejecutor:
+    if str(usuario_id) == str(ejecutor):
         st.error("No puedes cambiar tu propio estado.")
         return
     nuevo_estado = 0 if estado_actual == 1 else 1

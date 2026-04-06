@@ -1,13 +1,9 @@
 import streamlit as st
 from database import conectar_bd, registrar_auditoria_umbral
-from streamlit_autorefresh import st_autorefresh
+from datetime import datetime
 
-# --- INTENTO DE IMPORTACIÓN SEGURA ---
-try:
-    import pandas as pd
-    PANDAS_OK = True
-except ImportError:
-    PANDAS_OK = False
+# --- ELIMINACIÓN DE DEPENDENCIAS EXTERNAS ---
+# Ya no importamos streamlit_autorefresh ni pandas para evitar errores de DLL y ModuleNotFound
 
 def cargar_configuracion_inicial():
     """Busca la última configuración usando cursores nativos."""
@@ -44,10 +40,15 @@ def cargar_configuracion_inicial():
 def mostrar_pantalla():
     cargar_configuracion_inicial()
     
-    st_autorefresh(interval=10000, key="refresco_alertas")
-    st.markdown("<h2 style='color:#003366;'>🚨 Panel de Control de Alertas</h2>", unsafe_allow_html=True)
+    # --- CABECERA CON BOTÓN DE REFRESCO NATIVO ---
+    col_t, col_refresh = st.columns([4, 1])
+    with col_t:
+        st.markdown("<h2 style='color:#003366; margin-top:-20px;'>🚨 Panel de Control de Alertas</h2>", unsafe_allow_html=True)
+    with col_refresh:
+        if st.button("🔄 ACTUALIZAR", use_container_width=True):
+            st.rerun()
 
-    # --- SECCIÓN DE CONFIGURACIÓN (Nativa, no usa Pandas) ---
+    # --- SECCIÓN DE CONFIGURACIÓN (Nativa) ---
     with st.expander("⚙️ Ajustar Umbrales de Sensibilidad", expanded=True):
         col1, col2 = st.columns(2)
         
@@ -67,7 +68,7 @@ def mostrar_pantalla():
             else:
                 user = st.session_state.get("user_actual", "Admin_CSU")
                 
-                # Guardamos usando la función de database.py (que ya limpiamos)
+                # Guardamos usando la función de database.py
                 registrar_auditoria_umbral("CPU_CRIT", st.session_state.u_cpu_perc, u_cpu_crit, user)
                 registrar_auditoria_umbral("RAM_CRIT", st.session_state.u_ram_perc, u_ram_crit, user)
                 registrar_auditoria_umbral("CPU_WARN", st.session_state.u_cpu_warn, u_cpu_warn, user)
@@ -79,7 +80,7 @@ def mostrar_pantalla():
                 st.success("✅ Configuración guardada permanentemente.")
                 st.rerun()
 
-    # --- REGISTRO HISTÓRICO (Lógica Dual) ---
+    # --- REGISTRO HISTÓRICO (100% Nativo - Sin Pandas) ---
     st.markdown("### 📋 Historial Inmutable de Eventos")
     try:
         conn = conectar_bd()
@@ -87,22 +88,30 @@ def mostrar_pantalla():
             cursor = conn.cursor(dictionary=True)
             query = "SELECT fecha_registro as Fecha, uso_cpu as 'CPU %', uso_ram as 'RAM %', estado_sistema as ESTATUS FROM monitoreo ORDER BY id DESC LIMIT 15"
             cursor.execute(query)
-            datos = cursor.fetchall()
+            datos_raw = cursor.fetchall()
             cursor.close()
             conn.close()
 
-            if datos:
+            if datos_raw:
                 iconos = {"CRÍTICO": "🔴 CRÍTICO", "PRECAUCIÓN": "🟠 PRECAUCIÓN", "NORMAL": "🟢 NORMAL"}
                 
-                if PANDAS_OK:
-                    df = pd.DataFrame(datos)
-                    df["ESTATUS"] = df["ESTATUS"].apply(lambda x: iconos.get(str(x).upper(), x))
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-                else:
-                    st.warning("⚠️ Modo de compatibilidad activa (Sin Pandas)")
-                    # Formateamos un poco la lista para que se vea bien en st.table
-                    for d in datos:
-                        d["ESTATUS"] = iconos.get(str(d["ESTATUS"]).upper(), d["ESTATUS"])
-                    st.table(datos)
-    except:
-        st.warning("No se pudo cargar el historial de telemetría.")
+                # Procesamiento nativo para st.table
+                # No usamos st.dataframe para evitar que Streamlit intente llamar a Pandas por debajo
+                tabla_final = []
+                for fila in datos_raw:
+                    # Formateamos la fecha para que se vea bien
+                    f_str = fila['Fecha'].strftime('%d/%m/%Y %H:%M:%S') if isinstance(fila['Fecha'], datetime) else str(fila['Fecha'])
+                    
+                    tabla_final.append({
+                        "FECHA": f_str,
+                        "CPU %": f"{fila['CPU %']}%",
+                        "RAM %": f"{fila['RAM %']}%",
+                        "ESTADO": iconos.get(str(fila["ESTATUS"]).upper(), fila["ESTATUS"])
+                    })
+                
+                # Visualización robusta para el servidor
+                st.table(tabla_final)
+            else:
+                st.info("No hay registros de telemetría recientes.")
+    except Exception as e:
+        st.warning(f"Error al cargar el historial: {e}")
