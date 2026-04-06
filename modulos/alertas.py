@@ -9,8 +9,21 @@ def cargar_config_umbrales():
 
 @st.fragment(run_every=5)
 def fragmento_log_alertas():
-    # CSS interno para el fragmento
-    st.markdown("<style>[data-testid='stTable'] td { color: #000000 !important; }</style>", unsafe_allow_html=True)
+    # CSS para forzar bordes y visibilidad de columnas
+    st.markdown("""
+        <style>
+            [data-testid="stTable"] td { 
+                color: #000000 !important; 
+                border: 1px solid #dddddd !important; 
+            }
+            [data-testid="stTable"] th {
+                background-color: #f8f9fa !important;
+                color: #333333 !important;
+                border: 1px solid #dddddd !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
     st.markdown("### 📋 Registro de Eventos Recientes (5s)")
     
     try:

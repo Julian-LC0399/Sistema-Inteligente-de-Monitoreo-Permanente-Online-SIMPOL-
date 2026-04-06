@@ -4,10 +4,23 @@ from database import conectar_bd
 def mostrar_pantalla():
     st.markdown("<h2 style='color: #003366;'>🕵️ Control de Accesos y Seguridad</h2>", unsafe_allow_html=True)
     
-    # CSS para letras negras en tablas
+    # CSS Reforzado: Bordes, Colores y Columnas
     st.markdown("""
         <style>
-            [data-testid="stTable"] td, [data-testid="stTable"] th { color: #000000 !important; }
+            [data-testid="stTable"] {
+                background-color: white;
+                border-radius: 5px;
+            }
+            [data-testid="stTable"] td {
+                color: #000000 !important;
+                border: 1px solid #dee2e6 !important;
+            }
+            [data-testid="stTable"] th {
+                background-color: #003366 !important;
+                color: white !important;
+                border: 1px solid #002244 !important;
+                text-align: center;
+            }
         </style>
     """, unsafe_allow_html=True)
 
@@ -16,7 +29,6 @@ def mostrar_pantalla():
         if conn:
             cursor = conn.cursor()
             
-            # Estadísticas (Basado en nombres exactos de tu SQL)
             cursor.execute("SELECT COUNT(*) FROM log_accesos")
             total_ingresos = cursor.fetchone()[0]
             
@@ -30,7 +42,6 @@ def mostrar_pantalla():
 
             st.divider()
 
-            # Tabla de registros (Columnas: usuario, fecha, ip_cliente, resultado)
             st.markdown("### 📋 Historial Detallado")
             cursor.execute("SELECT usuario, fecha_acceso, ip_cliente, resultado FROM log_accesos ORDER BY fecha_acceso DESC LIMIT 50")
             logs = cursor.fetchall()
