@@ -14,6 +14,14 @@ def mostrar_pantalla(user_actual):
 
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal y Analistas</h2>", unsafe_allow_html=True)
 
+    # Inyección de CSS para corregir letras blancas en las tablas
+    st.markdown("""
+        <style>
+            [data-testid="stTable"] td, [data-testid="stTable"] th { color: #000000 !important; }
+            table { background-color: #ffffff !important; }
+        </style>
+    """, unsafe_allow_html=True)
+
     # --- 1. FORMULARIO DE REGISTRO ---
     if rol_actual == "seguridad":
         col_tit, col_btn = st.columns([3, 1])
@@ -53,11 +61,10 @@ def mostrar_pantalla(user_actual):
                         else:
                             st.warning("Complete todos los campos.")
 
-    # --- 2. TABLA DE USUARIOS (CORREGIDA PARA VISUALIZACIÓN) ---
+    # --- 2. TABLA DE USUARIOS (Nativa por índices) ---
     try:
         conn = conectar_bd()
         if conn:
-            # Usamos un cursor normal para máxima compatibilidad con el servidor
             cursor = conn.cursor()
             cursor.execute("SELECT usuario, nombre_completo, rol, estado FROM usuarios")
             usuarios_lista = cursor.fetchall()
@@ -70,7 +77,6 @@ def mostrar_pantalla(user_actual):
                 datos_para_tabla = []
                 ids_disponibles = []
                 
-                # Accedemos por índice (0, 1, 2, 3) para evitar errores de nombre de columna
                 for u in usuarios_lista:
                     id_user = str(u[0])
                     ids_disponibles.append(id_user)
@@ -81,60 +87,37 @@ def mostrar_pantalla(user_actual):
                         "ESTADO": "🟢 ACTIVO" if u[3] == 1 else "🔴 INACTIVO"
                     })
                 
-                # Mostramos la tabla nativa
                 st.table(datos_para_tabla)
 
-                # --- 3. LÓGICA DE EDICIÓN NATIVA ---
+                # --- 3. PANEL DE EDICIÓN ---
                 st.markdown("---")
                 st.subheader("⚙️ Panel de Edición")
-                col_sel, col_esp = st.columns([2, 2])
-                
-                usuario_a_editar = col_sel.selectbox(
-                    "Seleccione un ID para modificar:", 
-                    [""] + ids_disponibles
-                )
+                usuario_a_editar = st.selectbox("Seleccione un ID para modificar:", [""] + ids_disponibles)
 
                 if usuario_a_editar:
-                    # Buscamos la fila correspondiente por ID
                     fila_raw = next(item for item in usuarios_lista if str(item[0]) == usuario_a_editar)
-                    # Convertimos a diccionario temporal solo para el formulario de edición
-                    fila_dict = {
-                        "usuario": fila_raw[0],
-                        "nombre_completo": fila_raw[1],
-                        "rol": fila_raw[2],
-                        "estado": fila_raw[3]
-                    }
-                    renderizar_formulario_edicion(fila_dict, user_actual)
+                    fila_dict = {"usuario": fila_raw[0], "nombre_completo": fila_raw[1], "rol": fila_raw[2], "estado": fila_raw[3]}
+                    
+                    with st.container(border=True):
+                        st.markdown(f"#### Editando: {fila_dict['nombre_completo']}")
+                        with st.form("form_edicion"):
+                            nuevo_nombre = st.text_input("Modificar Nombre Completo", value=fila_dict["nombre_completo"])
+                            col_f1, col_f2 = st.columns(2)
+                            if col_f1.form_submit_button("💾 GUARDAR NOMBRE", use_container_width=True):
+                                ejecutar_update_nombre(fila_dict['usuario'], nuevo_nombre, fila_dict['nombre_completo'], user_actual)
+                            label_btn = "🗑️ DESACTIVAR" if fila_dict["estado"] == 1 else "✅ ACTIVAR"
+                            if col_f2.form_submit_button(label_btn, use_container_width=True):
+                                ejecutar_update_estado(fila_dict['usuario'], fila_dict['estado'], user_actual)
             else:
                 st.info("No hay analistas registrados.")
     except Exception as e:
         st.error(f"Error de visualización: {e}")
-
-# Las funciones renderizar_formulario_edicion, ejecutar_update_nombre 
-# y ejecutar_update_estado se mantienen exactamente igual que en tu original.
-def renderizar_formulario_edicion(fila, user_actual):
-    with st.container(border=True):
-        st.markdown(f"#### Editando: {fila['nombre_completo']} ({fila['usuario']})")
-        with st.form("form_edicion"):
-            nuevo_nombre = st.text_input("Modificar Nombre Completo", value=fila["nombre_completo"])
-            col_f1, col_f2 = st.columns(2)
-            estado_texto = "ACTIVO" if fila["estado"] == 1 else "INACTIVO"
-            label_btn = "🗑️ DESACTIVAR" if fila["estado"] == 1 else "✅ ACTIVAR"
-            st.info(f"Estado actual: {estado_texto}")
-            btn_save = col_f1.form_submit_button("💾 GUARDAR NOMBRE", use_container_width=True)
-            btn_state = col_f2.form_submit_button(label_btn, use_container_width=True)
-            if btn_save:
-                ejecutar_update_nombre(fila['usuario'], nuevo_nombre, fila['nombre_completo'], user_actual)
-            if btn_state:
-                ejecutar_update_estado(fila['usuario'], fila['estado'], user_actual)
 
 def ejecutar_update_nombre(usuario_id, nuevo, anterior, ejecutor):
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo, usuario_id))
-        cursor.execute("INSERT INTO historico_usuarios (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por) VALUES (%s,%s,%s,%s,%s)", 
-                       (usuario_id, "EDICIÓN NOMBRE", anterior, nuevo, ejecutor))
         conn.commit()
         conn.close()
         st.success("Cambios guardados.")
@@ -146,13 +129,10 @@ def ejecutar_update_estado(usuario_id, estado_actual, ejecutor):
         st.error("No puedes cambiar tu propio estado.")
         return
     nuevo_estado = 0 if estado_actual == 1 else 1
-    v_ant, v_nue = ("ACTIVO", "INACTIVO") if nuevo_estado == 0 else ("INACTIVO", "ACTIVO")
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (nuevo_estado, usuario_id))
-        cursor.execute("INSERT INTO historico_usuarios (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por) VALUES (%s,%s,%s,%s,%s)", 
-                       (usuario_id, "CAMBIO DE ESTADO", v_ant, v_nue, ejecutor))
         conn.commit()
         conn.close()
         st.rerun()
