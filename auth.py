@@ -1,5 +1,5 @@
 import streamlit as st
-from database import verificar_usuario, conectar_bd # Importamos conectar_bd
+from database import verificar_usuario, conectar_bd 
 
 def registrar_acceso_auditoria(usuario, nombre, rol):
     """Inserta un registro en la tabla log_accesos al iniciar sesión con éxito."""

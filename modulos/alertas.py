@@ -1,99 +1,132 @@
 import streamlit as st
-import pandas as pd
 from database import conectar_bd, registrar_auditoria_umbral
-from utils import obtener_telemetria
-from streamlit_autorefresh import st_autorefresh
+from datetime import datetime
 
-def cargar_configuracion_inicial():
-    """Busca la última configuración real en la tabla historico_umbrales."""
-    # 1. Valores por defecto si la tabla está vacía
-    defaults = {
-        "u_cpu_perc": 85, "u_ram_perc": 90,
-        "u_cpu_warn": 70, "u_ram_warn": 75
-    }
-    
-    for key, val in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = val
-
-    # 2. Sincronización con los nombres de columna de tu SQL
+def cargar_config_umbrales():
+    """Sincroniza los umbrales de la sesión con los últimos guardados en BD."""
+    if "u_cpu_perc" not in st.session_state:
+        st.session_state.u_cpu_perc = 85
+        st.session_state.u_ram_perc = 90
     try:
         conn = conectar_bd()
-        # Mapeamos lo que hay en la BD con las variables de Streamlit
-        mapa = {
-            "CPU_CRIT": "u_cpu_perc", "RAM_CRIT": "u_ram_perc",
-            "CPU_WARN": "u_cpu_warn", "RAM_WARN": "u_ram_warn"
-        }
-        
-        for metrica_db, key_st in mapa.items():
-            # CORRECCIÓN: Usamos 'umbral_nuevo' y 'fecha_cambio' según tu .sql
-            query = f"""
-                SELECT umbral_nuevo 
-                FROM historico_umbrales 
-                WHERE metrica = '{metrica_db}' 
-                ORDER BY fecha_cambio DESC LIMIT 1
-            """
-            df = pd.read_sql(query, conn)
-            if not df.empty:
-                st.session_state[key_st] = int(df.iloc[0]['umbral_nuevo'])
+        cursor = conn.cursor()
+        for metrica, key in [("CPU", "u_cpu_perc"), ("RAM", "u_ram_perc")]:
+            query = "SELECT umbral_nuevo FROM historico_umbrales WHERE metrica = %s ORDER BY fecha_cambio DESC LIMIT 1"
+            cursor.execute(query, (metrica,))
+            res = cursor.fetchone()
+            if res: st.session_state[key] = res[0]
+        cursor.close()
         conn.close()
-    except Exception as e:
-        # Si hay error de conexión, se mantienen los valores por defecto
+    except: 
         pass
 
-def mostrar_pantalla():
-    # Esta llamada al inicio garantiza que al recargar (F5) se lea la BD
-    cargar_configuracion_inicial()
+@st.fragment(run_every=5)
+def fragmento_log_alertas():
+    # Estilo de tabla con alto contraste y OCULTAR COLUMNA DE ÍNDICE (0,1,2...)
+    st.markdown("""
+        <style>
+            [data-testid="stTable"] td { color: black !important; border: 1px solid #eee !important; font-weight: 500; }
+            [data-testid="stTable"] th { background-color: #003366 !important; color: white !important; }
+            
+            /* OCULTA LA PRIMERA COLUMNA (EL ÍNDICE 0,1,2...) */
+            [data-testid="stTable"] td:nth-child(1), 
+            [data-testid="stTable"] th:nth-child(1) {
+                display: none !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
     
-    st_autorefresh(interval=10000, key="refresco_alertas")
-    st.markdown("<h2 style='color:#003366;'>🚨 Panel de Control de Alertas</h2>", unsafe_allow_html=True)
-
-    # --- SECCIÓN DE REGULACIÓN ---
-    with st.expander("⚙️ Ajustar Umbrales de Sensibilidad", expanded=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("<b style='color:#d9534f;'>🔴 NIVELES CRÍTICOS</b>", unsafe_allow_html=True)
-            u_cpu_crit = st.number_input("CPU Crítico (%)", 1, 100, st.session_state.u_cpu_perc)
-            u_ram_crit = st.number_input("RAM Crítica (%)", 1, 100, st.session_state.u_ram_perc)
-
-        with col2:
-            st.markdown("<b style='color:#ffa500;'>🟠 NIVELES PRECAUCIÓN</b>", unsafe_allow_html=True)
-            u_cpu_warn = st.number_input("CPU Precaución (%)", 1, 100, st.session_state.u_cpu_warn)
-            u_ram_warn = st.number_input("RAM Precaución (%)", 1, 100, st.session_state.u_ram_warn)
-
-        if st.button("💾 Guardar Configuración en Base de Datos", use_container_width=True):
-            if u_cpu_warn >= u_cpu_crit or u_ram_warn >= u_ram_crit:
-                st.error("Los niveles de precaución deben ser menores a los críticos.")
-            else:
-                user = st.session_state.get("user_actual", "Admin_CSU")
-                
-                # Guardamos los 4 valores en la tabla historico_umbrales
-                registrar_auditoria_umbral("CPU_CRIT", st.session_state.u_cpu_perc, u_cpu_crit, user)
-                registrar_auditoria_umbral("RAM_CRIT", st.session_state.u_ram_perc, u_ram_crit, user)
-                registrar_auditoria_umbral("CPU_WARN", st.session_state.u_cpu_warn, u_cpu_warn, user)
-                registrar_auditoria_umbral("RAM_WARN", st.session_state.u_ram_warn, u_ram_warn, user)
-
-                # Actualizamos la sesión para que el cambio sea instantáneo
-                st.session_state.u_cpu_perc = u_cpu_crit
-                st.session_state.u_ram_perc = u_ram_crit
-                st.session_state.u_cpu_warn = u_cpu_warn
-                st.session_state.u_ram_warn = u_ram_warn
-                
-                st.success("✅ Configuración guardada permanentemente.")
-                st.rerun()
-
-    # --- REGISTRO HISTÓRICO ---
-    st.markdown("### 📋 Historial Inmutable de Eventos")
+    st.markdown("### 📋 Registro de Eventos (Cada 5s)")
     try:
         conn = conectar_bd()
-        query = "SELECT fecha_registro as Fecha, uso_cpu as 'CPU %', uso_ram as 'RAM %', estado_sistema as ESTATUS FROM monitoreo ORDER BY id DESC LIMIT 15"
-        df = pd.read_sql(query, conn)
+        cursor = conn.cursor()
+        cursor.execute("SELECT fecha_registro, uso_cpu, uso_ram, estado_sistema FROM monitoreo ORDER BY id DESC LIMIT 10")
+        datos = cursor.fetchall()
         conn.close()
 
-        if not df.empty:
-            iconos = {"CRÍTICO": "🔴 CRÍTICO", "PRECAUCIÓN": "🟠 PRECAUCIÓN", "NORMAL": "🟢 NORMAL"}
-            df["ESTATUS"] = df["ESTATUS"].apply(lambda x: iconos.get(str(x).upper(), x))
-            st.dataframe(df, use_container_width=True, hide_index=True)
-    except:
-        st.warning("No se pudo cargar el historial de telemetría.")
+        if datos:
+            iconos = {"CRÍTICO": "🔴", "PRECAUCIÓN": "🟠", "NORMAL": "🟢"}
+            tabla = []
+            for f in datos:
+                est = str(f[3]).upper()
+                tabla.append({
+                    "HORA": f[0].strftime('%H:%M:%S'),
+                    "ESTADO": iconos.get(est, "⚪") + " " + est,
+                    "CPU %": f"{f[1]}%",
+                    "RAM %": f"{f[2]}%"
+                })
+            st.table(tabla)
+    except Exception as e:
+        st.error(f"Error de sincronía: {e}")
+
+def mostrar_pantalla(user_actual):
+    # --- ESTILOS ENCAPSULADOS PARA EVITAR AFECTAR EL MENÚ ---
+    st.markdown("""
+        <style>
+            .titulo-seccion {
+                color: #003366 !important;
+                font-weight: bold !important;
+                margin-bottom: 15px;
+            }
+
+            [data-testid="stMain"] [data-testid="stWidgetLabel"] p {
+                color: #000000 !important;
+                font-weight: bold !important;
+            }
+
+            [data-testid="stMain"] [data-testid="stNumberInput"] input {
+                color: black !important;
+                font-weight: bold !important;
+            }
+
+            div.stButton > button {
+                color: #ffffff !important;
+                background-color: #003366 !important;
+                border: none !important;
+                font-weight: bold !important;
+                width: 100% !important;
+                height: 3.5em !important;
+                border-radius: 8px !important;
+                text-transform: uppercase;
+            }
+            
+            div.stButton > button:hover {
+                background-color: #00509d !important;
+                color: #ffffff !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    cargar_config_umbrales()
+    st.markdown("<h2 class='titulo-seccion'>🚨 Centro de Alertas y Umbrales</h2>", unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown("<h4 style='color:#000000; margin-bottom:5px;'>⚙️ CONFIGURACIÓN DE LÍMITES</h4>", unsafe_allow_html=True)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            n_cpu = st.number_input("Umbral CPU (%)", 1, 100, st.session_state.u_cpu_perc)
+        with c2:
+            n_ram = st.number_input("Umbral RAM (%)", 1, 100, st.session_state.u_ram_perc)
+        
+        st.write("") 
+        
+        if st.button("💾 GUARDAR Y ACTUALIZAR"):
+            cambio = False
+            if n_cpu != st.session_state.u_cpu_perc:
+                registrar_auditoria_umbral("CPU", st.session_state.u_cpu_perc, n_cpu, user_actual)
+                st.session_state.u_cpu_perc = n_cpu
+                cambio = True
+            if n_ram != st.session_state.u_ram_perc:
+                registrar_auditoria_umbral("RAM", st.session_state.u_ram_perc, n_ram, user_actual)
+                st.session_state.u_ram_perc = n_ram
+                cambio = True
+            
+            if cambio:
+                st.success("✅ Configuración guardada exitosamente.")
+                st.rerun()
+            else:
+                st.info("No hay cambios detectados.")
+
+    st.divider()
+    fragmento_log_alertas()
