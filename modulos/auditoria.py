@@ -4,7 +4,7 @@ from database import conectar_bd
 def mostrar_pantalla():
     st.markdown("<h2 style='color: #003366;'>🕵️ Control de Accesos y Seguridad</h2>", unsafe_allow_html=True)
     
-    # CSS Reforzado: Bordes, Colores y Columnas
+    # CSS Reforzado: Oculta la columna de índice (0,1,2...)
     st.markdown("""
         <style>
             [data-testid="stTable"] {
@@ -20,6 +20,11 @@ def mostrar_pantalla():
                 color: white !important;
                 border: 1px solid #002244 !important;
                 text-align: center;
+            }
+            /* OCULTAR COLUMNA DE ÍNDICE */
+            [data-testid="stTable"] td:nth-child(1), 
+            [data-testid="stTable"] th:nth-child(1) {
+                display: none !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -54,8 +59,7 @@ def mostrar_pantalla():
                     tabla_limpia.append({
                         "USUARIO": l[0],
                         "FECHA Y HORA": l[1].strftime('%d/%m/%Y %H:%M:%S'),
-                        "IP CLIENTE": l[2],
-                        "RESULTADO": l[3]
+                        "IP": l[2]
                     })
                 st.table(tabla_limpia)
             else:

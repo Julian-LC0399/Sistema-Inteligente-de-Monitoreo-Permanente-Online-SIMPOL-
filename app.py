@@ -39,7 +39,7 @@ def orquestar_paginas(seleccion):
         from modulos import reportes
         reportes.mostrar_pantalla()
         
-    elif seleccion == "👥 Gestión de personal":
+    elif seleccion == "👥 Gestión de usuarios":
         from modulos import gestion
         # CORRECCIÓN: Se asegura el paso de user_actual para auditoría de usuarios
         gestion.mostrar_pantalla(user_actual)

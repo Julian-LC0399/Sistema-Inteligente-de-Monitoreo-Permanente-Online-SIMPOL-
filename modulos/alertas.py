@@ -7,25 +7,32 @@ def cargar_config_umbrales():
     if "u_cpu_perc" not in st.session_state:
         st.session_state.u_cpu_perc = 85
         st.session_state.u_ram_perc = 90
-
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
         for metrica, key in [("CPU", "u_cpu_perc"), ("RAM", "u_ram_perc")]:
-            cursor.execute("SELECT umbral_nuevo FROM historico_umbrales WHERE metrica = %s ORDER BY fecha_cambio DESC LIMIT 1", (metrica,))
+            query = "SELECT umbral_nuevo FROM historico_umbrales WHERE metrica = %s ORDER BY fecha_cambio DESC LIMIT 1"
+            cursor.execute(query, (metrica,))
             res = cursor.fetchone()
             if res: st.session_state[key] = res[0]
         cursor.close()
         conn.close()
-    except: pass
+    except: 
+        pass
 
 @st.fragment(run_every=5)
 def fragmento_log_alertas():
-    # Estilo de tabla con bordes y texto negro
+    # Estilo de tabla con alto contraste y OCULTAR COLUMNA DE ÍNDICE (0,1,2...)
     st.markdown("""
         <style>
-            [data-testid="stTable"] td { color: black !important; border: 1px solid #eee !important; }
+            [data-testid="stTable"] td { color: black !important; border: 1px solid #eee !important; font-weight: 500; }
             [data-testid="stTable"] th { background-color: #003366 !important; color: white !important; }
+            
+            /* OCULTA LA PRIMERA COLUMNA (EL ÍNDICE 0,1,2...) */
+            [data-testid="stTable"] td:nth-child(1), 
+            [data-testid="stTable"] th:nth-child(1) {
+                display: none !important;
+            }
         </style>
     """, unsafe_allow_html=True)
     
@@ -53,24 +60,73 @@ def fragmento_log_alertas():
         st.error(f"Error de sincronía: {e}")
 
 def mostrar_pantalla(user_actual):
-    cargar_config_umbrales()
-    st.markdown("<h2 style='color:#003366;'>🚨 Centro de Alertas y Umbrales</h2>", unsafe_allow_html=True)
+    # --- ESTILOS ENCAPSULADOS PARA EVITAR AFECTAR EL MENÚ ---
+    st.markdown("""
+        <style>
+            .titulo-seccion {
+                color: #003366 !important;
+                font-weight: bold !important;
+                margin-bottom: 15px;
+            }
 
-    with st.expander("⚙️ Ajustar Umbrales de Detección", expanded=True):
-        c1, c2 = st.columns(2)
-        n_cpu = c1.number_input("Umbral CPU", 1, 100, st.session_state.u_cpu_perc)
-        n_ram = c2.number_input("Umbral RAM", 1, 100, st.session_state.u_ram_perc)
+            [data-testid="stMain"] [data-testid="stWidgetLabel"] p {
+                color: #000000 !important;
+                font-weight: bold !important;
+            }
+
+            [data-testid="stMain"] [data-testid="stNumberInput"] input {
+                color: black !important;
+                font-weight: bold !important;
+            }
+
+            div.stButton > button {
+                color: #ffffff !important;
+                background-color: #003366 !important;
+                border: none !important;
+                font-weight: bold !important;
+                width: 100% !important;
+                height: 3.5em !important;
+                border-radius: 8px !important;
+                text-transform: uppercase;
+            }
+            
+            div.stButton > button:hover {
+                background-color: #00509d !important;
+                color: #ffffff !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    cargar_config_umbrales()
+    st.markdown("<h2 class='titulo-seccion'>🚨 Centro de Alertas y Umbrales</h2>", unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown("<h4 style='color:#000000; margin-bottom:5px;'>⚙️ CONFIGURACIÓN DE LÍMITES</h4>", unsafe_allow_html=True)
         
-        st.markdown("<style>div.stButton > button { color: black !important; }</style>", unsafe_allow_html=True)
-        if st.button("💾 GUARDAR Y NOTIFICAR AL AGENTE", use_container_width=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            n_cpu = st.number_input("Umbral CPU (%)", 1, 100, st.session_state.u_cpu_perc)
+        with c2:
+            n_ram = st.number_input("Umbral RAM (%)", 1, 100, st.session_state.u_ram_perc)
+        
+        st.write("") 
+        
+        if st.button("💾 GUARDAR Y ACTUALIZAR"):
+            cambio = False
             if n_cpu != st.session_state.u_cpu_perc:
                 registrar_auditoria_umbral("CPU", st.session_state.u_cpu_perc, n_cpu, user_actual)
                 st.session_state.u_cpu_perc = n_cpu
+                cambio = True
             if n_ram != st.session_state.u_ram_perc:
                 registrar_auditoria_umbral("RAM", st.session_state.u_ram_perc, n_ram, user_actual)
                 st.session_state.u_ram_perc = n_ram
-            st.success("Configuración enviada a la base de datos.")
-            st.rerun()
+                cambio = True
+            
+            if cambio:
+                st.success("✅ Configuración guardada exitosamente.")
+                st.rerun()
+            else:
+                st.info("No hay cambios detectados.")
 
     st.divider()
     fragmento_log_alertas()

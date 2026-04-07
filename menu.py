@@ -81,7 +81,7 @@ def generar_menu():
         # --- 3. NAVEGACIÓN ---
         opciones = ["🏠 Inicio", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
         if st.session_state.get("rol") in ["admin", "seguridad"]:
-            opciones += ["👥 Gestión de personal", "🕵️ Auditoría"]
+            opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
             
         seleccion = st.radio("Navegación", opciones, label_visibility="collapsed")
         

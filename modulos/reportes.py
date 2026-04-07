@@ -8,11 +8,10 @@ from datetime import datetime, timedelta, time
 class PDF(FPDF):
     def header(self):
         try:
-            # Uso de la utilidad para rutas compatibles con Windows Server
             ruta_logo = get_resource_path("logo-banco.jpg")
             self.image(ruta_logo, 10, 8, 33)
         except:
-            pass # Si el logo no está, el reporte no se rompe
+            pass
         
         self.set_font("Arial", "B", 14)
         self.set_text_color(0, 51, 102) 
@@ -32,15 +31,11 @@ class PDF(FPDF):
         self.cell(0, 10, f"Pagina {self.page_no()} - Documento Confidencial", 0, 0, "C")
 
 def obtener_datos_nativos(f_inicio, f_fin):
-    """
-    Consulta la BD con orden descendente: Lo más nuevo aparece primero.
-    """
     datos = []
     try:
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor(dictionary=True)
-            # CAMBIO REALIZADO: ORDER BY fecha_registro DESC, id DESC
             query = """
                 SELECT fecha_registro, nombre_csu, uso_cpu, uso_ram, estado_sistema 
                 FROM monitoreo 
@@ -56,7 +51,7 @@ def obtener_datos_nativos(f_inicio, f_fin):
     return datos
 
 def mostrar_pantalla():
-    # Estilos CSS para asegurar que los botones tengan texto NEGRO (Modo Nativo)
+    # Estilos CSS: Colores y quitar índice
     st.markdown("""
         <style>
             div.stButton > button, div.stDownloadButton > button {
@@ -68,6 +63,11 @@ def mostrar_pantalla():
             }
             [data-testid="stTable"] td { color: black !important; border: 1px solid #eee !important; }
             [data-testid="stTable"] th { background-color: #003366 !important; color: white !important; }
+            /* OCULTAR COLUMNA DE ÍNDICE */
+            [data-testid="stTable"] td:nth-child(1), 
+            [data-testid="stTable"] th:nth-child(1) {
+                display: none !important;
+            }
         </style>
     """, unsafe_allow_html=True)
 
@@ -79,7 +79,6 @@ def mostrar_pantalla():
         f_f = col2.date_input("Fecha Final:", datetime.now())
 
         if st.button("🔍 GENERAR VISTA PREVIA Y PDF"):
-            # Ajuste de precisión horaria para abarcar el día completo
             dt_i = datetime.combine(f_i, time(0, 0, 0))
             dt_f = datetime.combine(f_f, time(23, 59, 59))
             
@@ -88,10 +87,9 @@ def mostrar_pantalla():
             if not datos:
                 st.warning("No se encontraron registros para este periodo.")
             else:
-                st.success(f"✅ {len(datos)} registros cargados (Mostrando lo más reciente primero).")
+                st.success(f"✅ {len(datos)} registros cargados.")
                 
-                # Vista previa en pantalla (solo los primeros 10)
-                st.markdown("### 📋 Vista Previa (Últimos sucesos detectados)")
+                st.markdown("### 📋 Vista Previa")
                 vista = []
                 for d in datos[:10]:
                     vista.append({
@@ -103,12 +101,10 @@ def mostrar_pantalla():
                     })
                 st.table(vista)
 
-                # --- GENERACIÓN DEL PDF ---
                 pdf = PDF()
                 pdf.set_auto_page_break(auto=True, margin=15)
                 pdf.add_page()
                 
-                # Encabezados
                 pdf.set_fill_color(0, 51, 102); pdf.set_text_color(255, 255, 255); pdf.set_font("Arial", "B", 10)
                 pdf.cell(45, 10, "Fecha/Hora", 1, 0, "C", True)
                 pdf.cell(40, 10, "Unidad CSU", 1, 0, "C", True)
@@ -116,9 +112,7 @@ def mostrar_pantalla():
                 pdf.cell(20, 10, "RAM %", 1, 0, "C", True)
                 pdf.cell(65, 10, "Estado Sistema", 1, 1, "C", True)
 
-                # Contenido
                 pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 9)
-                
                 for row in datos:
                     pdf.cell(45, 8, row['fecha_registro'].strftime('%d/%m/%y %H:%M:%S'), 1)
                     pdf.cell(40, 8, str(row['nombre_csu']), 1)
@@ -135,4 +129,4 @@ def mostrar_pantalla():
                         mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"Error técnico en generación de PDF: {e}")
+                    st.error(f"Error técnico: {e}")
