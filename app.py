@@ -13,6 +13,10 @@ if "autenticado" not in st.session_state:
 
 # 2. CARGA DINÁMICA DE PÁGINAS
 def orquestar_paginas(seleccion):
+    # Obtenemos el ID del usuario actual para las auditorías
+    user_actual = st.session_state.get("user_actual", "Sistema")
+    nombre_analista = st.session_state.get("nombre_analista", "Analista")
+
     # Importamos solo el archivo necesario según la selección del menú
     if seleccion == "🏠 Inicio":
         from modulos import inicio
@@ -20,7 +24,7 @@ def orquestar_paginas(seleccion):
         
     elif seleccion == "📊 Monitoreo en vivo":
         from modulos import monitoreo
-        monitoreo.mostrar_pantalla(st.session_state.get("nombre_analista"))
+        monitoreo.mostrar_pantalla(nombre_analista)
         
     elif seleccion == "📈 Capacity planning":
         from modulos import capacity
@@ -28,7 +32,8 @@ def orquestar_paginas(seleccion):
         
     elif seleccion == "🔔 Alertas":
         from modulos import alertas
-        alertas.mostrar_pantalla()
+        # CORRECCIÓN: Se añade user_actual para el registro de umbrales
+        alertas.mostrar_pantalla(user_actual)
         
     elif seleccion == "📄 Reportes":
         from modulos import reportes
@@ -36,11 +41,12 @@ def orquestar_paginas(seleccion):
         
     elif seleccion == "👥 Gestión de personal":
         from modulos import gestion
-        # Se pasa el usuario actual para el registro de auditoría de cambios
-        gestion.mostrar_pantalla(st.session_state.get("user_actual"))
+        # CORRECCIÓN: Se asegura el paso de user_actual para auditoría de usuarios
+        gestion.mostrar_pantalla(user_actual)
         
     elif seleccion == "🕵️ Auditoría":
         from modulos import auditoria
+        # OPCIONAL: Si auditoria.py también requiere user_actual en el futuro
         auditoria.mostrar_pantalla()
 
 
