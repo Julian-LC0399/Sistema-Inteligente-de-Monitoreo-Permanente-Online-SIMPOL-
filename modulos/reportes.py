@@ -1,105 +1,101 @@
 import streamlit as st
 from fpdf import FPDF
 from database import conectar_bd
-from datetime import datetime, timedelta
+from utils import get_resource_path
+from datetime import datetime, timedelta, time
 
-# 1. CLASE PDF PROFESIONAL (Nativa)
+# 1. CLASE PDF NATIVA CON LOGO INSTITUCIONAL
 class PDF(FPDF):
     def header(self):
-        # Título institucional
+        try:
+            # Uso de la utilidad para rutas compatibles con Windows Server
+            ruta_logo = get_resource_path("logo-banco.jpg")
+            self.image(ruta_logo, 10, 8, 33)
+        except:
+            pass # Si el logo no está, el reporte no se rompe
+        
         self.set_font("Arial", "B", 14)
         self.set_text_color(0, 51, 102) 
-        self.cell(0, 10, "BANCO CARONI - REPORTE DE GESTION SIMPOL", 0, 1, "C")
+        self.cell(80)
+        self.cell(100, 10, "BANCO CARONI - REPORTE INTEGRAL SIMPOL", 0, 1, "C")
+        
         self.set_font("Arial", "I", 9)
         self.set_text_color(100, 100, 100)
-        self.cell(0, 5, f"Generado el: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 1, "C")
-        self.ln(10)
+        self.cell(80)
+        self.cell(100, 5, f"Auditoria de Monitoreo | Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 1, "C")
+        self.ln(15)
 
     def footer(self):
         self.set_y(-15)
         self.set_font("Arial", "I", 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Pagina {self.page_no()} - Confidencial Unidad de Tecnologia", 0, 0, "C")
+        self.cell(0, 10, f"Pagina {self.page_no()} - Documento Confidencial", 0, 0, "C")
 
 def obtener_datos_nativos(f_inicio, f_fin):
-    """Consulta la BD y retorna una lista de diccionarios (Sin Pandas)."""
+    """
+    Consulta la BD con orden descendente: Lo más nuevo aparece primero.
+    """
     datos = []
     try:
         conn = conectar_bd()
         if conn:
-            # Importante: dictionary=True permite usar nombres de columnas en vez de indices
             cursor = conn.cursor(dictionary=True)
+            # CAMBIO REALIZADO: ORDER BY fecha_registro DESC, id DESC
             query = """
                 SELECT fecha_registro, nombre_csu, uso_cpu, uso_ram, estado_sistema 
                 FROM monitoreo 
-                WHERE fecha_registro BETWEEN %s AND %s
-                ORDER BY fecha_registro DESC
+                WHERE fecha_registro >= %s AND fecha_registro <= %s
+                ORDER BY fecha_registro DESC, id DESC
             """
             cursor.execute(query, (f_inicio, f_fin))
             datos = cursor.fetchall()
             cursor.close()
             conn.close()
     except Exception as e:
-        st.error(f"Error en consulta de base de datos: {e}")
+        st.error(f"Error de base de datos: {e}")
     return datos
 
 def mostrar_pantalla():
-    # --- ESTILOS CSS PARA BOTONES Y TABLAS ---
+    # Estilos CSS para asegurar que los botones tengan texto NEGRO (Modo Nativo)
     st.markdown("""
         <style>
-            /* Arregla el texto de TODOS los botones para que sea negro y legible */
-            div.stButton > button {
+            div.stButton > button, div.stDownloadButton > button {
                 color: #000000 !important;
                 background-color: #f0f2f6 !important;
                 border: 1px solid #d1d3d8 !important;
                 font-weight: bold !important;
+                width: 100%;
             }
-            /* Estilo de la tabla de vista previa */
-            [data-testid="stTable"] {
-                background-color: white !important;
-                border: 1px solid #dee2e6 !important;
-                border-radius: 4px;
-            }
-            [data-testid="stTable"] td {
-                color: black !important;
-                border: 1px solid #eee !important;
-            }
-            [data-testid="stTable"] th {
-                background-color: #003366 !important;
-                color: white !important;
-                text-align: center !important;
-            }
+            [data-testid="stTable"] td { color: black !important; border: 1px solid #eee !important; }
+            [data-testid="stTable"] th { background-color: #003366 !important; color: white !important; }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("<h2 style='color:#003366;'>📄 Centro de Reportes e Historial</h2>", unsafe_allow_html=True)
-    st.info("Seleccione el rango de fechas para generar el documento de auditoría.")
+    st.markdown("<h2 style='color:#003366;'>📄 Centro de Reportes de Auditoría</h2>", unsafe_allow_html=True)
 
-    # Filtros de búsqueda
     with st.container(border=True):
         col1, col2 = st.columns(2)
-        fecha_i = col1.date_input("Fecha Inicial", datetime.now() - timedelta(days=7))
-        fecha_f = col2.date_input("Fecha Final", datetime.now())
+        f_i = col1.date_input("Fecha Inicial:", datetime.now() - timedelta(days=1))
+        f_f = col2.date_input("Fecha Final:", datetime.now())
 
-        # Botón con texto ahora visible (Negro por CSS)
-        if st.button("🔍 PROCESAR DATOS DEL PERIODO", use_container_width=True):
-            # Convertir fechas a formato datetime para la BD
-            dt_i = datetime.combine(fecha_i, datetime.min.time())
-            dt_f = datetime.combine(fecha_f, datetime.max.time())
+        if st.button("🔍 GENERAR VISTA PREVIA Y PDF"):
+            # Ajuste de precisión horaria para abarcar el día completo
+            dt_i = datetime.combine(f_i, time(0, 0, 0))
+            dt_f = datetime.combine(f_f, time(23, 59, 59))
             
             datos = obtener_datos_nativos(dt_i, dt_f)
 
             if not datos:
-                st.warning("No se encontraron registros para las fechas seleccionadas.")
+                st.warning("No se encontraron registros para este periodo.")
             else:
-                st.success(f"Procesados {len(datos)} registros exitosamente.")
+                st.success(f"✅ {len(datos)} registros cargados (Mostrando lo más reciente primero).")
                 
-                # --- VISTA PREVIA (100% NATIVA) ---
-                st.markdown("### 📋 Vista Previa (Ultimos 10)")
+                # Vista previa en pantalla (solo los primeros 10)
+                st.markdown("### 📋 Vista Previa (Últimos sucesos detectados)")
                 vista = []
                 for d in datos[:10]:
                     vista.append({
-                        "FECHA": d['fecha_registro'].strftime('%d/%m/%y %H:%M'),
+                        "FECHA": d['fecha_registro'].strftime('%d/%m/%y %H:%M:%S'),
                         "CSU": d['nombre_csu'],
                         "CPU %": f"{d['uso_cpu']}%",
                         "RAM %": f"{d['uso_ram']}%",
@@ -107,44 +103,36 @@ def mostrar_pantalla():
                     })
                 st.table(vista)
 
-                # --- GENERACION DE PDF ---
+                # --- GENERACIÓN DEL PDF ---
                 pdf = PDF()
+                pdf.set_auto_page_break(auto=True, margin=15)
                 pdf.add_page()
                 
-                # Encabezados de tabla en PDF
-                pdf.set_fill_color(0, 51, 102)
-                pdf.set_text_color(255, 255, 255)
-                pdf.set_font("Arial", "B", 10)
-                
-                # Definir anchos de columna
-                pdf.cell(35, 10, "Fecha/Hora", 1, 0, "C", True)
-                pdf.cell(35, 10, "Unidad CSU", 1, 0, "C", True)
-                pdf.cell(25, 10, "CPU %", 1, 0, "C", True)
-                pdf.cell(25, 10, "RAM %", 1, 0, "C", True)
-                pdf.cell(65, 10, "Estado del Sistema", 1, 1, "C", True)
+                # Encabezados
+                pdf.set_fill_color(0, 51, 102); pdf.set_text_color(255, 255, 255); pdf.set_font("Arial", "B", 10)
+                pdf.cell(45, 10, "Fecha/Hora", 1, 0, "C", True)
+                pdf.cell(40, 10, "Unidad CSU", 1, 0, "C", True)
+                pdf.cell(20, 10, "CPU %", 1, 0, "C", True)
+                pdf.cell(20, 10, "RAM %", 1, 0, "C", True)
+                pdf.cell(65, 10, "Estado Sistema", 1, 1, "C", True)
 
-                # Filas de la tabla (Limitado a los ultimos 200 por rendimiento de PDF)
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_font("Arial", "", 9)
+                # Contenido
+                pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 9)
                 
-                for row in datos[:200]:
-                    pdf.cell(35, 8, row['fecha_registro'].strftime('%d/%m/%y %H:%M'), 1)
-                    pdf.cell(35, 8, str(row['nombre_csu']), 1)
-                    pdf.cell(25, 8, f"{row['uso_cpu']}%", 1, 0, "C")
-                    pdf.cell(25, 8, f"{row['uso_ram']}%", 1, 0, "C")
+                for row in datos:
+                    pdf.cell(45, 8, row['fecha_registro'].strftime('%d/%m/%y %H:%M:%S'), 1)
+                    pdf.cell(40, 8, str(row['nombre_csu']), 1)
+                    pdf.cell(20, 8, f"{row['uso_cpu']}%", 1, 0, "C")
+                    pdf.cell(20, 8, f"{row['uso_ram']}%", 1, 0, "C")
                     pdf.cell(65, 8, str(row['estado_sistema']).upper(), 1, 1, "C")
 
-                # Preparar descarga de archivo
                 try:
-                    # 'S' retorna el PDF como un string de bytes
-                    pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
-                    
+                    pdf_output = pdf.output(dest='S').encode('latin-1', 'ignore')
                     st.download_button(
-                        label="💾 DESCARGAR REPORTE EN PDF",
-                        data=pdf_bytes,
-                        file_name=f"Reporte_SIMPOL_{fecha_i}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
+                        label="💾 DESCARGAR REPORTE PDF COMPLETO",
+                        data=pdf_output,
+                        file_name=f"AUDITORIA_SIMPOL_{f_i}_AL_{f_f}.pdf",
+                        mime="application/pdf"
                     )
                 except Exception as e:
-                    st.error(f"Error tecnico al construir el PDF: {e}")
+                    st.error(f"Error técnico en generación de PDF: {e}")
