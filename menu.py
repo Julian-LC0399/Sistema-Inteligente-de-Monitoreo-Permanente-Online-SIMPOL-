@@ -34,7 +34,7 @@ def mostrar_modulo_telemetria():
 
     st.markdown(f"""
         <div style="background-color:{conf['bg']}; padding:15px; border-radius:12px; color:{conf['txt']}; border: 1px solid rgba(0,0,0,0.1); margin-bottom: 10px;">
-            <div style="font-weight:900; font-size:18px; text-align:center;">{conf['icon']} {estado}</div>
+            <div style="font-weight:900; font-size:18px; text-align:left; padding-left:10px;">{conf['icon']} {estado}</div>
             <div style="font-size:18px; font-weight:900; margin-top:8px; text-align:center; white-space: nowrap;">CPU:{cpu}%|RAM:{ram}%</div>
         </div>
     """, unsafe_allow_html=True)
