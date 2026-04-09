@@ -94,7 +94,7 @@ def mostrar_pantalla():
                 for d in datos[:10]:
                     vista.append({
                         "FECHA": d['fecha_registro'].strftime('%d/%m/%y %H:%M:%S'),
-                        "CSU": d['nombre_csu'],
+                        "SENSOR": d['nombre_csu'],
                         "CPU %": f"{d['uso_cpu']}%",
                         "RAM %": f"{d['uso_ram']}%",
                         "ESTADO": d['estado_sistema']
@@ -107,7 +107,7 @@ def mostrar_pantalla():
                 
                 pdf.set_fill_color(0, 51, 102); pdf.set_text_color(255, 255, 255); pdf.set_font("Arial", "B", 10)
                 pdf.cell(45, 10, "Fecha/Hora", 1, 0, "C", True)
-                pdf.cell(40, 10, "Unidad CSU", 1, 0, "C", True)
+                pdf.cell(40, 10, "Sensor", 1, 0, "C", True)
                 pdf.cell(20, 10, "CPU %", 1, 0, "C", True)
                 pdf.cell(20, 10, "RAM %", 1, 0, "C", True)
                 pdf.cell(65, 10, "Estado Sistema", 1, 1, "C", True)

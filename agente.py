@@ -66,6 +66,6 @@ def iniciar_agente():
 
             time.sleep(5)
     except KeyboardInterrupt: 
-        print(f"\n🛑 Agente del Sensor {sensor_id} detenido.")
+        print(f"\n🛑 Agente detenido.")
 
 if __name__ == "__main__": iniciar_agente()
