@@ -92,3 +92,23 @@ def registrar_auditoria_umbral(metrica, anterior, nuevo, ejecutor):
             conn.close()
         except Exception as e:
             print(f"Error de auditoría (Umbral): {e}")
+
+
+def registrar_proyeccion(recurso, actual, proyectado, fecha_fin, dias, veredicto, ejecutor):
+    """Guarda el análisis de Capacity Planning en la tabla 'proyecciones'."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO proyecciones 
+                (recurso_analizado, valor_actual, valor_proyectado, fecha_proyeccion, dias_proyectados, veredicto, ejecutado_por)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (recurso, actual, proyectado, fecha_fin, dias, veredicto, ejecutor))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            st.error(f"Error al guardar proyección: {e}")
+    return False
