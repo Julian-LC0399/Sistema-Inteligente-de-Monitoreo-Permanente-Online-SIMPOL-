@@ -50,32 +50,19 @@ def generar_menu():
         
         st.divider()
 
-        # 2. Lógica del Enlace Core (Red)
-        try:
-            _, _, msg_enlace = obtener_telemetria() 
-            color_enlace = "#2ecc71" if "UP" in msg_enlace.upper() else "#e74c3c"
-            st.markdown(f"""
-                <div style="display:flex; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); margin-bottom:15px;">
-                    <div style="width:10px; height:10px; background-color:{color_enlace}; border-radius:50%; margin-right:12px; box-shadow: 0 0 8px {color_enlace};"></div>
-                    <span style="font-size:12px; font-weight:bold; color:white;">ENLACE CORE: {msg_enlace}</span>
-                </div>
-            """, unsafe_allow_html=True)
-        except:
-            pass
-
-        # 3. Alerta de Telemetría (CPU/RAM)
+        # 2. Alerta de Telemetría
         mostrar_modulo_telemetria()
 
         st.divider()
 
-        # 4. Navegación por Roles
+        # 3. Navegación por Roles
         opciones = ["🏠 Inicio", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
         if st.session_state.get("rol") in ["admin", "seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
             
         seleccion = st.radio("Navegación", opciones, key="seccion_actual", label_visibility="collapsed")
         
-        # 5. Cierre de Sesión
+        # 4. Cierre de Sesión
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.query_params.clear()
             for key in list(st.session_state.keys()):
