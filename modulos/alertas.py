@@ -3,130 +3,83 @@ from database import conectar_bd, registrar_auditoria_umbral
 from datetime import datetime
 
 def cargar_config_umbrales():
-    """Sincroniza los umbrales de la sesión con los últimos guardados en BD."""
-    if "u_cpu_perc" not in st.session_state:
-        st.session_state.u_cpu_perc = 85
-        st.session_state.u_ram_perc = 90
+    """Carga los 6 niveles de umbral desde la BD para escalabilidad."""
+    metricas = ["CPU_ESTABLE", "CPU_PRECAUCION", "CPU_CRITICO", 
+                "RAM_ESTABLE", "RAM_PRECAUCION", "RAM_CRITICO"]
+    
+    for m in metricas:
+        if m not in st.session_state:
+            # Valores por defecto: 70 Estable, 80 Precaución, 90 Crítico
+            st.session_state[m] = 70 if "ESTABLE" in m else (80 if "PRECAUCION" in m else 90)
+
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
-        for metrica, key in [("CPU", "u_cpu_perc"), ("RAM", "u_ram_perc")]:
+        for m in metricas:
             query = "SELECT umbral_nuevo FROM historico_umbrales WHERE metrica = %s ORDER BY fecha_cambio DESC LIMIT 1"
-            cursor.execute(query, (metrica,))
+            cursor.execute(query, (m,))
             res = cursor.fetchone()
-            if res: st.session_state[key] = res[0]
+            if res: st.session_state[m] = res[0]
         cursor.close()
         conn.close()
-    except: 
-        pass
+    except: pass
 
 @st.fragment(run_every=5)
 def fragmento_log_alertas():
-    # Estilo de tabla con alto contraste y OCULTAR COLUMNA DE ÍNDICE (0,1,2...)
     st.markdown("""
         <style>
             [data-testid="stTable"] td { color: black !important; border: 1px solid #eee !important; font-weight: 500; }
             [data-testid="stTable"] th { background-color: #003366 !important; color: white !important; }
-            
-            /* OCULTA LA PRIMERA COLUMNA (EL ÍNDICE 0,1,2...) */
-            [data-testid="stTable"] td:nth-child(1), 
-            [data-testid="stTable"] th:nth-child(1) {
-                display: none !important;
-            }
+            [data-testid="stTable"] td:nth-child(1), [data-testid="stTable"] th:nth-child(1) { display: none !important; }
         </style>
     """, unsafe_allow_html=True)
-    
-    st.markdown("### 📋 Registro de Eventos (Cada 5s)")
+
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("SELECT fecha_registro, uso_cpu, uso_ram, estado_sistema FROM monitoreo ORDER BY id DESC LIMIT 10")
         datos = cursor.fetchall()
         conn.close()
-
         if datos:
-            iconos = {"CRÍTICO": "🔴", "PRECAUCIÓN": "🟠", "NORMAL": "🟢"}
-            tabla = []
-            for f in datos:
-                est = str(f[3]).upper()
-                tabla.append({
-                    "HORA": f[0].strftime('%H:%M:%S'),
-                    "ESTADO": iconos.get(est, "⚪") + " " + est,
-                    "CPU %": f"{f[1]}%",
-                    "RAM %": f"{f[2]}%"
-                })
+            tabla = [{"HORA": f[0].strftime('%H:%M:%S'), 
+                      "ESTADO": f" {'🔴' if 'CRÍT' in str(f[3]).upper() else '🟠' if 'PREC' in str(f[3]).upper() else '🟢'} {f[3]}",
+                      "CPU %": f"{f[1]}%", "RAM %": f"{f[2]}%"} for f in datos]
             st.table(tabla)
-    except Exception as e:
-        st.error(f"Error de sincronía: {e}")
+    except: pass
 
 def mostrar_pantalla(user_actual):
-    # --- ESTILOS ENCAPSULADOS PARA EVITAR AFECTAR EL MENÚ ---
-    st.markdown("""
-        <style>
-            .titulo-seccion {
-                color: #003366 !important;
-                font-weight: bold !important;
-                margin-bottom: 15px;
-            }
-
-            [data-testid="stMain"] [data-testid="stWidgetLabel"] p {
-                color: #000000 !important;
-                font-weight: bold !important;
-            }
-
-            [data-testid="stMain"] [data-testid="stNumberInput"] input {
-                color: black !important;
-                font-weight: bold !important;
-            }
-
-            div.stButton > button {
-                color: #ffffff !important;
-                background-color: #003366 !important;
-                border: none !important;
-                font-weight: bold !important;
-                width: 100% !important;
-                height: 3.5em !important;
-                border-radius: 8px !important;
-                text-transform: uppercase;
-            }
-            
-            div.stButton > button:hover {
-                background-color: #00509d !important;
-                color: #ffffff !important;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
     cargar_config_umbrales()
-    st.markdown("<h2 class='titulo-seccion'>🚨 Centro de Alertas y Umbrales</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003366;'>🚨 Configuración de Umbrales SIMPOL</h2>", unsafe_allow_html=True)
+    st.markdown("""<style>
+        .stButton>button { background-color: #003366; color: white; border-radius: 5px; font-weight: bold; width: 100%; height: 45px; }
+        .stButton>button:hover { color: #ffcc00; background-color: #004080; }
+        .label-banco { color: #003366; font-weight: bold; margin-bottom: 5px; }
+    </style>""", unsafe_allow_html=True)
 
     with st.container(border=True):
-        st.markdown("<h4 style='color:#000000; margin-bottom:5px;'>⚙️ CONFIGURACIÓN DE LÍMITES</h4>", unsafe_allow_html=True)
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            n_cpu = st.number_input("Umbral CPU (%)", 1, 100, st.session_state.u_cpu_perc)
-        with c2:
-            n_ram = st.number_input("Umbral RAM (%)", 1, 100, st.session_state.u_ram_perc)
-        
-        st.write("") 
-        
-        if st.button("💾 GUARDAR Y ACTUALIZAR"):
-            cambio = False
-            if n_cpu != st.session_state.u_cpu_perc:
-                registrar_auditoria_umbral("CPU", st.session_state.u_cpu_perc, n_cpu, user_actual)
-                st.session_state.u_cpu_perc = n_cpu
-                cambio = True
-            if n_ram != st.session_state.u_ram_perc:
-                registrar_auditoria_umbral("RAM", st.session_state.u_ram_perc, n_ram, user_actual)
-                st.session_state.u_ram_perc = n_ram
-                cambio = True
-            
-            if cambio:
-                st.success("✅ Configuración guardada exitosamente.")
-                st.rerun()
-            else:
-                st.info("No hay cambios detectados.")
+        st.markdown("<div class='label-banco'>🖥️ UMBRALES CPU</div>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        n_cpu_e = c1.number_input("Estable (CPU)", 1, 100, st.session_state.CPU_ESTABLE)
+        n_cpu_p = c2.number_input("Precaución (CPU)", 1, 100, st.session_state.CPU_PRECAUCION)
+        n_cpu_c = c3.number_input("Crítico (CPU)", 1, 100, st.session_state.CPU_CRITICO)
+
+    with st.container(border=True):
+        st.markdown("<div class='label-banco'>🧠 UMBRALES RAM</div>", unsafe_allow_html=True)
+        c4, c5, c6 = st.columns(3)
+        n_ram_e = c4.number_input("Estable (RAM)", 1, 100, st.session_state.RAM_ESTABLE)
+        n_ram_p = c5.number_input("Precaución (RAM)", 1, 100, st.session_state.RAM_PRECAUCION)
+        n_ram_c = c6.number_input("Crítico (RAM)", 1, 100, st.session_state.RAM_CRITICO)
+
+    if st.button("💾 APLICAR POLÍTICA DE SEGURIDAD"):
+        cambios = False
+        dict_n = {"CPU_ESTABLE": n_cpu_e, "CPU_PRECAUCION": n_cpu_p, "CPU_CRITICO": n_cpu_c,
+                  "RAM_ESTABLE": n_ram_e, "RAM_PRECAUCION": n_ram_p, "RAM_CRITICO": n_ram_c}
+        for m, val in dict_n.items():
+            if val != st.session_state[m]:
+                registrar_auditoria_umbral(m, st.session_state[m], val, user_actual)
+                st.session_state[m] = val
+                cambios = True
+        if cambios: st.success("✅ Configuración actualizada."); st.rerun()
 
     st.divider()
     fragmento_log_alertas()
