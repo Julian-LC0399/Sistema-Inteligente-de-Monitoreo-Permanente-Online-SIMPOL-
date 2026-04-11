@@ -81,23 +81,29 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor):
         except Exception as e:
             print(f"Error de auditoría (User): {e}")
 
-def registrar_auditoria_umbral(metrica, anterior, nuevo, ejecutor):
+def registrar_auditoria_umbral(metrica, anterior, nuevo, usuario_id, comentario):
+    """
+    Registra el cambio de umbral en historico_umbrales.
+    Sincronizado con simpol.sql (usuario_id, metrica, umbral_anterior, umbral_nuevo, comentario)
+    """
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
-            # Se asegura que el nombre de la columna coincida con el SQL (modificado_por)
+            # El orden debe ser igual al VALUES para que el ID numérico entre en la columna correcta
             query = """
                 INSERT INTO historico_umbrales 
-                (metrica, umbral_anterior, umbral_nuevo, modificado_por)
-                VALUES (%s, %s, %s, %s)
+                (usuario_id, metrica, umbral_anterior, umbral_nuevo, comentario)
+                VALUES (%s, %s, %s, %s, %s)
             """
-            # Se pasan como enteros para respetar el tipo INT del SQL
-            cursor.execute(query, (metrica, int(anterior), int(nuevo), ejecutor))
+            # Convertimos a tipos de datos compatibles con SQL (INT y STR)
+            cursor.execute(query, (int(usuario_id), str(metrica), int(anterior), int(nuevo), str(comentario)))
             conn.commit()
+            cursor.close()
             conn.close()
         except Exception as e:
-            print(f"Error de auditoría (Umbral): {e}")
+            # Importante: st.error te ayudará a ver el error en pantalla si algo falla
+            st.error(f"Error de auditoría (Umbral): {e}")
 
 def registrar_proyeccion(recurso, actual, proyectado, fecha_fin, dias, veredicto, usuario_id):
     """CORRECCIÓN: Sincronizado con la tabla proyecciones de simpol.sql"""

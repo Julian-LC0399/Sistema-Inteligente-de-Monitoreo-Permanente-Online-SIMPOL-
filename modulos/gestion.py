@@ -1,6 +1,5 @@
 import streamlit as st
 from database import conectar_bd, registrar_auditoria_usuario
-# SE ELIMINÓ: import datetime (Sin uso)
 
 def mostrar_pantalla(user_actual, user_id):
     # Verificación de permisos institucional
@@ -33,7 +32,8 @@ def mostrar_pantalla(user_actual, user_id):
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal CSU</h2>", unsafe_allow_html=True)
 
     # --- 1. REGISTRO DE NUEVO PERSONAL ---
-    col_tit, col_btn = st.columns([3, 1])
+    # CORRECCIÓN: Se usa '_' para la columna de título no utilizada
+    _, col_btn = st.columns([3, 1])
     with col_btn:
         label = "❌ CANCELAR" if st.session_state.mostrar_registro else "➕ NUEVO ANALISTA"
         if st.button(label, use_container_width=True):
@@ -90,7 +90,6 @@ def mostrar_pantalla(user_actual, user_id):
                 st.divider()
                 st.markdown("#### ⚙️ Modificar Analista")
                 
-                # Simplificación de carga de selectbox
                 usuario_sel = st.selectbox("Seleccione ID para editar:", [""] + [u['usuario'] for u in usuarios_lista])
 
                 if usuario_sel:
