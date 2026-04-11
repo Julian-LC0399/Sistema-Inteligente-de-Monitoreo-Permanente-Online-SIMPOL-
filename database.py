@@ -8,8 +8,7 @@ def conectar_bd():
             "host": "127.0.0.1",
             "user": "root",
             "password": "1234",
-            "database": "monitoreo_banco",
-            # Plugin forzado para evitar el error 4058 en Windows Server
+            "database": "simpol",
             "auth_plugin": "mysql_native_password", 
         }
         return mysql.connector.connect(**config)
@@ -18,13 +17,13 @@ def conectar_bd():
         return None
 
 def verificar_usuario(usuario, clave):
-    """Valida credenciales y el nuevo rol de seguridad."""
+    """Valida credenciales y devuelve el ID numérico para las llaves foráneas."""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            # Buscamos en la tabla 'usuarios' con el nuevo esquema
-            query = "SELECT usuario, nombre_completo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
+            # CORRECCIÓN: Agregado 'id' al SELECT para persistencia de sesión
+            query = "SELECT id, usuario, nombre_completo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
             cursor.execute(query, (usuario, clave))
             resultado = cursor.fetchone()
             cursor.close()
@@ -35,36 +34,42 @@ def verificar_usuario(usuario, clave):
     return None
 
 def obtener_datos_historicos():
-    """
-    Extrae datos usando cursores nativos.
-    Ya no usa Pandas (pd.read_sql) para evitar errores de DLL en el servidor.
-    """
+    """Trae la telemetría usando el nuevo estándar de id_sensor."""
     conn = conectar_bd()
-    datos = []
     if conn:
         try:
-            # dictionary=True hace que cada fila sea un diccionario {'columna': valor}
             cursor = conn.cursor(dictionary=True)
-            query = "SELECT fecha_registro, uso_cpu, uso_ram FROM monitoreo ORDER BY fecha_registro ASC"
+            # CORRECCIÓN: nombre_csu -> id_sensor
+            query = "SELECT fecha_registro, id_sensor, uso_cpu, uso_ram, estado_sistema FROM monitoreo ORDER BY fecha_registro DESC LIMIT 100"
             cursor.execute(query)
-            datos = cursor.fetchall()  # Retorna una lista de diccionarios
+            datos = cursor.fetchall()
             cursor.close()
             conn.close()
-            return datos 
+            return datos
         except Exception as e:
-            st.error(f"Error al extraer telemetría: {e}")
-    
-    # Si falla o no hay datos, devuelve una lista vacía compatible con bucles
-    return datos
+            print(f"Error al traer históricos: {e}")
+    return []
 
-# --- FUNCIONES DE AUDITORÍA (Mantenidas como código nativo seguro) ---
-
-def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor):
-    """Guarda cambios de personal en 'historico_usuarios'."""
+def registrar_log_acceso(usuario, nombre, rol, resultado="EXITOSO"):
+    """Registra auditoría de accesos."""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
+            query = "INSERT INTO log_accesos (usuario, nombre_completo, rol, resultado) VALUES (%s, %s, %s, %s)"
+            cursor.execute(query, (usuario, nombre, rol, resultado))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error de log: {e}")
+
+def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor):
+    """Guarda cambios en la tabla 'historico_usuarios'."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Ajustado a los nombres exactos de simpol.sql
             query = """
                 INSERT INTO historico_usuarios 
                 (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por)
@@ -93,22 +98,24 @@ def registrar_auditoria_umbral(metrica, anterior, nuevo, ejecutor):
         except Exception as e:
             print(f"Error de auditoría (Umbral): {e}")
 
-
-def registrar_proyeccion(recurso, actual, proyectado, fecha_fin, dias, veredicto, ejecutor):
-    """Guarda el análisis de Capacity Planning en la tabla 'proyecciones'."""
+def registrar_proyeccion(recurso, actual, proyectado, fecha_fin, dias, veredicto, usuario_id):
+    """CORRECCIÓN: Sincronizado con la tabla proyecciones de simpol.sql"""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
+            # CORRECCIÓN: ejecutado_por -> usuario_id (INT) y reordenado según SQL
             query = """
                 INSERT INTO proyecciones 
-                (recurso_analizado, valor_actual, valor_proyectado, fecha_proyeccion, dias_proyectados, veredicto, ejecutado_por)
+                (usuario_id, recurso_analizado, valor_actual, valor_proyectado, fecha_proyeccion, dias_proyectados, veredicto)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (recurso, actual, proyectado, fecha_fin, dias, veredicto, ejecutor))
+            # Se envía el usuario_id como primer valor
+            cursor.execute(query, (usuario_id, recurso, actual, proyectado, fecha_fin, dias, veredicto))
             conn.commit()
             conn.close()
             return True
         except Exception as e:
-            st.error(f"Error al guardar proyección: {e}")
+            print(f"Error al registrar proyección: {e}")
+            return False
     return False

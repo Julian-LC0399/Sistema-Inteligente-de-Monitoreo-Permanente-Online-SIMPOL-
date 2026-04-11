@@ -56,7 +56,7 @@ def iniciar_agente():
                 
                 # Salida de Consola
                 timestamp = ahora.strftime('%H:%M:%S')
-                print(f"[{timestamp}] {icono} {estado:11} | CPU: {cpu:5}% | RAM: {ram:5}% | Sensor ID: {sensor_id}")
+                print(f"[{timestamp}] {icono} {estado:11} | CPU: {cpu:5}% | RAM: {ram:5}% | Sensor: {sensor_id}")
                 
             except mysql.connector.Error as err:
                 print(f"[{ahora.strftime('%H:%M:%S')}] ⚠️ Error DB: {err}")
