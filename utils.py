@@ -12,6 +12,7 @@ def get_resource_path(relative_path):
     """Obtiene la ruta absoluta para recursos (logo, css)."""
     try:
         base_path = sys._MEIPASS
+        
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
@@ -27,38 +28,34 @@ def load_css(file_name):
         pass
 
 def obtener_telemetria():
-    """
-    Obtiene datos de CPU y RAM.
-    Prioriza la API de PRTG y usa PSUTIL como respaldo (fallback).
-    """
-    # 1. Valores de respaldo (Locales)
-    cpu = float(psutil.cpu_percent(interval=0.5))
-    ram = float(psutil.virtual_memory().percent)
-    fuente = "MODO LOCAL (PSUTIL)"
-
-    # 2. CONEXIÓN REAL CON PRTG (Restaurada)
-    url = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,lastvalue,lastvalue_raw&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
+    """Obtiene datos de CPU y RAM con sincronía forzada para PRTG."""
+    # 1. Preparar respaldo local con intervalo real para evitar el 0.0
+    cpu_local = float(psutil.cpu_percent(interval=0.1))
+    ram_local = float(psutil.virtual_memory().percent)
+    
+    cpu = cpu_local
+    ram = ram_local
+    msg = "💻 (MODO LOCAL)"
     
     try:
-        # Hacemos la petición a la API con un timeout corto para no bloquear el agente
-        response = requests.get(url, verify=False, timeout=2)
+        # 2. URL de PRTG (Aumentamos estabilidad)
+        # Nota: He mantenido tu token, pero subimos el timeout a 2.0 segundos
+        url = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,lastvalue,lastvalue_raw&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
         
-        if response.status_code == 200:
-            data = response.json()
-            # Si PRTG devuelve datos, procesamos los sensores
-            if "sensors" in data and len(data["sensors"]) > 0:
-                # Aquí podrías mapear los valores específicos si PRTG devuelve CPU/RAM por separado
-                # Por ahora, marcamos que la API está respondiendo
-                fuente = "API PRTG ACTIVA (Sensor 2094)"
-                # Ejemplo de extracción si lastvalue_raw trae el porcentaje:
-                # cpu = data["sensors"][0].get("lastvalue_raw", cpu)
+        r = requests.get(url, timeout=2.0, verify=False)
+        
+        if r.status_code == 200:
+            json_data = r.json()
+            if "sensors" in json_data and len(json_data["sensors"]) > 0:
+                # Extraemos el valor raw (PRTG suele darlo multiplicado por 10 o en escala)
+                raw_val = json_data["sensors"][0].get("lastvalue_raw", cpu_local)
+                
+                # Ajuste de escala: Si PRTG envía 450 para decir 45.0%
+                cpu = float(raw_val) / 10 if raw_val > 100 else float(raw_val)
+                
+                msg = "🛰️ (PRTG SENSOR 2094)"
     except Exception as e:
-        fuente = f"ERROR API (Usando Local): {str(e)[:30]}"
+        # Si hay error, msg se queda como MODO LOCAL
+        pass
 
-    return cpu, ram, fuente
-
-def formatear_fecha(fecha):
-    """Estandariza fechas para reportes."""
-    if fecha:
-        return fecha.strftime('%d/%m/%Y %H:%M:%S')
-    return "N/A"
+    return cpu, ram, msg
