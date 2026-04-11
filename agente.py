@@ -20,7 +20,8 @@ def obtener_umbrales():
     return p
 
 def iniciar_agente():
-    sensor_id = "2094"
+    # Definimos el ID numérico del sensor para la nueva estructura de la tabla
+    sensor_id = 2094 
     print(f"🚀 SIMPOL: Agente Activo")
     print("----------------------------------------------------------------------")
     try:
@@ -29,12 +30,6 @@ def iniciar_agente():
             u = obtener_umbrales()
             ahora = datetime.now()
             
-            # Identificación de modo (Local o PRTG con el ID 2094)
-            if "LOCAL" in msg_sensor.upper():
-                identificador_final = "MODO LOCAL"
-            else:
-                identificador_final = f" {sensor_id}"
-
             # Lógica de evaluación por niveles
             def evaluar(val, e, p, c):
                 if val >= c: return 3 # Crítico
@@ -52,14 +47,16 @@ def iniciar_agente():
             try:
                 conn = mysql.connector.connect(**DB_CONFIG)
                 cursor = conn.cursor()
-                # nombre_csu guardará el ID: 2094 para que el Menú lo muestre
-                cursor.execute("INSERT INTO monitoreo (fecha_registro, nombre_csu, uso_cpu, uso_ram, estado_sistema) VALUES (%s, %s, %s, %s, %s)",
-                               (ahora, identificador_final, cpu, ram, estado))
+                
+                # CAMBIO REALIZADO: 'nombre_csu' por 'id_sensor'
+                query = "INSERT INTO monitoreo (fecha_registro, id_sensor, uso_cpu, uso_ram, estado_sistema) VALUES (%s, %s, %s, %s, %s)"
+                cursor.execute(query, (ahora, sensor_id, cpu, ram, estado))
+                
                 conn.commit(); cursor.close(); conn.close()
                 
-                # Salida de Consola con el formato solicitado
+                # Salida de Consola
                 timestamp = ahora.strftime('%H:%M:%S')
-                print(f"[{timestamp}] {icono} {estado:11} | CPU: {cpu:5}% | RAM: {ram:5}% | Sensor: {identificador_final}")
+                print(f"[{timestamp}] {icono} {estado:11} | CPU: {cpu:5}% | RAM: {ram:5}% | Sensor ID: {sensor_id}")
                 
             except mysql.connector.Error as err:
                 print(f"[{ahora.strftime('%H:%M:%S')}] ⚠️ Error DB: {err}")
