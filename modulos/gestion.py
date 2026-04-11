@@ -1,11 +1,10 @@
 import streamlit as st
 from database import conectar_bd, registrar_auditoria_usuario
-from datetime import datetime
+# SE ELIMINÓ: import datetime (Sin uso)
 
 def mostrar_pantalla(user_actual, user_id):
-    rol_actual = st.session_state.get("rol", "operador")
-
-    if rol_actual == "operador":
+    # Verificación de permisos institucional
+    if st.session_state.get("rol") == "operador":
         st.error("🚫 Acceso denegado. No tiene permisos de Oficial de Seguridad para este módulo.")
         return
 
@@ -33,7 +32,7 @@ def mostrar_pantalla(user_actual, user_id):
 
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal CSU</h2>", unsafe_allow_html=True)
 
-    # --- 1. BOTÓN DE REGISTRO DE NUEVO PERSONAL ---
+    # --- 1. REGISTRO DE NUEVO PERSONAL ---
     col_tit, col_btn = st.columns([3, 1])
     with col_btn:
         label = "❌ CANCELAR" if st.session_state.mostrar_registro else "➕ NUEVO ANALISTA"
@@ -69,17 +68,16 @@ def mostrar_pantalla(user_actual, user_id):
                         except Exception as e: st.error(f"Error: {e}")
                     else: st.warning("Complete todos los campos.")
 
-    # --- 2. TABLA DE PERSONAL Y FILTRO DE EDICIÓN ---
+    # --- 2. VISTA Y EDICIÓN ---
     try:
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id, usuario, nombre_completo, rol, estado FROM usuarios")
+            cursor.execute("SELECT usuario, nombre_completo, rol, estado FROM usuarios")
             usuarios_lista = cursor.fetchall()
             cursor.close(); conn.close()
 
             if usuarios_lista:
-                # TABLA DE PERSONAL
                 st.markdown("#### 📋 Personal Registrado")
                 datos_tabla = [{
                     "USUARIO": u['usuario'],
@@ -90,20 +88,16 @@ def mostrar_pantalla(user_actual, user_id):
                 st.table(datos_tabla)
 
                 st.divider()
-                
-                # FILTRO DE EDICIÓN
                 st.markdown("#### ⚙️ Modificar Analista")
-                ids_usuarios = [u['usuario'] for u in usuarios_lista]
-                usuario_sel = st.selectbox("Seleccione ID para editar:", [""] + ids_usuarios)
+                
+                # Simplificación de carga de selectbox
+                usuario_sel = st.selectbox("Seleccione ID para editar:", [""] + [u['usuario'] for u in usuarios_lista])
 
                 if usuario_sel:
                     user_data = next(u for u in usuarios_lista if u['usuario'] == usuario_sel)
                     with st.container(border=True):
                         with st.form(key=f"edicion_{usuario_sel}"):
-                            # Campo de Cargo/Nombre
                             nuevo_nombre = st.text_input("Modificar Nombre/Cargo", value=user_data["nombre_completo"])
-                            
-                            # CAMPO DE COMENTARIO (Estilo idéntico al de arriba según for.jpg)
                             comentario = st.text_input("Justificación del cambio (Auditoría)")
                             
                             col_f1, col_f2 = st.columns(2)
@@ -124,7 +118,7 @@ def mostrar_pantalla(user_actual, user_id):
     except Exception as e:
         st.error(f"Error: {e}")
 
-# --- FUNCIONES DE BASE DE DATOS ---
+# --- PERSISTENCIA ---
 
 def ejecutar_update_nombre(usuario_login, viejo, nuevo, ejecutor_id, comentario):
     try:
