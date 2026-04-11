@@ -82,17 +82,18 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor):
             print(f"Error de auditoría (User): {e}")
 
 def registrar_auditoria_umbral(metrica, anterior, nuevo, ejecutor):
-    """Guarda cambios de alertas en 'historico_umbrales'."""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
+            # Se asegura que el nombre de la columna coincida con el SQL (modificado_por)
             query = """
                 INSERT INTO historico_umbrales 
                 (metrica, umbral_anterior, umbral_nuevo, modificado_por)
                 VALUES (%s, %s, %s, %s)
             """
-            cursor.execute(query, (metrica, str(anterior), str(nuevo), ejecutor))
+            # Se pasan como enteros para respetar el tipo INT del SQL
+            cursor.execute(query, (metrica, int(anterior), int(nuevo), ejecutor))
             conn.commit()
             conn.close()
         except Exception as e:
