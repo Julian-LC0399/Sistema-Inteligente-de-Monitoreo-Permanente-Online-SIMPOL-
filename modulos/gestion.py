@@ -3,10 +3,6 @@ from database import conectar_bd, registrar_auditoria_usuario
 from datetime import datetime
 
 def mostrar_pantalla(user_actual, user_id):
-    """
-    Módulo de administración de personal del Banco Caroní.
-    Recibe user_actual para visualización y user_id para auditoría.
-    """
     rol_actual = st.session_state.get("rol", "operador")
 
     if rol_actual == "operador":
@@ -32,51 +28,48 @@ def mostrar_pantalla(user_actual, user_id):
                 border-radius: 5px !important; transition: 0.3s;
             }
             div.stButton > button:hover { color: #ffcc00 !important; background-color: #002244 !important; border: 1px solid #ffcc00 !important; }
-            .label-banco { color: #003366; font-weight: bold; font-size: 16px; margin-bottom: 10px; border-bottom: 2px solid #ffcc00; display: inline-block; }
         </style>
     """, unsafe_allow_html=True)
 
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal CSU</h2>", unsafe_allow_html=True)
 
-    # --- 1. REGISTRO DE NUEVO PERSONAL ---
-    if rol_actual == "seguridad":
-        col_tit, col_btn = st.columns([3, 1])
-        with col_btn:
-            label = "❌ CANCELAR" if st.session_state.mostrar_registro else "➕ NUEVO ANALISTA"
-            if st.button(label, use_container_width=True):
-                st.session_state.mostrar_registro = not st.session_state.mostrar_registro
-                st.rerun()
+    # --- 1. BOTÓN DE REGISTRO DE NUEVO PERSONAL ---
+    col_tit, col_btn = st.columns([3, 1])
+    with col_btn:
+        label = "❌ CANCELAR" if st.session_state.mostrar_registro else "➕ NUEVO ANALISTA"
+        if st.button(label, use_container_width=True):
+            st.session_state.mostrar_registro = not st.session_state.mostrar_registro
+            st.rerun()
 
-        if st.session_state.mostrar_registro:
-            with st.container(border=True):
-                st.markdown("#### 📝 Alta de nuevo usuario")
-                with st.form("form_nuevo_usuario", clear_on_submit=True):
-                    c1, c2 = st.columns(2)
-                    u = c1.text_input("Usuario (ID de Empleado)")
-                    n = c2.text_input("Nombre Completo")
-                    p = c1.text_input("Clave Temporal", type="password")
-                    r = c2.selectbox("Rol Institucional", ["operador", "admin", "seguridad"])
-                    
-                    if st.form_submit_button("REGISTRAR EN SISTEMA", use_container_width=True):
-                        if u and n and p:
-                            try:
-                                conn = conectar_bd()
-                                cursor = conn.cursor()
-                                cursor.execute(
-                                    "INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s,1)",
-                                    (u, p, n, r)
-                                )
-                                conn.commit()
-                                # Auditoría automática de creación
-                                registrar_auditoria_usuario(u, "ALTA DE USUARIO", "N/A", r, user_id, "Alta inicial de personal")
-                                cursor.close(); conn.close()
-                                st.success(f"Analista {n} registrado exitosamente.")
-                                st.session_state.mostrar_registro = False
-                                st.rerun()
-                            except Exception as e: st.error(f"Error: {e}")
-                        else: st.warning("Complete todos los campos de seguridad.")
+    if st.session_state.mostrar_registro:
+        with st.container(border=True):
+            st.markdown("#### 📝 Registro de nuevo usuario")
+            with st.form("form_nuevo_usuario", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                u = c1.text_input("Usuario")
+                n = c2.text_input("Nombre Completo")
+                p = c1.text_input("Clave", type="password")
+                r = c2.selectbox("Rol", ["operador", "admin", "seguridad"])
+                
+                if st.form_submit_button("REGISTRAR EN SISTEMA", use_container_width=True):
+                    if u and n and p:
+                        try:
+                            conn = conectar_bd()
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s,1)",
+                                (u, p, n, r)
+                            )
+                            conn.commit()
+                            registrar_auditoria_usuario(u, "ALTA DE USUARIO", "N/A", r, user_id, "Alta inicial de personal")
+                            cursor.close(); conn.close()
+                            st.success(f"Analista {n} registrado exitosamente.")
+                            st.session_state.mostrar_registro = False
+                            st.rerun()
+                        except Exception as e: st.error(f"Error: {e}")
+                    else: st.warning("Complete todos los campos.")
 
-    # --- 2. VISTA DE PERSONAL REGISTRADO ---
+    # --- 2. TABLA DE PERSONAL Y FILTRO DE EDICIÓN ---
     try:
         conn = conectar_bd()
         if conn:
@@ -86,46 +79,52 @@ def mostrar_pantalla(user_actual, user_id):
             cursor.close(); conn.close()
 
             if usuarios_lista:
-                st.markdown("<div class='label-banco'>📋 PERSONAL ACTIVO</div>", unsafe_allow_html=True)
+                # TABLA DE PERSONAL
+                st.markdown("#### 📋 Personal Registrado")
                 datos_tabla = [{
-                    "ID": u['usuario'],
-                    "NOMBRE": u['nombre_completo'],
+                    "USUARIO": u['usuario'],
+                    "NOMBRE": u['nombre_completo'].upper(),
                     "ROL": str(u['rol']).upper(),
                     "ESTADO": "🟢 ACTIVO" if u['estado'] == 1 else "🔴 SUSPENDIDO"
                 } for u in usuarios_lista]
                 st.table(datos_tabla)
 
-                # --- 3. PANEL DE AUDITORÍA Y EDICIÓN ---
                 st.divider()
-                st.markdown("#### ⚙️ Modificación de Perfiles y Auditoría")
-                ids_disponibles = [u['usuario'] for u in usuarios_lista]
-                usuario_a_editar = st.selectbox("Seleccione analista para gestionar:", [""] + ids_disponibles)
+                
+                # FILTRO DE EDICIÓN
+                st.markdown("#### ⚙️ Modificar Analista")
+                ids_usuarios = [u['usuario'] for u in usuarios_lista]
+                usuario_sel = st.selectbox("Seleccione ID para editar:", [""] + ids_usuarios)
 
-                if usuario_a_editar:
-                    user_data = next(u for u in usuarios_lista if u['usuario'] == usuario_a_editar)
-                    
+                if usuario_sel:
+                    user_data = next(u for u in usuarios_lista if u['usuario'] == usuario_sel)
                     with st.container(border=True):
-                        st.markdown(f"**Analista:** {user_data['nombre_completo']}")
-                        with st.form("form_edicion"):
+                        with st.form(key=f"edicion_{usuario_sel}"):
+                            # Campo de Cargo/Nombre
                             nuevo_nombre = st.text_input("Modificar Nombre/Cargo", value=user_data["nombre_completo"])
-                            comentario = st.text_area("Justificación del cambio (Auditoría)", placeholder="Indique el motivo del cambio...")
+                            
+                            # CAMPO DE COMENTARIO (Estilo idéntico al de arriba según for.jpg)
+                            comentario = st.text_input("Justificación del cambio (Auditoría)")
                             
                             col_f1, col_f2 = st.columns(2)
-                            
                             if col_f1.form_submit_button("💾 ACTUALIZAR DATOS", use_container_width=True):
                                 if not comentario.strip():
                                     st.error("Debe ingresar una justificación.")
                                 else:
                                     ejecutar_update_nombre(user_data['usuario'], user_data['nombre_completo'], nuevo_nombre, user_id, comentario)
                             
-                            label_btn = "🗑️ SUSPENDER ACCESO" if user_data["estado"] == 1 else "✅ REACTIVAR ACCESO"
+                            label_btn = "🗑️ DESACTIVAR" if user_data["estado"] == 1 else "✅ ACTIVAR"
                             if col_f2.form_submit_button(label_btn, use_container_width=True):
                                 if not comentario.strip():
                                     st.error("Debe ingresar una justificación.")
                                 else:
                                     ejecutar_update_estado(user_data['usuario'], user_data['estado'], user_id, user_actual, comentario)
-            else: st.info("No hay analistas registrados en el sistema.")
-    except Exception as e: st.error(f"Error de visualización: {e}")
+            else:
+                st.info("No hay analistas registrados.")
+    except Exception as e:
+        st.error(f"Error: {e}")
+
+# --- FUNCIONES DE BASE DE DATOS ---
 
 def ejecutar_update_nombre(usuario_login, viejo, nuevo, ejecutor_id, comentario):
     try:
@@ -135,18 +134,17 @@ def ejecutar_update_nombre(usuario_login, viejo, nuevo, ejecutor_id, comentario)
         conn.commit()
         registrar_auditoria_usuario(usuario_login, "CAMBIO DE NOMBRE", viejo, nuevo, ejecutor_id, comentario)
         conn.close()
-        st.success("Cambios registrados en auditoría.")
+        st.success("Cambios registrados.")
         st.rerun()
     except Exception as e: st.error(f"Error: {e}")
 
 def ejecutar_update_estado(usuario_login, estado_actual, ejecutor_id, ejecutor_login, comentario):
     if str(usuario_login) == str(ejecutor_login):
-        st.error("Protocolo de seguridad: No puede suspender su propia cuenta.")
+        st.error("No puedes suspender tu propia cuenta.")
         return
     nuevo_estado = 0 if estado_actual == 1 else 1
     est_v = "ACTIVO" if estado_actual == 1 else "SUSPENDIDO"
     est_n = "SUSPENDIDO" if nuevo_estado == 0 else "ACTIVO"
-    
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
@@ -154,6 +152,6 @@ def ejecutar_update_estado(usuario_login, estado_actual, ejecutor_id, ejecutor_l
         conn.commit()
         registrar_auditoria_usuario(usuario_login, "CAMBIO DE ESTADO", est_v, est_n, ejecutor_id, comentario)
         conn.close()
-        st.success(f"Estado actualizado a {est_n}.")
+        st.success(f"Estado: {est_n}")
         st.rerun()
     except Exception as e: st.error(f"Error: {e}")
