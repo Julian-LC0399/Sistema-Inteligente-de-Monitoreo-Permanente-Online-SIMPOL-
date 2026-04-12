@@ -42,7 +42,7 @@ def evaluar_nivel(val, e, p, c):
 
 def iniciar_agente():
     sensor_id = 2094 
-    print(f"🚀 SIMPOL: Agente Activo (Iniciando monitoreo en Sensor {sensor_id})")
+    print("🚀 SIMPOL: Agente Activo") 
     print("----------------------------------------------------------------------")
     
     try:
