@@ -7,15 +7,13 @@ def limpiar_filtros_y_cerrar():
     st.session_state.mostrar_registro = False
 
 def mostrar_pantalla(user_actual, user_id):
-    # 1. VERIFICACIÓN DE PERMISOS
     if st.session_state.get("rol") == "operador":
         st.error("🚫 Acceso denegado. Se requieren permisos de Oficial de Seguridad.")
         return
 
-    # 2. CSS AVANZADO: REPARACIÓN DE TEXTO EN BLANCO Y UNIFICACIÓN
+    # --- CSS PROFESIONAL ---
     st.markdown("""
         <style>
-            /* Forzar visibilidad de títulos (Evita que se vean en blanco) */
             .titulo-gestion {
                 color: #003366 !important;
                 font-size: 28px !important;
@@ -23,27 +21,18 @@ def mostrar_pantalla(user_actual, user_id):
                 margin-bottom: 20px !important;
                 display: block !important;
             }
+            [data-testid="stHorizontalBlock"] { gap: 0px !important; align-items: center !important; }
+            [data-testid="column"] { background-color: transparent !important; }
 
-            /* Eliminar espacios entre columnas */
-            [data-testid="stHorizontalBlock"] {
-                gap: 0px !important;
-                align-items: center !important;
-            }
-            
-            /* Quitar fondos blancos de contenedores internos de Streamlit */
-            [data-testid="column"] {
-                background-color: transparent !important;
-            }
-
-            /* Marco de la Tabla Única */
             .main-table-container {
                 border: 1px solid #003366;
-                border-radius: 4px;
+                border-top: none !important; 
+                border-radius: 0px 0px 4px 4px;
                 overflow: hidden;
                 background-color: white;
+                margin-top: 10px;
             }
 
-            /* Cabecera Azul */
             .header-banco {
                 background-color: #003366 !important;
                 color: white !important;
@@ -54,17 +43,13 @@ def mostrar_pantalla(user_actual, user_id):
                 border-right: 1px solid rgba(255,255,255,0.1);
             }
 
-            /* Fila de Datos Unificada (Sin cuadros blancos sueltos) */
             .fila-datos {
                 background-color: white !important;
                 border-bottom: 1px solid #e0e0e0;
                 display: flex;
                 width: 100%;
             }
-            
-            .fila-datos:hover {
-                background-color: #f1f5f9 !important;
-            }
+            .fila-datos:hover { background-color: #f1f5f9 !important; }
 
             .celda-banco {
                 color: #333 !important;
@@ -72,114 +57,141 @@ def mostrar_pantalla(user_actual, user_id):
                 padding: 10px 5px;
                 text-align: center;
                 border-right: 1px solid #eee;
-                display: flex;
-                align-items: center;
-                justify-content: center;
+                display: flex; align-items: center; justify-content: center;
                 min-height: 50px;
             }
 
-            /* Botones estilo Caroní */
             .stButton > button {
                 background-color: #003366 !important;
                 color: white !important;
                 border-radius: 4px !important;
                 border: none !important;
                 font-weight: bold !important;
-                transition: 0.3s !important;
             }
-            
-            .stButton > button:hover {
-                background-color: #FFCC00 !important;
-                color: #003366 !important;
-            }
-
-            /* Contenedor de botón editar para que no genere cuadros blancos */
-            .btn-table-wrapper {
-                background-color: transparent !important;
-                padding: 5px !important;
-                width: 100%;
-            }
+            .stButton > button:hover { background-color: #004488 !important; }
         </style>
     """, unsafe_allow_html=True)
 
-    # Título con clase específica para asegurar color
     st.markdown('<p class="titulo-gestion">👥 Gestión de Personal CSU</p>', unsafe_allow_html=True)
 
-    # --- ACCIONES ---
-    col_busq, col_btn = st.columns([3, 1])
-    with col_busq:
-        filtro = st.text_input("🔍 Buscar analista...", key="filtro_csu")
-    with col_btn:
-        label = "❌ CANCELAR" if st.session_state.get("mostrar_registro") else "➕ NUEVO ANALISTA"
-        if st.button(label, use_container_width=True):
-            st.session_state.mostrar_registro = not st.session_state.get("mostrar_registro", False)
+    # --- BUSCADOR SUPERIOR ---
+    c_busq, c_fill = st.columns([3.5, 0.5])
+    with c_busq:
+        busqueda_input = st.text_input("Buscar analista...", key="input_busq", label_visibility="collapsed")
+    with c_fill:
+        if st.button("FILTRAR", use_container_width=True):
+            st.session_state.filtro_ejecutado = busqueda_input
             st.rerun()
 
-    # Formulario Registro
-    if st.session_state.get("mostrar_registro"):
-        with st.container(border=True):
-            st.markdown("<h4 style='color:#003366;'>📝 Registrar Analista</h4>", unsafe_allow_html=True)
-            with st.form("nuevo_u"):
-                f1, f2 = st.columns(2)
-                r_id = f1.text_input("Usuario")
-                r_nom = f2.text_input("Nombre")
-                r_pw = f1.text_input("Clave", type="password")
-                r_rl = f2.selectbox("Rol", ["operador", "admin", "seguridad"])
-                if st.form_submit_button("REGISTRAR"):
-                    if r_id and r_nom:
-                        # Lógica de guardado...
-                        st.success("Registrado")
-                        limpiar_filtros_y_cerrar()
-                        st.rerun()
+    filtro = st.session_state.get("filtro_ejecutado", "")
 
-    # --- TABLA PROFESIONAL ---
+    # --- TABLA DE USUARIOS ---
     try:
-        conn = conectar_bd()
-        cursor = conn.cursor(dictionary=True)
+        conn = conectar_bd(); cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT usuario, nombre_completo, rol, estado FROM usuarios")
-        usuarios = cursor.fetchall()
-        conn.close()
+        usuarios = cursor.fetchall(); conn.close()
 
         if usuarios:
             if filtro:
                 usuarios = [u for u in usuarios if filtro.lower() in u['usuario'].lower() or filtro.lower() in u['nombre_completo'].lower()]
 
             st.markdown('<div class="main-table-container">', unsafe_allow_html=True)
-            
-            # Cabecera
             h = st.columns([1.5, 3, 1.2, 1.3, 1])
-            h[0].markdown("<div class='header-banco'>USUARIO</div>", unsafe_allow_html=True)
+            h[0].markdown("<div class='header-banco' style='border-top-left-radius:4px;'>USUARIO</div>", unsafe_allow_html=True)
             h[1].markdown("<div class='header-banco'>NOMBRE COMPLETO</div>", unsafe_allow_html=True)
             h[2].markdown("<div class='header-banco'>ROL</div>", unsafe_allow_html=True)
             h[3].markdown("<div class='header-banco'>ESTADO</div>", unsafe_allow_html=True)
-            h[4].markdown("<div class='header-banco' style='border-right:none;'>ACCIÓN</div>", unsafe_allow_html=True)
+            h[4].markdown("<div class='header-banco' style='border-right:none; border-top-right-radius:4px;'>ACCIÓN</div>", unsafe_allow_html=True)
 
             for u in usuarios:
-                # Cada fila se envuelve en un div para mantener el fondo blanco unificado
                 st.markdown('<div class="fila-datos">', unsafe_allow_html=True)
                 r = st.columns([1.5, 3, 1.2, 1.3, 1])
                 r[0].markdown(f"<div class='celda-banco'>{u['usuario']}</div>", unsafe_allow_html=True)
                 r[1].markdown(f"<div class='celda-banco'>{u['nombre_completo'].upper()}</div>", unsafe_allow_html=True)
                 r[2].markdown(f"<div class='celda-banco'>{str(u['rol']).upper()}</div>", unsafe_allow_html=True)
-                
-                est = "🟢 ACTIVO" if u['estado'] == 1 else "🔴 SUSPENDIDO"
-                r[3].markdown(f"<div class='celda-banco'>{est}</div>", unsafe_allow_html=True)
-                
+                r[3].markdown(f"<div class='celda-banco'>{'🟢 ACTIVO' if u['estado'] == 1 else '🔴 SUSPENDIDO'}</div>", unsafe_allow_html=True)
                 with r[4]:
-                    st.markdown('<div class="btn-table-wrapper">', unsafe_allow_html=True)
                     if st.button("EDITAR", key=f"e_{u['usuario']}", use_container_width=True):
                         st.session_state["sel_usuario_edit"] = u['usuario']
+                        st.session_state.mostrar_registro = False # Cerramos registro si estaba abierto
                         st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
-            
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # Sección de edición (aparece abajo si se selecciona)
-            if st.session_state.get("sel_usuario_edit"):
-                st.divider()
-                st.info(f"Editando a: {st.session_state.sel_usuario_edit}")
-                # Formulario de edición aquí...
+            # --- BOTÓN REGISTRAR DEBAJO DE LA TABLA ---
+            st.write("")
+            if not st.session_state.get("mostrar_registro"):
+                if st.button("➕ REGISTRAR NUEVO ANALISTA", use_container_width=True):
+                    st.session_state.mostrar_registro = True
+                    st.session_state.sel_usuario_edit = None # Cerramos edición si estaba abierta
+                    st.rerun()
+            else:
+                if st.button("❌ CANCELAR REGISTRO", use_container_width=True):
+                    st.session_state.mostrar_registro = False
+                    st.rerun()
 
-    except Exception as e:
-        st.error(f"Error: {e}")
+            # --- FORMULARIO DE REGISTRO (SOLO SI SE ACTIVA) ---
+            if st.session_state.get("mostrar_registro"):
+                with st.container(border=True):
+                    st.markdown("<h4 style='color:#003366;'>📝 Registrar Nuevo Analista</h4>", unsafe_allow_html=True)
+                    with st.form("nuevo_u"):
+                        f1, f2 = st.columns(2)
+                        r_id = f1.text_input("Usuario (Login)")
+                        r_nom = f2.text_input("Nombre Completo")
+                        r_pw = f1.text_input("Clave Temporal", type="password")
+                        r_rl = f2.selectbox("Rol", ["operador", "admin", "seguridad"])
+                        if st.form_submit_button("GUARDAR ANALISTA", use_container_width=True):
+                            if r_id and r_nom and r_pw:
+                                try:
+                                    conn = conectar_bd(); cursor = conn.cursor()
+                                    cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s,1)", (r_id, r_pw, r_nom, r_rl))
+                                    conn.commit()
+                                    registrar_auditoria_usuario(r_id, "ALTA", "N/A", "ACTIVO", user_id, f"Alta por {user_actual}")
+                                    conn.close(); st.success("Registrado."); limpiar_filtros_y_cerrar(); st.rerun()
+                                except Exception as e: st.error(f"Error: {e}")
+
+            # --- FORMULARIO DE EDICIÓN (SOLO SI SE PRESIONA EDITAR) ---
+            if st.session_state.get("sel_usuario_edit"):
+                u_sel = st.session_state.sel_usuario_edit
+                datos = next(u for u in usuarios if u['usuario'] == u_sel)
+                st.divider()
+                st.markdown(f"#### ⚙️ Modificar Analista: {u_sel}")
+                with st.container(border=True):
+                    with st.form("form_edicion"):
+                        n_nombre = st.text_input("Nombre / Cargo", value=datos['nombre_completo'])
+                        justif = st.text_input("Justificación de Auditoría")
+                        c1, c2, c3 = st.columns([1, 1, 1])
+                        if c1.form_submit_button("💾 GUARDAR"):
+                            if justif.strip(): ejecutar_update_nombre(datos['usuario'], datos['nombre_completo'], n_nombre, user_id, justif)
+                            else: st.error("Falta justificación.")
+                        
+                        txt_susp = "🔒 SUSPENDER" if datos['estado'] == 1 else "🔓 ACTIVAR"
+                        if c2.form_submit_button(txt_susp):
+                            if justif.strip(): ejecutar_update_estado(datos['usuario'], datos['estado'], user_id, user_actual, justif)
+                            else: st.error("Falta justificación.")
+                        
+                        if c3.form_submit_button("❌ CERRAR"):
+                            limpiar_filtros_y_cerrar(); st.rerun()
+
+    except Exception as e: st.error(f"Error: {e}")
+
+def ejecutar_update_nombre(login, viejo, nuevo, id_ejecutor, comentario):
+    try:
+        conn = conectar_bd(); cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo, login))
+        conn.commit()
+        registrar_auditoria_usuario(login, "CAMBIO NOMBRE", viejo, nuevo, id_ejecutor, comentario)
+        conn.close(); limpiar_filtros_y_cerrar(); st.rerun()
+    except Exception as e: st.error(f"Error: {e}")
+
+def ejecutar_update_estado(login, est_ant, id_ejecutor, login_ejecutor, comentario):
+    if str(login) == str(login_ejecutor): st.error("No puede suspenderse a sí mismo."); return
+    n_est = 0 if est_ant == 1 else 1
+    v_ant, v_nue = ("ACTIVO", "SUSPENDIDO") if est_ant == 1 else ("SUSPENDIDO", "ACTIVO")
+    try:
+        conn = conectar_bd(); cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (n_est, login))
+        conn.commit()
+        registrar_auditoria_usuario(login, "CAMBIO ESTADO", v_ant, v_nue, id_ejecutor, comentario)
+        conn.close(); limpiar_filtros_y_cerrar(); st.rerun()
+    except Exception as e: st.error(f"Error: {e}")
