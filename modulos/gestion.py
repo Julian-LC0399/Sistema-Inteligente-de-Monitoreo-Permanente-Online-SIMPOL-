@@ -32,7 +32,6 @@ def mostrar_pantalla(user_actual, user_id):
     st.markdown("<h2 style='color:#003366; margin-top:0;'>👥 Gestión de Personal CSU</h2>", unsafe_allow_html=True)
 
     # --- 1. REGISTRO DE NUEVO PERSONAL ---
-    # CORRECCIÓN: Se usa '_' para la columna de título no utilizada
     _, col_btn = st.columns([3, 1])
     with col_btn:
         label = "❌ CANCELAR" if st.session_state.mostrar_registro else "➕ NUEVO ANALISTA"
@@ -60,6 +59,7 @@ def mostrar_pantalla(user_actual, user_id):
                                 (u, p, n, r)
                             )
                             conn.commit()
+                            # CORREGIDO: 6 argumentos
                             registrar_auditoria_usuario(u, "ALTA DE USUARIO", "N/A", r, user_id, "Alta inicial de personal")
                             cursor.close(); conn.close()
                             st.success(f"Analista {n} registrado exitosamente.")
@@ -117,14 +117,13 @@ def mostrar_pantalla(user_actual, user_id):
     except Exception as e:
         st.error(f"Error: {e}")
 
-# --- PERSISTENCIA ---
-
 def ejecutar_update_nombre(usuario_login, viejo, nuevo, ejecutor_id, comentario):
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
         cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo, usuario_login))
         conn.commit()
+        # CORREGIDO: 6 argumentos
         registrar_auditoria_usuario(usuario_login, "CAMBIO DE NOMBRE", viejo, nuevo, ejecutor_id, comentario)
         conn.close()
         st.success("Cambios registrados.")
@@ -143,6 +142,7 @@ def ejecutar_update_estado(usuario_login, estado_actual, ejecutor_id, ejecutor_l
         cursor = conn.cursor()
         cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (nuevo_estado, usuario_login))
         conn.commit()
+        # CORREGIDO: 6 argumentos
         registrar_auditoria_usuario(usuario_login, "CAMBIO DE ESTADO", est_v, est_n, ejecutor_id, comentario)
         conn.close()
         st.success(f"Estado: {est_n}")

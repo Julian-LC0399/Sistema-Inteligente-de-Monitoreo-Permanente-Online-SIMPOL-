@@ -22,7 +22,6 @@ def verificar_usuario(usuario, clave):
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            # CORRECCIÓN: Agregado 'id' al SELECT para persistencia de sesión
             query = "SELECT id, usuario, nombre_completo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
             cursor.execute(query, (usuario, clave))
             resultado = cursor.fetchone()
@@ -39,7 +38,6 @@ def obtener_datos_historicos():
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            # CORRECCIÓN: nombre_csu -> id_sensor
             query = "SELECT fecha_registro, id_sensor, uso_cpu, uso_ram, estado_sistema FROM monitoreo ORDER BY fecha_registro DESC LIMIT 100"
             cursor.execute(query)
             datos = cursor.fetchall()
@@ -63,61 +61,53 @@ def registrar_log_acceso(usuario, nombre, rol, resultado="EXITOSO"):
         except Exception as e:
             print(f"Error de log: {e}")
 
-def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor):
-    """Guarda cambios en la tabla 'historico_usuarios'."""
+def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, comentario):
+    """Sincronizado con tabla 'historico_usuarios' de simpol.sql"""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
-            # Ajustado a los nombres exactos de simpol.sql
+            # Columnas exactas de simpol.sql
             query = """
                 INSERT INTO historico_usuarios 
-                (usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, ejecutado_por)
-                VALUES (%s, %s, %s, %s, %s)
+                (usuario_id, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, comentario)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (afectado, accion, str(anterior), str(nuevo), ejecutor))
+            cursor.execute(query, (int(ejecutor_id), afectado, accion, str(anterior), str(nuevo), comentario))
             conn.commit()
             conn.close()
         except Exception as e:
             print(f"Error de auditoría (User): {e}")
 
 def registrar_auditoria_umbral(metrica, anterior, nuevo, usuario_id, comentario):
-    """
-    Registra el cambio de umbral en historico_umbrales.
-    Sincronizado con simpol.sql (usuario_id, metrica, umbral_anterior, umbral_nuevo, comentario)
-    """
+    """Sincronizado con tabla 'historico_umbrales' de simpol.sql"""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
-            # El orden debe ser igual al VALUES para que el ID numérico entre en la columna correcta
             query = """
                 INSERT INTO historico_umbrales 
                 (usuario_id, metrica, umbral_anterior, umbral_nuevo, comentario)
                 VALUES (%s, %s, %s, %s, %s)
             """
-            # Convertimos a tipos de datos compatibles con SQL (INT y STR)
             cursor.execute(query, (int(usuario_id), str(metrica), int(anterior), int(nuevo), str(comentario)))
             conn.commit()
             cursor.close()
             conn.close()
         except Exception as e:
-            # Importante: st.error te ayudará a ver el error en pantalla si algo falla
             st.error(f"Error de auditoría (Umbral): {e}")
 
 def registrar_proyeccion(recurso, actual, proyectado, fecha_fin, dias, veredicto, usuario_id):
-    """CORRECCIÓN: Sincronizado con la tabla proyecciones de simpol.sql"""
+    """Sincronizado con la tabla proyecciones de simpol.sql"""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
-            # CORRECCIÓN: ejecutado_por -> usuario_id (INT) y reordenado según SQL
             query = """
                 INSERT INTO proyecciones 
                 (usuario_id, recurso_analizado, valor_actual, valor_proyectado, fecha_proyeccion, dias_proyectados, veredicto)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            # Se envía el usuario_id como primer valor
             cursor.execute(query, (usuario_id, recurso, actual, proyectado, fecha_fin, dias, veredicto))
             conn.commit()
             conn.close()
