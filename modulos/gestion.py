@@ -5,7 +5,14 @@ def limpiar_filtros_y_cerrar():
     if "sel_usuario_edit" in st.session_state:
         del st.session_state["sel_usuario_edit"]
     st.session_state.filtro_ejecutado = ""
+    if "input_busq_widget" in st.session_state:
+        st.session_state["input_busq_widget"] = ""
     st.session_state.mostrar_registro = False
+
+def resetear_buscador():
+    """Limpia de forma segura el estado del buscador antes del renderizado"""
+    st.session_state.filtro_ejecutado = ""
+    st.session_state["input_busq_widget"] = ""
 
 def mostrar_pantalla(user_actual, user_id):
     if st.session_state.get("rol") == "operador":
@@ -23,24 +30,21 @@ def mostrar_pantalla(user_actual, user_id):
                 display: block !important;
             }
             
-            /* Eliminación de gaps y bordes residuales en columnas */
             [data-testid="stHorizontalBlock"] { 
                 gap: 0px !important; 
                 align-items: center !important; 
             }
             [data-testid="column"] { background-color: transparent !important; }
 
-            /* Contenedor principal de la tabla */
             .main-table-container {
                 border: 1px solid #003366;
                 border-top: none !important; 
                 border-radius: 0px 0px 4px 4px;
                 overflow: hidden;
                 background-color: white;
-                margin-top: 15px; /* Espacio para evitar solapamiento con buscador */
+                margin-top: 15px;
             }
 
-            /* Encabezados con centrado vertical corregido */
             .header-banco {
                 background-color: #003366 !important;
                 color: white !important;
@@ -51,7 +55,6 @@ def mostrar_pantalla(user_actual, user_id):
                 border-right: 1px solid rgba(255,255,255,0.1);
             }
 
-            /* Filas de datos */
             .fila-datos {
                 background-color: white !important;
                 border-bottom: 1px solid #e0e0e0;
@@ -70,7 +73,6 @@ def mostrar_pantalla(user_actual, user_id):
                 min-height: 50px;
             }
 
-            /* Estilos de botones de acción agrupados */
             .btn-edit button { 
                 background-color: #003366 !important; 
                 color: white !important; 
@@ -96,7 +98,6 @@ def mostrar_pantalla(user_actual, user_id):
                 border: none !important; 
             }
 
-            /* Botones generales de Streamlit */
             .stButton > button {
                 background-color: #003366 !important;
                 color: white !important;
@@ -127,7 +128,12 @@ def mostrar_pantalla(user_actual, user_id):
         c_clear = None
 
     with c_busq:
-        busqueda_input = st.text_input("Buscar...", value=st.session_state.filtro_ejecutado, key="input_busq_widget", label_visibility="collapsed", placeholder="Buscar por usuario o nombre...")
+        busqueda_input = st.text_input(
+            "Buscar...", 
+            key="input_busq_widget", 
+            label_visibility="collapsed", 
+            placeholder="Buscar por usuario o nombre..."
+        )
     
     with c_fill:
         if st.button("FILTRAR", use_container_width=True):
@@ -136,8 +142,7 @@ def mostrar_pantalla(user_actual, user_id):
             
     if c_clear:
         with c_clear:
-            if st.button("🧹 LIMPIAR", use_container_width=True):
-                st.session_state.filtro_ejecutado = ""
+            if st.button("🧹 LIMPIAR", use_container_width=True, on_click=resetear_buscador):
                 st.rerun()
 
     # --- RENDERIZADO DE TABLA ---
@@ -150,7 +155,6 @@ def mostrar_pantalla(user_actual, user_id):
             usuarios_f = [u for u in usuarios if st.session_state.filtro_ejecutado.lower() in u['usuario'].lower() or st.session_state.filtro_ejecutado.lower() in u['nombre_completo'].lower()]
 
             st.markdown('<div class="main-table-container">', unsafe_allow_html=True)
-            # Fila de Encabezados
             h = st.columns([1.5, 3, 1, 1.2, 1.8])
             h[0].markdown("<div class='header-banco'>USUARIO</div>", unsafe_allow_html=True)
             h[1].markdown("<div class='header-banco'>NOMBRE COMPLETO</div>", unsafe_allow_html=True)
@@ -166,7 +170,6 @@ def mostrar_pantalla(user_actual, user_id):
                 r[2].markdown(f"<div class='celda-banco'>{str(u['rol']).upper()}</div>", unsafe_allow_html=True)
                 r[3].markdown(f"<div class='celda-banco'>{'🟢 ACTIVO' if u['estado'] == 1 else '🔴 SUSPENDIDO'}</div>", unsafe_allow_html=True)
                 
-                # Columna de Acciones con botones pegados
                 c_edit, c_stat = r[4].columns(2)
                 with c_edit:
                     st.markdown('<div class="btn-edit">', unsafe_allow_html=True)
