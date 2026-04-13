@@ -22,35 +22,40 @@ def fragmento_tiempo_real(user_actual):
                     SESIÓN ACTIVA: {user_actual.upper()}
                 </div>
                 <h3 style="margin:0; color:#003366; font-family:Arial;">Infraestructura CSU - Banco Caroní</h3>
-                <p style="margin:5px 0; color:#444; font-size:14px;">Analista encargado: <b>{user_actual}</b></p>
-                <p style="margin:0; color:#888; font-size:12px;">Fuente de datos: <span style="color:#003366;">{fuente_msg}</span></p>
-                <p style="margin:0; color:#999; font-size:11px;">Última actualización: {fecha_actual}</p>
+                <p style="margin:0; color:#666; font-size:12px;">Estado del Servidor Central | {fuente_msg}</p>
+                <p style="margin-top:5px; font-weight:bold; color:#003366;">Última actualización: {fecha_actual}</p>
             </div>
         """, unsafe_allow_html=True)
-
+    
     with col_status:
-        st.metric("LECTURA CPU", f"{cpu_val}%")
-        st.metric("LECTURA RAM", f"{ram_val}%")
+        # Lógica de semáforo simple
+        if cpu_val > 80 or ram_val > 80:
+            st.error("🚨 ESTADO: CRÍTICO")
+            st.warning("⚠️ AVISO: Carga moderada detectada. Monitorear procesos de fin de mes.")
+        elif cpu_val > 50 or ram_val > 50:
+            st.warning("⚠️ ESTADO: ADVERTENCIA")
+        else:
+            st.success("✅ ESTADO: ÓPTIMO")
 
+    st.write("") # Espaciador
+
+    # 3. MÉTRICAS VISUALES
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("USO CPU", f"{cpu_val}%", delta=None)
+    m2.metric("USO RAM", f"{ram_val}%", delta=None)
+    m3.metric("LATENCIA", "5 ms", delta="-2ms")
+    m4.metric("RED (SBA)", "150 Mbps", delta="Activo")
+
+    # 4. GRÁFICO HISTÓRICO (Últimos 30 registros)
     st.markdown("---")
-
-    # 3. LÓGICA DE ESTADO (Alertas Visuales)
-    if cpu_val > 90 or ram_val > 90:
-        st.error(f"⚠️ **ALERTA CRÍTICA:** Se ha detectado un desbordamiento de recursos en el servidor.")
-    elif cpu_val > 70 or ram_val > 70:
-        st.warning(f"⚠️ **AVISO:** Carga moderada detectada. Monitorear procesos de fin de mes.")
-    else:
-        st.success(f"✅ **SISTEMA ESTABLE:** Los niveles de telemetría operan dentro de los umbrales normales.")
-
-    # 4. GRÁFICO HISTÓRICO (Sincronizado con simpol.sql)
-    st.markdown("<h4 style='color: #003366;'>📈 Tendencia de Carga (Últimos 30 registros)</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #003366;'>Gráfico de Rendimiento (Histórico Reciente)</h4>", unsafe_allow_html=True)
+    
     try:
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor(dictionary=True)
-            # CORRECCIÓN SQL: Ordenamos por fecha_registro e ID para manejar la clave compuesta de simpol.sql
             query = """
-                SELECT uso_cpu, uso_ram 
+                SELECT uso_cpu, uso_ram, fecha_registro 
                 FROM monitoreo 
                 ORDER BY fecha_registro DESC, id DESC 
                 LIMIT 30
@@ -76,11 +81,19 @@ def mostrar_pantalla(user_actual):
     """
     Función principal llamada por el orquestador (app.py)
     """
-    # Estilos CSS específicos para esta pantalla (Texto negro y sin índices)
+    # Estilos CSS específicos corregidos para asegurar legibilidad en alertas
     st.markdown("""
         <style>
+            /* Fuerza el color negro en métricas y textos generales */
             [data-testid="stMetricValue"] { color: #000000 !important; }
             .stMarkdown p { color: #000000 !important; }
+            
+            /* FIX: Asegura que las alertas (warning/error) no hereden el color blanco y sean legibles */
+            .stAlert p {
+                color: #000000 !important;
+                font-weight: 500;
+            }
+
             [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
         </style>
     """, unsafe_allow_html=True)
