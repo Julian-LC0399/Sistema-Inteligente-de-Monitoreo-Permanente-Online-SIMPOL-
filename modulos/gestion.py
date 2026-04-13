@@ -4,8 +4,7 @@ from database import conectar_bd, registrar_auditoria_usuario
 def limpiar_filtros_y_cerrar():
     if "sel_usuario_edit" in st.session_state:
         del st.session_state["sel_usuario_edit"]
-    if "filtro_ejecutado" in st.session_state:
-        del st.session_state["filtro_ejecutado"]
+    st.session_state.filtro_ejecutado = ""
     st.session_state.mostrar_registro = False
 
 def mostrar_pantalla(user_actual, user_id):
@@ -13,7 +12,7 @@ def mostrar_pantalla(user_actual, user_id):
         st.error("🚫 Acceso denegado. Se requieren permisos de Oficial de Seguridad.")
         return
 
-    # --- CSS PROFESIONAL: FUERZA GAP 0 EN TODO EL BLOQUE ---
+    # --- CSS PROFESIONAL ---
     st.markdown("""
         <style>
             .titulo-gestion {
@@ -23,11 +22,7 @@ def mostrar_pantalla(user_actual, user_id):
                 margin-bottom: 20px !important;
                 display: block !important;
             }
-            /* Eliminamos cualquier espacio entre columnas */
-            [data-testid="stHorizontalBlock"] { 
-                gap: 0px !important; 
-                align-items: center !important; 
-            }
+            [data-testid="stHorizontalBlock"] { gap: 0px !important; align-items: center !important; }
             [data-testid="column"] { background-color: transparent !important; }
 
             .main-table-container {
@@ -80,18 +75,25 @@ def mostrar_pantalla(user_actual, user_id):
 
     st.markdown('<p class="titulo-gestion">👥 Gestión de Personal CSU</p>', unsafe_allow_html=True)
 
-    # --- BUSCADOR SUPERIOR COMPACTO ---
-    filtro_actual = st.session_state.get("filtro_ejecutado", "")
-    
-    # Proporciones ajustadas para que los botones queden pegados al input
-    if filtro_actual:
+    # --- BUSCADOR SUPERIOR COMPACTO (CORREGIDO) ---
+    if "filtro_ejecutado" not in st.session_state:
+        st.session_state.filtro_ejecutado = ""
+
+    # Usamos columnas dinámicas
+    if st.session_state.filtro_ejecutado:
         c_busq, c_fill, c_clear = st.columns([2.6, 0.7, 0.7])
     else:
         c_busq, c_fill = st.columns([3.3, 0.7])
         c_clear = None
 
     with c_busq:
-        busqueda_input = st.text_input("Buscar analista...", value=filtro_actual, key="input_busq", label_visibility="collapsed")
+        # Usamos el valor guardado en filtro_ejecutado para inicializar el campo
+        busqueda_input = st.text_input(
+            "Buscar analista...", 
+            value=st.session_state.filtro_ejecutado, 
+            key="input_busq_widget", # Cambiamos la key para evitar conflictos
+            label_visibility="collapsed"
+        )
     
     with c_fill:
         if st.button("FILTRAR", use_container_width=True):
@@ -101,10 +103,11 @@ def mostrar_pantalla(user_actual, user_id):
     if c_clear:
         with c_clear:
             if st.button("🧹 LIMPIAR", use_container_width=True):
-                del st.session_state["filtro_ejecutado"]
+                # Limpiamos el estado y reiniciamos para que el widget tome el 'value' vacío
+                st.session_state.filtro_ejecutado = ""
                 st.rerun()
 
-    filtro = st.session_state.get("filtro_ejecutado", "")
+    filtro = st.session_state.filtro_ejecutado
 
     # --- TABLA DE USUARIOS ---
     try:
@@ -192,18 +195,18 @@ def mostrar_pantalla(user_actual, user_id):
                             else: st.error("Falta justificación.")
                         
                         if c3.form_submit_button("❌ CERRAR"):
-                            limpiar_filtros_y_cerrar(); st.rerun()
+                            st.session_state.sel_usuario_edit = None
+                            st.rerun()
 
     except Exception as e: st.error(f"Error: {e}")
 
-# --- SQL FUNCTIONS ---
 def ejecutar_update_nombre(login, viejo, nuevo, id_ejecutor, comentario):
     try:
         conn = conectar_bd(); cursor = conn.cursor()
         cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo, login))
         conn.commit()
         registrar_auditoria_usuario(login, "CAMBIO NOMBRE", viejo, nuevo, id_ejecutor, comentario)
-        conn.close(); limpiar_filtros_y_cerrar(); st.rerun()
+        conn.close(); st.session_state.sel_usuario_edit = None; st.rerun()
     except Exception as e: st.error(f"Error: {e}")
 
 def ejecutar_update_estado(login, est_ant, id_ejecutor, login_ejecutor, comentario):
@@ -215,5 +218,5 @@ def ejecutar_update_estado(login, est_ant, id_ejecutor, login_ejecutor, comentar
         cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (n_est, login))
         conn.commit()
         registrar_auditoria_usuario(login, "CAMBIO ESTADO", v_ant, v_nue, id_ejecutor, comentario)
-        conn.close(); limpiar_filtros_y_cerrar(); st.rerun()
+        conn.close(); st.session_state.sel_usuario_edit = None; st.rerun()
     except Exception as e: st.error(f"Error: {e}")
