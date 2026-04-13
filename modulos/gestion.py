@@ -12,7 +12,7 @@ def mostrar_pantalla(user_actual, user_id):
         st.error("🚫 Acceso denegado. Se requieren permisos de Oficial de Seguridad.")
         return
 
-    # --- CSS PROFESIONAL ---
+    # --- CSS PROFESIONAL DE ALTA PRECISIÓN ---
     st.markdown("""
         <style>
             .titulo-gestion {
@@ -22,31 +22,36 @@ def mostrar_pantalla(user_actual, user_id):
                 margin-bottom: 20px !important;
                 display: block !important;
             }
+            
+            /* Eliminación de gaps y bordes residuales en columnas */
             [data-testid="stHorizontalBlock"] { 
                 gap: 0px !important; 
                 align-items: center !important; 
             }
             [data-testid="column"] { background-color: transparent !important; }
 
+            /* Contenedor principal de la tabla */
             .main-table-container {
                 border: 1px solid #003366;
                 border-top: none !important; 
                 border-radius: 0px 0px 4px 4px;
                 overflow: hidden;
                 background-color: white;
-                margin-top: 10px;
+                margin-top: 15px; /* Espacio para evitar solapamiento con buscador */
             }
 
+            /* Encabezados con centrado vertical corregido */
             .header-banco {
                 background-color: #003366 !important;
                 color: white !important;
                 text-align: center;
-                padding: 12px 5px;
+                padding: 14px 5px 12px 5px; 
                 font-weight: bold;
                 font-size: 13px;
                 border-right: 1px solid rgba(255,255,255,0.1);
             }
 
+            /* Filas de datos */
             .fila-datos {
                 background-color: white !important;
                 border-bottom: 1px solid #e0e0e0;
@@ -65,7 +70,7 @@ def mostrar_pantalla(user_actual, user_id):
                 min-height: 50px;
             }
 
-            /* Botones de la tabla */
+            /* Estilos de botones de acción agrupados */
             .btn-edit button { 
                 background-color: #003366 !important; 
                 color: white !important; 
@@ -91,13 +96,12 @@ def mostrar_pantalla(user_actual, user_id):
                 border: none !important; 
             }
 
-            /* Estilo para los botones de formularios con separación */
+            /* Botones generales de Streamlit */
             .stButton > button {
                 background-color: #003366 !important;
                 color: white !important;
                 border-radius: 4px !important;
                 font-weight: bold !important;
-                margin-right: 10px !important; /* Separación horizontal */
             }
             
             .text-form-label {
@@ -112,7 +116,7 @@ def mostrar_pantalla(user_actual, user_id):
 
     st.markdown('<p class="titulo-gestion">👥 Gestión de Personal CSU</p>', unsafe_allow_html=True)
 
-    # --- BUSCADOR ---
+    # --- LÓGICA DE BÚSQUEDA ---
     if "filtro_ejecutado" not in st.session_state:
         st.session_state.filtro_ejecutado = ""
 
@@ -123,7 +127,7 @@ def mostrar_pantalla(user_actual, user_id):
         c_clear = None
 
     with c_busq:
-        busqueda_input = st.text_input("Buscar...", value=st.session_state.filtro_ejecutado, key="input_busq_widget", label_visibility="collapsed")
+        busqueda_input = st.text_input("Buscar...", value=st.session_state.filtro_ejecutado, key="input_busq_widget", label_visibility="collapsed", placeholder="Buscar por usuario o nombre...")
     
     with c_fill:
         if st.button("FILTRAR", use_container_width=True):
@@ -136,7 +140,7 @@ def mostrar_pantalla(user_actual, user_id):
                 st.session_state.filtro_ejecutado = ""
                 st.rerun()
 
-    # --- TABLA ---
+    # --- RENDERIZADO DE TABLA ---
     try:
         conn = conectar_bd(); cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT usuario, nombre_completo, rol, estado FROM usuarios")
@@ -146,6 +150,7 @@ def mostrar_pantalla(user_actual, user_id):
             usuarios_f = [u for u in usuarios if st.session_state.filtro_ejecutado.lower() in u['usuario'].lower() or st.session_state.filtro_ejecutado.lower() in u['nombre_completo'].lower()]
 
             st.markdown('<div class="main-table-container">', unsafe_allow_html=True)
+            # Fila de Encabezados
             h = st.columns([1.5, 3, 1, 1.2, 1.8])
             h[0].markdown("<div class='header-banco'>USUARIO</div>", unsafe_allow_html=True)
             h[1].markdown("<div class='header-banco'>NOMBRE COMPLETO</div>", unsafe_allow_html=True)
@@ -161,6 +166,7 @@ def mostrar_pantalla(user_actual, user_id):
                 r[2].markdown(f"<div class='celda-banco'>{str(u['rol']).upper()}</div>", unsafe_allow_html=True)
                 r[3].markdown(f"<div class='celda-banco'>{'🟢 ACTIVO' if u['estado'] == 1 else '🔴 SUSPENDIDO'}</div>", unsafe_allow_html=True)
                 
+                # Columna de Acciones con botones pegados
                 c_edit, c_stat = r[4].columns(2)
                 with c_edit:
                     st.markdown('<div class="btn-edit">', unsafe_allow_html=True)
@@ -179,65 +185,60 @@ def mostrar_pantalla(user_actual, user_id):
                 st.markdown('</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # --- REGISTRO ---
+            # --- BOTÓN REGISTRO ---
             st.write("")
             if not st.session_state.get("mostrar_registro") and not st.session_state.get("sel_usuario_edit"):
                 if st.button("➕ REGISTRAR NUEVO ANALISTA", use_container_width=True):
                     st.session_state.mostrar_registro = True
                     st.rerun()
 
+            # --- FORMULARIO DE REGISTRO ---
             if st.session_state.get("mostrar_registro"):
                 with st.container(border=True):
-                    st.markdown('<p class="text-form-label">📝 Registro de Analista</p>', unsafe_allow_html=True)
+                    st.markdown('<p class="text-form-label">📝 Registro de Nuevo Analista</p>', unsafe_allow_html=True)
                     with st.form("nuevo_u"):
                         f1, f2 = st.columns(2)
-                        r_id = f1.text_input("Usuario")
+                        r_id = f1.text_input("Usuario (Login)")
                         r_nom = f2.text_input("Nombre Completo")
                         r_pw = f1.text_input("Clave Temporal", type="password")
                         r_rl = f2.selectbox("Rol", ["operador", "admin", "seguridad"])
-                        
-                        col_btn1, col_btn2 = st.columns([1, 1])
-                        with col_btn1:
-                            if st.form_submit_button("GUARDAR ANALISTA", use_container_width=True):
-                                if r_id and r_nom and r_pw:
-                                    try:
-                                        conn = conectar_bd(); cursor = conn.cursor()
-                                        cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s,1)", (r_id, r_pw, r_nom, r_rl))
-                                        conn.commit()
-                                        registrar_auditoria_usuario(r_id, "ALTA", "N/A", "ACTIVO", user_id, f"Alta por {user_actual}")
-                                        conn.close(); st.success("Registrado."); st.session_state.mostrar_registro = False; st.rerun()
-                                    except Exception as e: st.error(f"Error: {e}")
-                    
+                        if st.form_submit_button("GUARDAR ANALISTA", use_container_width=True):
+                            if r_id and r_nom and r_pw:
+                                try:
+                                    conn = conectar_bd(); cursor = conn.cursor()
+                                    cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s,1)", (r_id, r_pw, r_nom, r_rl))
+                                    conn.commit()
+                                    registrar_auditoria_usuario(r_id, "ALTA", "N/A", "ACTIVO", user_id, f"Alta por {user_actual}")
+                                    conn.close(); st.success("Analista registrado correctamente."); limpiar_filtros_y_cerrar(); st.rerun()
+                                except Exception as e: st.error(f"Error al registrar: {e}")
+                            else: st.warning("Por favor complete todos los campos.")
                     if st.button("❌ CANCELAR REGISTRO", use_container_width=True):
                         st.session_state.mostrar_registro = False
                         st.rerun()
 
-            # --- EDICIÓN ---
+            # --- FORMULARIO DE EDICIÓN ---
             if st.session_state.get("sel_usuario_edit"):
                 u_sel = st.session_state.sel_usuario_edit
-                datos = next((u for u in usuarios if u['usuario'] == u_sel), None)
-                if datos:
-                    st.divider()
-                    st.markdown(f'<p class="text-form-label">⚙️ Modificar Datos: {u_sel}</p>', unsafe_allow_html=True)
-                    with st.container(border=True):
-                        with st.form("form_edit_datos"):
-                            n_nombre = st.text_input("Nombre Completo", value=datos['nombre_completo'])
-                            justif = st.text_input("Justificación de Auditoría")
-                            
-                            # Separación de botones usando columnas con un pequeño gap intermedio
-                            c1, esp, c2 = st.columns([1, 0.1, 1])
-                            with c1:
-                                if st.form_submit_button("💾 GUARDAR CAMBIOS", use_container_width=True):
-                                    if justif.strip():
-                                        ejecutar_update_nombre(u_sel, datos['nombre_completo'], n_nombre, user_id, justif)
-                                    else:
-                                        st.error("Debe indicar la justificación.")
-                            with c2:
-                                if st.form_submit_button("❌ CERRAR EDICIÓN", use_container_width=True):
-                                    st.session_state.sel_usuario_edit = None
-                                    st.rerun()
+                datos = next(u for u in usuarios if u['usuario'] == u_sel)
+                st.markdown(f"<p class='text-form-label'>⚙️ Modificar Analista: {u_sel}</p>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    with st.form("form_edicion"):
+                        n_nombre = st.text_input("Nombre / Cargo", value=datos['nombre_completo'])
+                        justif = st.text_input("Justificación de Auditoría", placeholder="Motivo del cambio...")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.form_submit_button("💾 GUARDAR CAMBIOS", use_container_width=True):
+                                if justif.strip():
+                                    ejecutar_update_nombre(u_sel, datos['nombre_completo'], n_nombre, user_id, justif)
+                                else: st.error("Debe ingresar una justificación.")
+                        with c2:
+                            if st.form_submit_button("❌ CERRAR EDICIÓN", use_container_width=True):
+                                st.session_state.sel_usuario_edit = None
+                                st.rerun()
 
     except Exception as e: st.error(f"Error: {e}")
+
+# --- FUNCIONES DE BASE DE DATOS ---
 
 def ejecutar_update_nombre(login, viejo, nuevo, id_ejecutor, comentario):
     try:
@@ -246,16 +247,19 @@ def ejecutar_update_nombre(login, viejo, nuevo, id_ejecutor, comentario):
         conn.commit()
         registrar_auditoria_usuario(login, "CAMBIO NOMBRE", viejo, nuevo, id_ejecutor, comentario)
         conn.close(); st.session_state.sel_usuario_edit = None; st.rerun()
-    except Exception as e: st.error(f"Error: {e}")
+    except Exception as e: st.error(f"Error al actualizar nombre: {e}")
 
 def ejecutar_update_estado(login, est_ant, id_ejecutor, login_ejecutor, comentario):
-    if str(login) == str(login_ejecutor): st.error("No puede suspender su propia cuenta."); return
+    if str(login) == str(login_ejecutor): 
+        st.error("No puede suspender su propia cuenta."); return
+    
     n_est = 0 if est_ant == 1 else 1
     v_ant, v_nue = ("ACTIVO", "SUSPENDIDO") if est_ant == 1 else ("SUSPENDIDO", "ACTIVO")
+    
     try:
         conn = conectar_bd(); cursor = conn.cursor()
         cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (n_est, login))
         conn.commit()
         registrar_auditoria_usuario(login, "CAMBIO ESTADO", v_ant, v_nue, id_ejecutor, comentario)
         conn.close(); st.rerun()
-    except Exception as e: st.error(f"Error: {e}")
+    except Exception as e: st.error(f"Error al cambiar estado: {e}")
