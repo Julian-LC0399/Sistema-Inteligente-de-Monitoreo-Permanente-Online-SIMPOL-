@@ -115,7 +115,7 @@ def mostrar_pantalla(user_actual, user_id):
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<p class="titulo-gestion">👥 Gestión de Personal CSU</p>', unsafe_allow_html=True)
+    st.markdown('<p class="titulo-gestion">👥 Gestión de personal</p>', unsafe_allow_html=True)
 
     # --- LÓGICA DE BÚSQUEDA ---
     if "filtro_ejecutado" not in st.session_state:
