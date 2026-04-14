@@ -2,7 +2,7 @@ import streamlit as st
 from database import conectar_bd
 
 def mostrar_pantalla():
-    st.markdown("<h2 style='color: #003366;'>🕵️ Control de Accesos y Seguridad</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color: #003366;'>🕵️ Control de Accesos</h2>", unsafe_allow_html=True)
     
     # CSS Reforzado: Oculta la columna de índice (0,1,2...)
     st.markdown("""
