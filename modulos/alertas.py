@@ -121,5 +121,5 @@ def mostrar_pantalla(user_id):
                     st.error(f"Error crítico al guardar en la base de datos: {e}")
 
     st.divider()
-    st.markdown("<h4 style='color:#003366;'>📋 Registros Recientes del Sensor 2094</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color:#003366;'>📋 Registros Recientes</h4>", unsafe_allow_html=True)
     fragmento_log_alertas()

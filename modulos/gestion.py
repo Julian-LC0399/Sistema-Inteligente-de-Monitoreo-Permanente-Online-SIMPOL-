@@ -5,14 +5,14 @@ def limpiar_filtros_y_cerrar():
     if "sel_usuario_edit" in st.session_state:
         del st.session_state["sel_usuario_edit"]
     st.session_state.filtro_ejecutado = ""
-    if "input_busq_widget" in st.session_state:
-        st.session_state["input_busq_widget"] = ""
+    # Se elimina la línea que causaba el error de modificación de widget
     st.session_state.mostrar_registro = False
 
 def resetear_buscador():
     """Limpia de forma segura el estado del buscador antes del renderizado"""
     st.session_state.filtro_ejecutado = ""
-    st.session_state["input_busq_widget"] = ""
+    if "input_busq_widget" in st.session_state:
+        st.session_state["input_busq_widget"] = ""
 
 def mostrar_pantalla(user_actual, user_id):
     if st.session_state.get("rol") == "operador":
@@ -157,7 +157,7 @@ def mostrar_pantalla(user_actual, user_id):
             st.markdown('<div class="main-table-container">', unsafe_allow_html=True)
             h = st.columns([1.5, 3, 1, 1.2, 1.8])
             h[0].markdown("<div class='header-banco'>USUARIO</div>", unsafe_allow_html=True)
-            h[1].markdown("<div class='header-banco'>NOMBRE COMPLETO</div>", unsafe_allow_html=True)
+            h[1].markdown("<div class='header-banco'>CARGO</div>", unsafe_allow_html=True)
             h[2].markdown("<div class='header-banco'>ROL</div>", unsafe_allow_html=True)
             h[3].markdown("<div class='header-banco'>ESTADO</div>", unsafe_allow_html=True)
             h[4].markdown("<div class='header-banco' style='border-right:none;'>ACCIONES</div>", unsafe_allow_html=True)
@@ -191,7 +191,7 @@ def mostrar_pantalla(user_actual, user_id):
             # --- BOTÓN REGISTRO ---
             st.write("")
             if not st.session_state.get("mostrar_registro") and not st.session_state.get("sel_usuario_edit"):
-                if st.button("➕ REGISTRAR NUEVO ANALISTA", use_container_width=True):
+                if st.button("➕ REGISTRAR", use_container_width=True):
                     st.session_state.mostrar_registro = True
                     st.rerun()
 
@@ -201,8 +201,8 @@ def mostrar_pantalla(user_actual, user_id):
                     st.markdown('<p class="text-form-label">📝 Registro de Nuevo Analista</p>', unsafe_allow_html=True)
                     with st.form("nuevo_u"):
                         f1, f2 = st.columns(2)
-                        r_id = f1.text_input("Usuario (Login)")
-                        r_nom = f2.text_input("Nombre Completo")
+                        r_id = f1.text_input("Usuario")
+                        r_nom = f2.text_input("Cargo")
                         r_pw = f1.text_input("Clave Temporal", type="password")
                         r_rl = f2.selectbox("Rol", ["operador", "admin", "seguridad"])
                         if st.form_submit_button("GUARDAR ANALISTA", use_container_width=True):
@@ -219,16 +219,17 @@ def mostrar_pantalla(user_actual, user_id):
                         st.session_state.mostrar_registro = False
                         st.rerun()
 
-            # --- FORMULARIO DE EDICIÓN ---
+            # --- FORMULARIO DE EDICIÓN (CON BOTONES SEPARADOS) ---
             if st.session_state.get("sel_usuario_edit"):
                 u_sel = st.session_state.sel_usuario_edit
                 datos = next(u for u in usuarios if u['usuario'] == u_sel)
                 st.markdown(f"<p class='text-form-label'>⚙️ Modificar Analista: {u_sel}</p>", unsafe_allow_html=True)
                 with st.container(border=True):
                     with st.form("form_edicion"):
-                        n_nombre = st.text_input("Nombre / Cargo", value=datos['nombre_completo'])
+                        n_nombre = st.text_input("Cargo", value=datos['nombre_completo'])
                         justif = st.text_input("Justificación de Auditoría", placeholder="Motivo del cambio...")
-                        c1, c2 = st.columns(2)
+                        # Se añade una columna de espacio en medio [2, 0.5, 2] para separar botones
+                        c1, c_espacio, c2 = st.columns([2, 0.5, 2])
                         with c1:
                             if st.form_submit_button("💾 GUARDAR CAMBIOS", use_container_width=True):
                                 if justif.strip():

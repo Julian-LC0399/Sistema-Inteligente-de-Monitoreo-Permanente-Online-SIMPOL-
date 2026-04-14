@@ -48,7 +48,7 @@ def fragmento_tiempo_real(user_actual):
 
     # 4. GRÁFICO HISTÓRICO (Últimos 30 registros)
     st.markdown("---")
-    st.markdown("<h4 style='color: #003366;'>Gráfico de Rendimiento (Histórico Reciente)</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #003366;'>Gráfico de Rendimiento</h4>", unsafe_allow_html=True)
     
     try:
         conn = conectar_bd()

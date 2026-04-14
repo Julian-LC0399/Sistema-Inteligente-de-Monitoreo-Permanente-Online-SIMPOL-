@@ -55,7 +55,7 @@ def mostrar_pantalla():
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("<h2 style='color:#003366;'>📄 Centro de Reportes de Auditoría</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003366;'>📄 Centro de Reportes</h2>", unsafe_allow_html=True)
 
     with st.container(border=True):
         col1, col2 = st.columns(2)
