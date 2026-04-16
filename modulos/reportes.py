@@ -25,13 +25,11 @@ def archivar_reporte_en_bd(bin_data, nombre, formato, user_id):
         if conn:
             cursor = conn.cursor()
             tamanio = len(bin_data) / 1024 
-            # NOTA: Asegúrate de tener creada la tabla 'reportes_archivados' en tu DB
             query = """
                 INSERT INTO reportes_archivados 
                 (nombre_archivo, formato, contenido, usuario_id, tamanio_kb) 
                 VALUES (%s, %s, %s, %s, %s)
             """
-            # Usamos try/except local por si la tabla aún no existe en tu SQL
             try:
                 cursor.execute(query, (nombre, formato, bin_data, user_id, tamanio))
                 conn.commit()
@@ -39,10 +37,30 @@ def archivar_reporte_en_bd(bin_data, nombre, formato, user_id):
                 st.info("Nota: Reporte generado pero no archivado (Tabla 'reportes_archivados' pendiente).")
             conn.close()
     except Exception as e:
-        pass # No bloqueamos la descarga si falla el archivo en BD
+        pass
 
 def mostrar_pantalla(user_actual, user_id):
     """Recibe user_actual y user_id desde app.py para evitar el TypeError"""
+    
+    # --- ESTILO CORPORATIVO PARA EL BOTÓN ---
+    st.markdown("""
+        <style>
+            div.stButton > button:first-child {
+                background-color: #003366;
+                color: white;
+                border-radius: 5px;
+                border: 2px solid #002244;
+                font-weight: bold;
+                transition: all 0.3s ease;
+            }
+            div.stButton > button:first-child:hover {
+                background-color: #00509d;
+                border-color: #00509d;
+                color: #ffffff;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.markdown('<h2 style="color:#003366;">📊 Centro de Reportes y Auditoría</h2>', unsafe_allow_html=True)
     st.write(f"Operador responsable: **{user_actual}**")
 
@@ -52,6 +70,7 @@ def mostrar_pantalla(user_actual, user_id):
         f_i = c1.date_input("Fecha Inicio", datetime.now() - timedelta(days=7))
         f_f = c2.date_input("Fecha Fin", datetime.now())
         
+        # El botón ahora tomará el estilo definido arriba
         if st.button("🚀 GENERAR Y ARCHIVAR REPORTES", use_container_width=True):
             try:
                 conn = conectar_bd()
@@ -59,7 +78,6 @@ def mostrar_pantalla(user_actual, user_id):
                 dt_i = datetime.combine(f_i, time.min)
                 dt_f = datetime.combine(f_f, time.max)
 
-                # Query sincronizada con tu simpol.sql
                 query = "SELECT * FROM monitoreo WHERE fecha_registro BETWEEN %s AND %s ORDER BY fecha_registro DESC"
                 cursor.execute(query, (dt_i, dt_f))
                 datos = cursor.fetchall()
