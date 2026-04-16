@@ -56,7 +56,7 @@ def orquestar_paginas(seleccion):
         alertas.mostrar_pantalla( user_id)
     elif seleccion == "📄 Reportes":
         from modulos import reportes
-        reportes.mostrar_pantalla()
+        reportes.mostrar_pantalla(user_actual, user_id)
     elif seleccion == "👥 Gestión de usuarios":
         from modulos import gestion
         # CORRECCIÓN: Se pasan 2 argumentos (nombre y ID)

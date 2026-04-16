@@ -85,18 +85,19 @@ def registrar_auditoria_umbral(metrica, anterior, nuevo, usuario_id, comentario)
     if conn:
         try:
             cursor = conn.cursor()
+            # CORRECCIÓN: Nombres de columnas según tu línea 40 de simpol.sql
             query = """
                 INSERT INTO historico_umbrales 
-                (usuario_id, metrica, umbral_anterior, umbral_nuevo, comentario)
+                (usuario_id, parametro, valor_anterior, valor_nuevo, justificacion)
                 VALUES (%s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (int(usuario_id), str(metrica), int(anterior), int(nuevo), str(comentario)))
+            cursor.execute(query, (int(usuario_id), str(metrica), str(anterior), str(nuevo), str(comentario)))
             conn.commit()
             cursor.close()
             conn.close()
         except Exception as e:
             st.error(f"Error de auditoría (Umbral): {e}")
-
+            
 def registrar_proyeccion(recurso, actual, proyectado, fecha_fin, dias, veredicto, usuario_id):
     """Sincronizado con la tabla proyecciones de simpol.sql"""
     conn = conectar_bd()
