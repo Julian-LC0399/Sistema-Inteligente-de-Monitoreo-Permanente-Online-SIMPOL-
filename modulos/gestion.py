@@ -7,7 +7,7 @@ def mostrar_pantalla(user_actual, user_id):
         st.error("🚫 Acceso denegado. Se requieren permisos de Oficial de Seguridad.")
         return
 
-    # 2. CSS INSTITUCIONAL OPTIMIZADO
+    # 2. CSS INSTITUCIONAL REFORZADO
     st.markdown("""
         <style>
             .titulo-gestion { 
@@ -18,7 +18,7 @@ def mostrar_pantalla(user_actual, user_id):
                 display: block;
             }
             
-            /* Tabla Nativa */
+            /* TABLA NATIVA */
             [data-testid="stTable"] { background-color: white !important; }
             [data-testid="stTable"] th {
                 background-color: #003366 !important;
@@ -28,32 +28,64 @@ def mostrar_pantalla(user_actual, user_id):
             }
             [data-testid="stTable"] td { color: #000000 !important; border: 1px solid #dee2e6 !important; }
 
-            /* Ocultar índice de Streamlit */
+            /* OCULTAR ÍNDICE NATIVO */
             [data-testid="stTable"] td:nth-child(1), [data-testid="stTable"] th:nth-child(1) {
                 display: none !important;
             }
 
-            /* Botones Personalizados */
+            /* --- AJUSTE DEL EXPANDER (ADMINISTRAR CUENTAS) --- */
+            [data-testid="stExpander"] {
+                border: 1px solid #003366 !important;
+                background-color: white !important;
+            }
+            
+            /* Título en blanco sobre el fondo azul del expander */
+            [data-testid="stExpander"] summary {
+                background-color: #003366 !important;
+                color: #FFFFFF !important;
+            }
+            
+            /* Forzar la palabra ADMINISTRAR CUENTAS SELECCIONADAS a blanco */
+            [data-testid="stExpander"] summary span [data-testid="stMarkdownContainer"] p {
+                color: #FFFFFF !important;
+                font-weight: bold !important;
+            }
+
+            [data-testid="stExpander"] summary svg {
+                fill: #FFFFFF !important;
+            }
+            
+            /* Etiquetas internas en negro */
+            [data-testid="stExpander"] label p, [data-testid="stExpander"] .stMarkdown p {
+                color: #000000 !important;
+                font-weight: bold !important;
+            }
+
+            /* BOTONES: FONDO AZUL Y TEXTO BLANCO */
             .stButton > button { 
                 background-color: #003366 !important; 
-                color: white !important; 
+                color: #FFFFFF !important; 
                 border: 1px solid #003366 !important;
             }
+            
+            /* Forzar texto de botones a blanco */
+            .stButton > button p {
+                color: #FFFFFF !important;
+            }
+
             .stButton > button:hover { 
                 border: 1px solid #FFCC00 !important;
                 color: #FFCC00 !important;
             }
-            
-            /* Botón de Acción Crítica (Dorado) */
-            div[data-testid="stExpander"] .stButton > button {
-                font-weight: bold !important;
+            .stButton > button:hover p {
+                color: #FFCC00 !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("<span class='titulo-gestion'>GESTIÓN DE PERSONAL Y ACCESOS</span>", unsafe_allow_html=True)
+    st.markdown("<span class='titulo-gestion'>GESTIÓN DE PERSONAL</span>", unsafe_allow_html=True)
 
-    # 3. FORMULARIO DE REGISTRO (Muestra si se activa abajo)
+    # 3. FORMULARIO DE REGISTRO
     if st.session_state.get("mostrar_registro", False):
         with st.container(border=True):
             st.markdown("<h3 style='color:#003366;'>📝 Alta de Nuevo Usuario</h3>", unsafe_allow_html=True)
@@ -67,8 +99,6 @@ def mostrar_pantalla(user_actual, user_id):
                 if st.form_submit_button("💾 GUARDAR EN SISTEMA"):
                     if f_user and f_pass and f_nombre:
                         crear_nuevo_usuario(f_user, f_pass, f_nombre, f_rol, user_id)
-                    else:
-                        st.warning("Complete todos los campos.")
             if st.button("⬅️ CANCELAR"):
                 st.session_state.mostrar_registro = False
                 st.rerun()
@@ -79,7 +109,6 @@ def mostrar_pantalla(user_actual, user_id):
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor(dictionary=True)
-            
             busqueda = st.text_input("🔍 Filtrar lista:", placeholder="Nombre o usuario...")
 
             query = "SELECT id, usuario, nombre_completo, rol, estado FROM usuarios"
@@ -92,10 +121,10 @@ def mostrar_pantalla(user_actual, user_id):
             datos = cursor.fetchall()
 
             if datos:
+                # TABLA SIN COLUMNA TÉCNICA
                 tabla_nativa = []
                 for u in datos:
                     tabla_nativa.append({
-                        "idx": "", 
                         "ID": u['id'],
                         "USUARIO": u['usuario'],
                         "NOMBRE": u['nombre_completo'],
@@ -105,47 +134,46 @@ def mostrar_pantalla(user_actual, user_id):
                 
                 st.table(tabla_nativa)
 
-                # --- BOTÓN AGREGAR AL FINAL DE LA TABLA ---
+                # BOTÓN AGREGAR AL FINAL
                 if st.button("➕ AGREGAR NUEVO INTEGRANTE", use_container_width=True):
                     st.session_state.mostrar_registro = True
                     st.rerun()
 
-                st.write("") # Espaciador
+                st.write("")
 
-                # 5. SECCIÓN ADMINISTRAR CUENTAS (OPTIMIZADA)
+                # 5. SECCIÓN ADMINISTRAR CUENTAS
                 with st.expander("🛠️ ADMINISTRAR CUENTAS SELECCIONADAS", expanded=False):
                     lista_ids = [item['id'] for item in datos]
-                    
-                    # Fila superior de selección
-                    id_edit = st.selectbox("Seleccione ID del empleado a gestionar:", lista_ids)
+                    id_edit = st.selectbox("Seleccione ID del empleado:", lista_ids)
                     u_sel = next((i for i in datos if i['id'] == id_edit), None)
                     
                     if u_sel:
-                        st.markdown(f"Configurando acceso para: **{u_sel['usuario']}**")
-                        # Columnas optimizadas para ahorrar espacio vertical
-                        c1, c2, c3 = st.columns([2, 2, 1])
+                        st.write(f"Gestionando acceso de: **{u_sel['usuario']}**")
                         
+                        c1, c2, c3 = st.columns([2, 2, 1])
                         with c1:
                             nuevo_nom = st.text_input("Nombre:", value=u_sel['nombre_completo'], label_visibility="collapsed")
                         with c2:
-                            motivo = st.text_input("Motivo / Justificación:", placeholder="Obligatorio para auditoría", label_visibility="collapsed")
+                            # CAMPO JUSTIFICACIÓN
+                            justificacion = st.text_input("Justificación:", placeholder="Justificación de auditoría", label_visibility="collapsed")
                         with c3:
                             if st.button("💾 ACTUALIZAR", use_container_width=True):
-                                if motivo:
-                                    ejecutar_update_nombre(u_sel['usuario'], u_sel['nombre_completo'], nuevo_nom, user_id, motivo)
+                                if justificacion:
+                                    ejecutar_update_nombre(u_sel['usuario'], u_sel['nombre_completo'], nuevo_nom, user_id, justificacion)
                                 else:
                                     st.error("Indique motivo")
 
-                        # Línea de cambio de estado
-                        st.write("---")
+                        st.markdown("<hr style='margin:10px 0; border:0.5px solid #eee;'>", unsafe_allow_html=True)
+                        
                         ec1, ec2 = st.columns([3, 1])
                         with ec1:
-                            st.write(f"Estado actual: {('🟢 ACTIVO' if u_sel['estado']==1 else '🔴 SUSPENDIDO')}")
+                            est_txt = "🟢 ACTIVO" if u_sel['estado']==1 else "🔴 SUSPENDIDO"
+                            st.write(f"Estatus actual: **{est_txt}**")
                         with ec2:
                             lbl = "SUSPENDER" if u_sel['estado'] == 1 else "ACTIVAR"
                             if st.button(lbl, use_container_width=True):
-                                if motivo:
-                                    ejecutar_update_estado(u_sel['usuario'], u_sel['estado'], user_id, user_actual, motivo)
+                                if justificacion:
+                                    ejecutar_update_estado(u_sel['usuario'], u_sel['estado'], user_id, user_actual, justificacion)
                                 else:
                                     st.error("Indique motivo")
 
@@ -154,7 +182,7 @@ def mostrar_pantalla(user_actual, user_id):
     except Exception as e:
         st.error(f"Fallo técnico: {e}")
 
-# --- BACKEND MANTENIDO ---
+# --- BACKEND ---
 def crear_nuevo_usuario(u, c, n, r, ejecutor_id):
     try:
         conn = conectar_bd(); cursor = conn.cursor()
