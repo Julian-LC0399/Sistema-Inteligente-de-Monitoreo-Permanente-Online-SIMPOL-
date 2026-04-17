@@ -1,269 +1,186 @@
 import streamlit as st
 from database import conectar_bd, registrar_auditoria_usuario
 
-def limpiar_filtros_y_cerrar():
-    if "sel_usuario_edit" in st.session_state:
-        del st.session_state["sel_usuario_edit"]
-    st.session_state.filtro_ejecutado = ""
-    # Se elimina la línea que causaba el error de modificación de widget
-    st.session_state.mostrar_registro = False
-
-def resetear_buscador():
-    """Limpia de forma segura el estado del buscador antes del renderizado"""
-    st.session_state.filtro_ejecutado = ""
-    if "input_busq_widget" in st.session_state:
-        st.session_state["input_busq_widget"] = ""
-
 def mostrar_pantalla(user_actual, user_id):
+    # 1. SEGURIDAD DE ROL
     if st.session_state.get("rol") == "operador":
         st.error("🚫 Acceso denegado. Se requieren permisos de Oficial de Seguridad.")
         return
 
-    # --- CSS PROFESIONAL DE ALTA PRECISIÓN ---
+    # 2. CSS INSTITUCIONAL OPTIMIZADO
     st.markdown("""
         <style>
-            .titulo-gestion {
-                color: #003366 !important;
-                font-size: 28px !important;
-                font-weight: bold !important;
-                margin-bottom: 20px !important;
-                display: block !important;
+            .titulo-gestion { 
+                color: #003366 !important; 
+                font-size: 24px !important; 
+                font-weight: bold !important; 
+                margin-bottom: 15px;
+                display: block;
             }
             
-            [data-testid="stHorizontalBlock"] { 
-                gap: 0px !important; 
-                align-items: center !important; 
-            }
-            [data-testid="column"] { background-color: transparent !important; }
-
-            .main-table-container {
-                border: 1px solid #003366;
-                border-top: none !important; 
-                border-radius: 0px 0px 4px 4px;
-                overflow: hidden;
-                background-color: white;
-                margin-top: 15px;
-            }
-
-            .header-banco {
+            /* Tabla Nativa */
+            [data-testid="stTable"] { background-color: white !important; }
+            [data-testid="stTable"] th {
                 background-color: #003366 !important;
-                color: white !important;
-                text-align: center;
-                padding: 14px 5px 12px 5px; 
-                font-weight: bold;
-                font-size: 13px;
-                border-right: 1px solid rgba(255,255,255,0.1);
+                color: #FFFFFF !important;
+                font-weight: bold !important;
+                text-align: center !important;
+            }
+            [data-testid="stTable"] td { color: #000000 !important; border: 1px solid #dee2e6 !important; }
+
+            /* Ocultar índice de Streamlit */
+            [data-testid="stTable"] td:nth-child(1), [data-testid="stTable"] th:nth-child(1) {
+                display: none !important;
             }
 
-            .fila-datos {
-                background-color: white !important;
-                border-bottom: 1px solid #e0e0e0;
-                display: flex;
-                width: 100%;
-            }
-            .fila-datos:hover { background-color: #f1f5f9 !important; }
-
-            .celda-banco {
-                color: #333 !important;
-                font-size: 13px;
-                padding: 10px 5px;
-                text-align: center;
-                border-right: 1px solid #eee;
-                display: flex; align-items: center; justify-content: center;
-                min-height: 50px;
-            }
-
-            .btn-edit button { 
+            /* Botones Personalizados */
+            .stButton > button { 
                 background-color: #003366 !important; 
                 color: white !important; 
-                border-radius: 4px 0px 0px 4px !important; 
-                font-size: 11px !important; 
-                height: 30px !important; 
-                border: none !important; 
+                border: 1px solid #003366 !important;
             }
-            .btn-status button { 
-                background-color: #d32f2f !important; 
-                color: white !important; 
-                border-radius: 0px 4px 4px 0px !important; 
-                font-size: 11px !important; 
-                height: 30px !important; 
-                border: none !important; 
-            }
-            .btn-status-active button { 
-                background-color: #455a64 !important; 
-                color: white !important; 
-                border-radius: 0px 4px 4px 0px !important; 
-                font-size: 11px !important; 
-                height: 30px !important; 
-                border: none !important; 
-            }
-
-            .stButton > button {
-                background-color: #003366 !important;
-                color: white !important;
-                border-radius: 4px !important;
-                font-weight: bold !important;
+            .stButton > button:hover { 
+                border: 1px solid #FFCC00 !important;
+                color: #FFCC00 !important;
             }
             
-            .text-form-label {
-                color: #003366 !important;
+            /* Botón de Acción Crítica (Dorado) */
+            div[data-testid="stExpander"] .stButton > button {
                 font-weight: bold !important;
-                font-size: 18px !important;
-                margin-top: 10px !important;
-                margin-bottom: 10px !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<p class="titulo-gestion">👥 Gestión de personal</p>', unsafe_allow_html=True)
+    st.markdown("<span class='titulo-gestion'>GESTIÓN DE PERSONAL Y ACCESOS</span>", unsafe_allow_html=True)
 
-    # --- LÓGICA DE BÚSQUEDA ---
-    if "filtro_ejecutado" not in st.session_state:
-        st.session_state.filtro_ejecutado = ""
-
-    if st.session_state.filtro_ejecutado:
-        c_busq, c_fill, c_clear = st.columns([2.6, 0.7, 0.7])
-    else:
-        c_busq, c_fill = st.columns([3.3, 0.7])
-        c_clear = None
-
-    with c_busq:
-        busqueda_input = st.text_input(
-            "Buscar...", 
-            key="input_busq_widget", 
-            label_visibility="collapsed", 
-            placeholder="Buscar por usuario o nombre..."
-        )
-    
-    with c_fill:
-        if st.button("FILTRAR", use_container_width=True):
-            st.session_state.filtro_ejecutado = busqueda_input
-            st.rerun()
-            
-    if c_clear:
-        with c_clear:
-            if st.button("🧹 LIMPIAR", use_container_width=True, on_click=resetear_buscador):
-                st.rerun()
-
-    # --- RENDERIZADO DE TABLA ---
-    try:
-        conn = conectar_bd(); cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT usuario, nombre_completo, rol, estado FROM usuarios")
-        usuarios = cursor.fetchall(); conn.close()
-
-        if usuarios:
-            usuarios_f = [u for u in usuarios if st.session_state.filtro_ejecutado.lower() in u['usuario'].lower() or st.session_state.filtro_ejecutado.lower() in u['nombre_completo'].lower()]
-
-            st.markdown('<div class="main-table-container">', unsafe_allow_html=True)
-            h = st.columns([1.5, 3, 1, 1.2, 1.8])
-            h[0].markdown("<div class='header-banco'>USUARIO</div>", unsafe_allow_html=True)
-            h[1].markdown("<div class='header-banco'>CARGO</div>", unsafe_allow_html=True)
-            h[2].markdown("<div class='header-banco'>ROL</div>", unsafe_allow_html=True)
-            h[3].markdown("<div class='header-banco'>ESTADO</div>", unsafe_allow_html=True)
-            h[4].markdown("<div class='header-banco' style='border-right:none;'>ACCIONES</div>", unsafe_allow_html=True)
-
-            for u in usuarios_f:
-                st.markdown('<div class="fila-datos">', unsafe_allow_html=True)
-                r = st.columns([1.5, 3, 1, 1.2, 1.8])
-                r[0].markdown(f"<div class='celda-banco'>{u['usuario']}</div>", unsafe_allow_html=True)
-                r[1].markdown(f"<div class='celda-banco'>{u['nombre_completo'].upper()}</div>", unsafe_allow_html=True)
-                r[2].markdown(f"<div class='celda-banco'>{str(u['rol']).upper()}</div>", unsafe_allow_html=True)
-                r[3].markdown(f"<div class='celda-banco'>{'🟢 ACTIVO' if u['estado'] == 1 else '🔴 SUSPENDIDO'}</div>", unsafe_allow_html=True)
+    # 3. FORMULARIO DE REGISTRO (Muestra si se activa abajo)
+    if st.session_state.get("mostrar_registro", False):
+        with st.container(border=True):
+            st.markdown("<h3 style='color:#003366;'>📝 Alta de Nuevo Usuario</h3>", unsafe_allow_html=True)
+            with st.form("form_alta"):
+                c1, c2 = st.columns(2)
+                f_user = c1.text_input("Usuario (Login):")
+                f_pass = c2.text_input("Contraseña:", type="password")
+                f_nombre = c1.text_input("Nombre Completo:")
+                f_rol = c2.selectbox("Rol:", ["operador", "seguridad", "admin"])
                 
-                c_edit, c_stat = r[4].columns(2)
-                with c_edit:
-                    st.markdown('<div class="btn-edit">', unsafe_allow_html=True)
-                    if st.button("EDITAR", key=f"e_{u['usuario']}", use_container_width=True):
-                        st.session_state["sel_usuario_edit"] = u['usuario']
-                        st.session_state.mostrar_registro = False 
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                with c_stat:
-                    clase_css = "btn-status" if u['estado'] == 1 else "btn-status-active"
-                    label_btn = "SUSPENDER" if u['estado'] == 1 else "ACTIVAR"
-                    st.markdown(f'<div class="{clase_css}">', unsafe_allow_html=True)
-                    if st.button(label_btn, key=f"s_{u['usuario']}", use_container_width=True):
-                        ejecutar_update_estado(u['usuario'], u['estado'], user_id, user_actual, "Cambio rápido de estado")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+                if st.form_submit_button("💾 GUARDAR EN SISTEMA"):
+                    if f_user and f_pass and f_nombre:
+                        crear_nuevo_usuario(f_user, f_pass, f_nombre, f_rol, user_id)
+                    else:
+                        st.warning("Complete todos los campos.")
+            if st.button("⬅️ CANCELAR"):
+                st.session_state.mostrar_registro = False
+                st.rerun()
+        st.divider()
 
-            # --- BOTÓN REGISTRO ---
-            st.write("")
-            if not st.session_state.get("mostrar_registro") and not st.session_state.get("sel_usuario_edit"):
-                if st.button("➕ REGISTRAR", use_container_width=True):
+    # 4. BUSCADOR Y TABLA
+    try:
+        conn = conectar_bd()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            
+            busqueda = st.text_input("🔍 Filtrar lista:", placeholder="Nombre o usuario...")
+
+            query = "SELECT id, usuario, nombre_completo, rol, estado FROM usuarios"
+            params = []
+            if busqueda:
+                query += " WHERE LOWER(usuario) LIKE LOWER(%s) OR LOWER(nombre_completo) LIKE LOWER(%s)"
+                params = [f"%{busqueda}%", f"%{busqueda}%"]
+            
+            cursor.execute(query, params)
+            datos = cursor.fetchall()
+
+            if datos:
+                tabla_nativa = []
+                for u in datos:
+                    tabla_nativa.append({
+                        "idx": "", 
+                        "ID": u['id'],
+                        "USUARIO": u['usuario'],
+                        "NOMBRE": u['nombre_completo'],
+                        "ROL": str(u['rol']).upper(),
+                        "ESTADO": "🟢 ACTIVO" if u['estado'] == 1 else "🔴 SUSPENDIDO"
+                    })
+                
+                st.table(tabla_nativa)
+
+                # --- BOTÓN AGREGAR AL FINAL DE LA TABLA ---
+                if st.button("➕ AGREGAR NUEVO INTEGRANTE", use_container_width=True):
                     st.session_state.mostrar_registro = True
                     st.rerun()
 
-            # --- FORMULARIO DE REGISTRO ---
-            if st.session_state.get("mostrar_registro"):
-                with st.container(border=True):
-                    st.markdown('<p class="text-form-label">📝 Registro de Nuevo Analista</p>', unsafe_allow_html=True)
-                    with st.form("nuevo_u"):
-                        f1, f2 = st.columns(2)
-                        r_id = f1.text_input("Usuario")
-                        r_nom = f2.text_input("Cargo")
-                        r_pw = f1.text_input("Clave Temporal", type="password")
-                        r_rl = f2.selectbox("Rol", ["operador", "admin", "seguridad"])
-                        if st.form_submit_button("GUARDAR ANALISTA", use_container_width=True):
-                            if r_id and r_nom and r_pw:
-                                try:
-                                    conn = conectar_bd(); cursor = conn.cursor()
-                                    cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol, estado) VALUES (%s,%s,%s,%s,1)", (r_id, r_pw, r_nom, r_rl))
-                                    conn.commit()
-                                    registrar_auditoria_usuario(r_id, "ALTA", "N/A", "ACTIVO", user_id, f"Alta por {user_actual}")
-                                    conn.close(); st.success("Analista registrado correctamente."); limpiar_filtros_y_cerrar(); st.rerun()
-                                except Exception as e: st.error(f"Error al registrar: {e}")
-                            else: st.warning("Por favor complete todos los campos.")
-                    if st.button("❌ CANCELAR REGISTRO", use_container_width=True):
-                        st.session_state.mostrar_registro = False
-                        st.rerun()
+                st.write("") # Espaciador
 
-            # --- FORMULARIO DE EDICIÓN (CON BOTONES SEPARADOS) ---
-            if st.session_state.get("sel_usuario_edit"):
-                u_sel = st.session_state.sel_usuario_edit
-                datos = next(u for u in usuarios if u['usuario'] == u_sel)
-                st.markdown(f"<p class='text-form-label'>⚙️ Modificar Analista: {u_sel}</p>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    with st.form("form_edicion"):
-                        n_nombre = st.text_input("Cargo", value=datos['nombre_completo'])
-                        justif = st.text_input("Justificación de Auditoría", placeholder="Motivo del cambio...")
-                        # Se añade una columna de espacio en medio [2, 0.5, 2] para separar botones
-                        c1, c_espacio, c2 = st.columns([2, 0.5, 2])
+                # 5. SECCIÓN ADMINISTRAR CUENTAS (OPTIMIZADA)
+                with st.expander("🛠️ ADMINISTRAR CUENTAS SELECCIONADAS", expanded=False):
+                    lista_ids = [item['id'] for item in datos]
+                    
+                    # Fila superior de selección
+                    id_edit = st.selectbox("Seleccione ID del empleado a gestionar:", lista_ids)
+                    u_sel = next((i for i in datos if i['id'] == id_edit), None)
+                    
+                    if u_sel:
+                        st.markdown(f"Configurando acceso para: **{u_sel['usuario']}**")
+                        # Columnas optimizadas para ahorrar espacio vertical
+                        c1, c2, c3 = st.columns([2, 2, 1])
+                        
                         with c1:
-                            if st.form_submit_button("💾 GUARDAR CAMBIOS", use_container_width=True):
-                                if justif.strip():
-                                    ejecutar_update_nombre(u_sel, datos['nombre_completo'], n_nombre, user_id, justif)
-                                else: st.error("Debe ingresar una justificación.")
+                            nuevo_nom = st.text_input("Nombre:", value=u_sel['nombre_completo'], label_visibility="collapsed")
                         with c2:
-                            if st.form_submit_button("❌ CERRAR EDICIÓN", use_container_width=True):
-                                st.session_state.sel_usuario_edit = None
-                                st.rerun()
+                            motivo = st.text_input("Motivo / Justificación:", placeholder="Obligatorio para auditoría", label_visibility="collapsed")
+                        with c3:
+                            if st.button("💾 ACTUALIZAR", use_container_width=True):
+                                if motivo:
+                                    ejecutar_update_nombre(u_sel['usuario'], u_sel['nombre_completo'], nuevo_nom, user_id, motivo)
+                                else:
+                                    st.error("Indique motivo")
 
+                        # Línea de cambio de estado
+                        st.write("---")
+                        ec1, ec2 = st.columns([3, 1])
+                        with ec1:
+                            st.write(f"Estado actual: {('🟢 ACTIVO' if u_sel['estado']==1 else '🔴 SUSPENDIDO')}")
+                        with ec2:
+                            lbl = "SUSPENDER" if u_sel['estado'] == 1 else "ACTIVAR"
+                            if st.button(lbl, use_container_width=True):
+                                if motivo:
+                                    ejecutar_update_estado(u_sel['usuario'], u_sel['estado'], user_id, user_actual, motivo)
+                                else:
+                                    st.error("Indique motivo")
+
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        st.error(f"Fallo técnico: {e}")
+
+# --- BACKEND MANTENIDO ---
+def crear_nuevo_usuario(u, c, n, r, ejecutor_id):
+    try:
+        conn = conectar_bd(); cursor = conn.cursor()
+        cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol) VALUES (%s, %s, %s, %s)", (u, c, n, r))
+        conn.commit()
+        registrar_auditoria_usuario(u, "REGISTRO", "N/A", f"ROL:{r}", ejecutor_id, "Alta institucional")
+        conn.close(); st.success("Registrado."); st.session_state.mostrar_registro = False; st.rerun()
     except Exception as e: st.error(f"Error: {e}")
 
-# --- FUNCIONES DE BASE DE DATOS ---
-
-def ejecutar_update_nombre(login, viejo, nuevo, id_ejecutor, comentario):
+def ejecutar_update_nombre(log, v, n, ejecutor_id, mot):
     try:
         conn = conectar_bd(); cursor = conn.cursor()
-        cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (nuevo, login))
+        cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (n, log))
         conn.commit()
-        registrar_auditoria_usuario(login, "CAMBIO NOMBRE", viejo, nuevo, id_ejecutor, comentario)
-        conn.close(); st.session_state.sel_usuario_edit = None; st.rerun()
-    except Exception as e: st.error(f"Error al actualizar nombre: {e}")
+        registrar_auditoria_usuario(log, "MOD_NOMBRE", v, n, ejecutor_id, mot)
+        conn.close(); st.success("Nombre actualizado."); st.rerun()
+    except Exception as e: st.error(f"Error: {e}")
 
-def ejecutar_update_estado(login, est_ant, id_ejecutor, login_ejecutor, comentario):
-    if str(login) == str(login_ejecutor): 
-        st.error("No puede suspender su propia cuenta."); return
-    
-    n_est = 0 if est_ant == 1 else 1
-    v_ant, v_nue = ("ACTIVO", "SUSPENDIDO") if est_ant == 1 else ("SUSPENDIDO", "ACTIVO")
-    
+def ejecutar_update_estado(log, est_v, ejecutor_id, ejecutor_log, mot):
+    if str(log) == str(ejecutor_log): st.error("No puede auto-suspenderse."); return
+    n_est = 0 if est_v == 1 else 1
+    v_v, v_n = ("ACTIVO", "SUSPENDIDO") if est_v == 1 else ("SUSPENDIDO", "ACTIVO")
     try:
         conn = conectar_bd(); cursor = conn.cursor()
-        cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (n_est, login))
+        cursor.execute("UPDATE usuarios SET estado=%s WHERE usuario=%s", (n_est, log))
         conn.commit()
-        registrar_auditoria_usuario(login, "CAMBIO ESTADO", v_ant, v_nue, id_ejecutor, comentario)
-        conn.close(); st.rerun()
-    except Exception as e: st.error(f"Error al cambiar estado: {e}")
+        registrar_auditoria_usuario(log, "MOD_ESTADO", v_v, v_n, ejecutor_id, mot)
+        conn.close(); st.success(f"Estatus: {v_n}."); st.rerun()
+    except Exception as e: st.error(f"Error: {e}")
