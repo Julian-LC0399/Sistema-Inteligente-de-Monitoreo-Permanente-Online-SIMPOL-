@@ -3,7 +3,7 @@ import mysql.connector
 from datetime import datetime
 from utils import obtener_telemetria
 
-# CONFIGURACIÓN UNIFICADA CON SIMPOL.SQL
+# CONFIGURACIÓN UNIFICADA
 DB_CONFIG = {
     "host": "127.0.0.1", 
     "user": "root", 
@@ -12,88 +12,81 @@ DB_CONFIG = {
     "auth_plugin": "mysql_native_password"
 }
 
-def obtener_umbrales():
-    """Recupera los umbrales actualizados desde historico_umbrales."""
-    # Valores por defecto del Banco
-    p = {"CPU_E": 70, "CPU_P": 80, "CPU_C": 90, "RAM_E": 70, "RAM_P": 80, "RAM_C": 90}
-    
+def obtener_servidores_activos():
+    """Recupera la lista de IPs y nombres desde la tabla servidores_it."""
+    servidores = []
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        
-        # Mapeo corregido según simpol.sql (parametro y valor_nuevo)
-        mapa = {
-            "CPU_ESTABLE": "CPU_E", "CPU_PRECAUCION": "CPU_P", "CPU_CRITICO": "CPU_C", 
-            "RAM_ESTABLE": "RAM_E", "RAM_PRECAUCION": "RAM_P", "RAM_CRITICO": "RAM_C"
-        }
-        
-        for m_db, key in mapa.items():
-            # Consulta corregida: valor_nuevo y parametro
-            query = "SELECT valor_nuevo FROM historico_umbrales WHERE parametro = %s ORDER BY fecha_cambio DESC LIMIT 1"
-            cursor.execute(query, (m_db,))
-            res = cursor.fetchone()
-            if res:
-                p[key] = float(res[0])
-                
+        cursor = conn.cursor(dictionary=True)
+        # Solo trae servidores que tengan el monitoreo activo (estado_monitoreo = 1)
+        cursor.execute("SELECT ip, nombre_alias FROM servidores_it WHERE estado_monitoreo = 1")
+        servidores = cursor.fetchall()
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"⚠️ Nota: Usando umbrales por defecto (Error: {e})")
-    return p
+        print(f"❌ Error al consultar catálogo de servidores: {e}")
+    return servidores
 
 def iniciar_agente():
-    print("🚀 Agente SIMPOL iniciado (Presione Ctrl+C para detener)")
-    sensor_id = 2094 # ID Institucional
+    print("🚀 Agente SIMPOL Multi-Servidor iniciado")
+    print("📡 Escaneando dispositivos en red interna Banco Caroní...")
     
-    while True:
-        try:
-            # 1. Obtener datos actuales y umbrales frescos
-            cpu, ram, msg_sensor = obtener_telemetria()
-            u = obtener_umbrales()
-            ahora = datetime.now()
-            
-            # 2. Lógica de estados (Semáforo)
-            max_nivel = 1 # 1: Estable, 2: Precaución, 3: Crítico
-            
-            # Chequeo de CPU
-            if cpu >= u["CPU_C"]: max_nivel = 3
-            elif cpu >= u["CPU_P"] and max_nivel < 3: max_nivel = 2
-            
-            # Chequeo de RAM
-            if ram >= u["RAM_C"]: max_nivel = 3
-            elif ram >= u["RAM_P"] and max_nivel < 3: max_nivel = 2
-            
-            estado = "CRÍTICO" if max_nivel == 3 else "PRECAUCIÓN" if max_nivel == 2 else "ESTABLE"
-            icono = "🔴" if max_nivel == 3 else "🟠" if max_nivel == 2 else "🟢"
+    # El sensor 2094 ha sido comentado y omitido en la lógica de utils.py por solicitud
+    # sensor_id_pc = 2094 
 
-            # 3. Inserción en la base de datos
+    while True:
+        # 1. Obtener la lista actualizada de servidores (permite crecimiento dinámico a 30)
+        servidores = obtener_servidores_activos()
+        
+        if not servidores:
+            print("⚠️ No hay servidores activos en el catálogo. Reintentando...")
+            time.sleep(10)
+            continue
+
+        for serv in servidores:
+            ip_actual = serv['ip']
+            nombre_actual = serv['nombre_alias']
+            
             try:
+                # 2. Obtener telemetría (Aquí se asocia un ID_SENSOR por IP si lo tienes, 
+                # por ahora pasamos None para que use la lógica de IP de utils.py)
+                cpu, ram, msg_sensor = obtener_telemetria(id_sensor=None) 
+                ahora = datetime.now()
+                
+                # 3. Lógica de Estados (Semáforo Institucional)
+                estado = "ESTABLE"
+                icono = "🟢"
+                if cpu >= 90 or ram >= 90:
+                    estado = "CRÍTICO"
+                    icono = "🔴"
+                elif cpu >= 75 or ram >= 75:
+                    estado = "PRECAUCIÓN"
+                    icono = "🟠"
+
+                # 4. Inserción identificando IP y Nombre
                 conn = mysql.connector.connect(**DB_CONFIG)
                 cursor = conn.cursor()
                 
-                # Sincronizado exactamente con simpol.sql
                 query = """
                     INSERT INTO monitoreo 
-                    (fecha_registro, id_sensor, uso_cpu, uso_ram, estado_sistema) 
-                    VALUES (%s, %s, %s, %s, %s)
+                    (fecha_registro, ip_servidor, uso_cpu, uso_ram, estado_sistema, id_sensor) 
+                    VALUES (%s, %s, %s, %s, %s, %s)
                 """
-                cursor.execute(query, (ahora, sensor_id, cpu, ram, estado))
+                # Usamos un ID genérico 0 para el campo id_sensor si no hay uno específico de PRTG aún
+                cursor.execute(query, (ahora, ip_actual, cpu, ram, estado, 0))
                 
                 conn.commit()
                 cursor.close()
                 conn.close()
                 
-                timestamp = ahora.strftime('%H:%M:%S')
-                print(f"[{timestamp}] {icono} {estado:11} | CPU: {cpu:5.1f}% | RAM: {ram:5.1f}% | Fuente: {msg_sensor}")
-                
-            except mysql.connector.Error as err:
-                print(f"[{ahora.strftime('%H:%M:%S')}] ⚠️ Error de Inserción: {err}")
+                print(f"[{ahora.strftime('%H:%M:%S')}] {icono} {nombre_actual:20} ({ip_actual}) | CPU: {cpu:5.1f}% | RAM: {ram:5.1f}%")
 
-        except Exception as e:
-            print(f"❌ Error inesperado en el ciclo: {e}")
+            except Exception as e:
+                print(f"❌ Error monitoreando {ip_actual}: {e}")
 
-        # Espera de 5 segundos para el siguiente ciclo
-        time.sleep(5)
+        # Pausa entre barridos de la lista completa
+        print("--- Fin de ciclo. Esperando 10 segundos para el próximo barrido ---")
+        time.sleep(10)
 
 if __name__ == "__main__":
     iniciar_agente()
