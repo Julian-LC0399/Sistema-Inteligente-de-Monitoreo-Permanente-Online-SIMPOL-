@@ -9,7 +9,7 @@ def fragmento_tiempo_real(user_actual):
     cpu_val, ram_val, fuente_msg = obtener_telemetria()
     fecha_actual = datetime.now().strftime("%H:%M:%S")
 
-    # 2. PANEL DE INDICADORES (Tu diseño original)
+    # 2. PANEL DE INDICADORES (Diseño Banco Caroní)
     col_info, col_status = st.columns([2, 1])
     with col_info:
         st.markdown(f"""
@@ -23,17 +23,10 @@ def fragmento_tiempo_real(user_actual):
         """, unsafe_allow_html=True)
 
     with col_status:
-        # Lógica de colores basada en session_state
-        def get_color(val, crit, prec):
-            if val >= crit: return "#d32f2f" # Rojo
-            if val >= prec: return "#fbc02d" # Amarillo
-            return "#388e3c" # Verde
-
-        color_cpu = get_color(cpu_val, st.session_state.get('CPU_CRITICO', 90), st.session_state.get('CPU_PRECAUCION', 80))
         st.markdown(f"""
-            <div style="background-color:{color_cpu}; color:white; padding:15px; border-radius:5px; text-align:center;">
-                <span style="font-size:12px; font-weight:bold;">ESTADO DEL SISTEMA</span><br>
-                <span style="font-size:20px; font-weight:bold;">{"CRÍTICO" if cpu_val >= 80 else "OPERATIVO"}</span>
+            <div style="text-align:center; padding:15px; border:1px solid #d3d3d3; border-radius:5px; background-color:#f9f9f9;">
+                <p style="margin:0; font-size:11px; color:#333;">ESTADO DEL NODO</p>
+                <h2 style="margin:0; color:#28a745;">ONLINE</h2>
             </div>
         """, unsafe_allow_html=True)
 
@@ -52,6 +45,7 @@ def fragmento_tiempo_real(user_actual):
 
         if datos_raw:
             st.subheader("Tendencia de los últimos 20 registros")
+            # Forzamos listas de floats para asegurar compatibilidad en servidor
             chart_data = {
                 "CPU %": [float(d['uso_cpu']) for d in reversed(datos_raw)],
                 "RAM %": [float(d['uso_ram']) for d in reversed(datos_raw)]
@@ -65,10 +59,9 @@ def fragmento_tiempo_real(user_actual):
 def mostrar_pantalla(user_actual):
     st.markdown("""
         <style>
-            [data-testid="stMetricValue"] { color: #000000 !important; }
-            .stMarkdown p { color: #000000 !important; }
-            .stAlert p { color: #000000 !important; }
+            [data-testid="stMetricValue"] { color: #003366 !important; font-weight: bold; }
+            .stSubheader { color: #003366 !important; font-weight: bold; }
         </style>
     """, unsafe_allow_html=True)
-    st.markdown("<h2 style='color:#003366;'>📈 Monitoreo en Tiempo Real</h2>", unsafe_allow_html=True)
+    
     fragmento_tiempo_real(user_actual)

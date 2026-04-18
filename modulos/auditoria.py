@@ -2,68 +2,61 @@ import streamlit as st
 from database import conectar_bd
 
 def mostrar_pantalla():
-    st.markdown("<h2 style='color: #003366;'>🕵️ Control de Accesos</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color: #003366; font-family: sans-serif;'>🕵️ Control de Accesos</h2>", unsafe_allow_html=True)
     
-    # CSS Reforzado: Oculta la columna de índice (0,1,2...)
-    st.markdown("""
-        <style>
-            [data-testid="stTable"] {
-                background-color: white;
-                border-radius: 5px;
-            }
-            [data-testid="stTable"] td {
-                color: #000000 !important;
-                border: 1px solid #dee2e6 !important;
-            }
-            [data-testid="stTable"] th {
-                background-color: #003366 !important;
-                color: white !important;
-                border: 1px solid #002244 !important;
-                text-align: center;
-            }
-            /* OCULTAR COLUMNA DE ÍNDICE */
-            [data-testid="stTable"] td:nth-child(1), 
-            [data-testid="stTable"] th:nth-child(1) {
-                display: none !important;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
     try:
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor()
             
-            cursor.execute("SELECT COUNT(*) FROM log_accesos")
-            total_ingresos = cursor.fetchone()[0]
+            # 1. Búsqueda simple
+            busqueda = st.text_input("🔍 Buscar usuario:", placeholder="Ej: seguridad_csu")
             
-            cursor.execute("SELECT fecha_acceso FROM log_accesos ORDER BY id_log DESC LIMIT 1")
-            ultimo = cursor.fetchone()
-            fecha_u = ultimo[0].strftime('%d/%m/%Y %H:%M') if ultimo else "N/A"
-
-            c1, c2 = st.columns(2)
-            c1.metric("INGRESOS (TOTAL)", total_ingresos)
-            c2.metric("ÚLTIMO ACCESO", fecha_u)
-
-            st.divider()
-
-            st.markdown("### 📋 Historial Detallado")
-            cursor.execute("SELECT usuario, fecha_acceso, ip_cliente, resultado FROM log_accesos ORDER BY fecha_acceso DESC LIMIT 50")
+            # 2. Conteo total
+            cursor.execute("SELECT COUNT(*) FROM log_accesos")
+            total = cursor.fetchone()[0]
+            
+            # 3. Consulta con filtro
+            query = "SELECT usuario, fecha_acceso, ip_cliente, resultado FROM log_accesos"
+            params = []
+            if busqueda:
+                query += " WHERE usuario LIKE %s"
+                params.append(f"%{busqueda}%")
+            
+            query += " ORDER BY id_log DESC LIMIT 30"
+            cursor.execute(query, params)
             logs = cursor.fetchall()
+            
             cursor.close()
             conn.close()
 
+            # 4. Banner institucional
+            st.markdown(f"""
+                <div style="background-color:#003366; padding:15px; border-radius:10px; color:white; text-align:center; margin-bottom:20px;">
+                    <p style="margin:0; font-size:12px; opacity:0.8;">REGISTROS EN BASE DE DATOS</p>
+                    <h1 style="margin:0; color:white; font-size:28px;">{total}</h1>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # 5. Renderizado de Tarjetas
             if logs:
-                tabla_limpia = []
                 for l in logs:
-                    tabla_limpia.append({
-                        "USUARIO": l[0],
-                        "FECHA Y HORA": l[1].strftime('%d/%m/%Y %H:%M:%S'),
-                        "IP": l[2]
-                    })
-                st.table(tabla_limpia)
+                    u, f, ip, res = l[0], l[1].strftime('%d/%m/%Y %H:%M'), l[2], l[3]
+                    color_borde = "#28a745" if res == "EXITOSO" else "#d32f2f"
+                    
+                    st.markdown(f"""
+                        <div style="border-left: 5px solid {color_borde}; background-color: white; padding: 12px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #eee; border-left-width: 5px;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color:#003366; font-weight:bold; font-size: 16px;">{u}</span>
+                                <span style="color:#28a745; font-weight:bold; font-size: 12px;">{res}</span>
+                            </div>
+                            <div style="color:#666; font-size: 13px; margin-top: 5px;">
+                                📅 {f} &nbsp;&nbsp; | &nbsp;&nbsp; 💻 IP: {ip}
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
             else:
-                st.warning("No hay registros en 'log_accesos'.")
+                st.warning("No se encontraron resultados para la búsqueda.")
 
     except Exception as e:
-        st.error(f"⚠️ Error de base de datos: {e}")
+        st.error(f"Error en Auditoría: {str(e)}")
