@@ -4,14 +4,15 @@ import requests
 import urllib3
 import os
 import sys
+import base64
 
-# Desactivar advertencias de certificados SSL
+# Desactivar advertencias de seguridad para el servidor local
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# CONFIGURACIÓN GLOBAL DEL SERVIDOR BANCO CARONÍ
-# Clave API proporcionada para el servidor de producción
+# CONFIGURACIÓN PARA EL SERVIDOR DEL BANCO
+# Nota: El lunes asegúrate que la URL sea correcta (http o https)
 PRTG_API_TOKEN = "W5O5WVLSXXUMGEI6BETLXRIZB7KZ5IIBGQKV6CLSHE======"
-PRTG_BASE_URL = "https://127.0.0.1/api/table.json"
+PRTG_BASE_URL = "http://127.0.0.1/api/table.json" 
 
 def get_resource_path(relative_path):
     """Obtiene la ruta absoluta para recursos (logo, css)."""
@@ -31,48 +32,81 @@ def load_css(file_name):
     except Exception:
         pass
 
-def obtener_telemetria(id_sensor=None):
+def get_base64_image(image_path):
+    """Convierte el logo a Base64."""
+    try:
+        if os.path.exists(image_path):
+            with open(image_path, "rb") as img_file:
+                return base64.b64encode(img_file.read()).decode()
+    except:
+        pass
+    return None
+
+def obtener_valor_prtg(id_sensor):
     """
-    Obtiene datos de CPU y RAM. 
-    Si recibe un id_sensor, consulta a PRTG. 
-    Si no, o si falla, usa el modo local de respaldo.
+    Función genérica para extraer CUALQUIER métrica de PRTG.
+    Retorna el valor y un booleano indicando si la conexión fue exitosa.
     """
-    # 1. Respaldo Local (Evita valores 0.0)
-    cpu_local = float(psutil.cpu_percent(interval=0.1))
-    ram_local = float(psutil.virtual_memory().percent)
+    if not id_sensor or id_sensor == 0:
+        return 0.0, False
+
+    try:
+        params = {
+            "content": "sensors",
+            "columns": "objid,lastvalue,lastvalue_raw",
+            "filter_objid": id_sensor,
+            "apitoken": PRTG_API_TOKEN
+        }
+        
+        # Timeout corto porque estamos en la red interna del banco
+        r = requests.get(PRTG_BASE_URL, params=params, timeout=1.5, verify=False)
+        
+        if r.status_code == 200:
+            json_data = r.json()
+            if "sensors" in json_data and len(json_data["sensors"]) > 0:
+                raw_val = json_data["sensors"][0].get("lastvalue_raw", 0)
+                
+                # Lógica de escala: PRTG suele enviar enteros (ej: 458 para 45.8%)
+                # Si es un sensor de Latencia (Ping), el valor suele venir directo.
+                # Si es CPU/RAM/Disco, dividimos entre 10 si el valor es alto.
+                final_val = float(raw_val) / 10 if raw_val > 150 else float(raw_val)
+                return final_val, True
+    except Exception:
+        pass
     
-    cpu = cpu_local
-    ram = ram_local
-    msg = "💻 (MODO LOCAL)"
+    return 0.0, False
 
-    # Si no hay ID de sensor (o es el 2094 de prueba), usamos local por seguridad o 
-    # procedemos a intentar la conexión si es un sensor real del servidor.
-    if id_sensor and id_sensor != 2094:
-        try:
-            # Construcción dinámica de la URL con el nuevo Token del servidor
-            params = {
-                "content": "sensors",
-                "columns": "objid,lastvalue,lastvalue_raw",
-                "filter_objid": id_sensor,
-                "apitoken": PRTG_API_TOKEN
-            }
-            
-            r = requests.get(PRTG_BASE_URL, params=params, timeout=2.0, verify=False)
-            
-            if r.status_code == 200:
-                json_data = r.json()
-                if "sensors" in json_data and len(json_data["sensors"]) > 0:
-                    raw_val = json_data["sensors"][0].get("lastvalue_raw", cpu_local)
-                    
-                    # Ajuste de escala automático de PRTG
-                    cpu = float(raw_val) / 10 if raw_val > 100 else float(raw_val)
-                    msg = f"🛰️ (PRTG SENSOR {id_sensor})"
-        except Exception:
-            # En caso de caída de red o timeout, retorna los valores locales
-            pass
+def obtener_telemetria_total(config_servidor):
+    """
+    Procesa las 5 métricas de un servidor usando sus IDs de PRTG.
+    Si falla, usa valores del sistema local como respaldo.
+    """
+    # 1. Valores de respaldo (Locales)
+    cpu_l = float(psutil.cpu_percent(interval=0.1))
+    ram_l = float(psutil.virtual_memory().percent)
+    
+    # 2. Diccionario de resultados
+    data = {
+        "cpu": 0.0, "ram": 0.0, "disco": 0.0, 
+        "red": 0.0, "latencia": 0.0, "msg": "💻 (LOCAL)"
+    }
+
+    # Intentamos obtener cada sensor individualmente
+    # Si al menos uno conecta, el mensaje cambia a Satelital
+    success_any = False
+
+    data["cpu"], s1 = obtener_valor_prtg(config_servidor.get('id_sensor_cpu'))
+    data["ram"], s2 = obtener_valor_prtg(config_servidor.get('id_sensor_ram'))
+    data["disco"], s3 = obtener_valor_prtg(config_servidor.get('id_sensor_disco'))
+    data["red"], s4 = obtener_valor_prtg(config_servidor.get('id_sensor_red'))
+    data["latencia"], s5 = obtener_valor_prtg(config_servidor.get('id_sensor_latencia'))
+
+    if any([s1, s2, s3, s4, s5]):
+        data["msg"] = "🛰️ (PRTG ONLINE)"
     else:
-        # Mensaje informativo si se intenta usar el sensor de prueba 2094
-        if id_sensor == 2094:
-            msg = "⚠️ (SENSOR 2094 OMITIDO - MODO LOCAL)"
+        # Si todo falló, llenamos con lo que tenemos a mano
+        data["cpu"] = cpu_l
+        data["ram"] = ram_l
+        data["msg"] = "⚠️ (MODO RESPALDO LOCAL)"
 
-    return cpu, ram, msg
+    return data

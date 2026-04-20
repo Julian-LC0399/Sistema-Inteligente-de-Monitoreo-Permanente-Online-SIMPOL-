@@ -49,8 +49,7 @@ def orquestar_paginas(seleccion):
         monitoreo.mostrar_pantalla(nombre_analista)
     elif seleccion == "📈 Capacity planning":
         from modulos import capacity
-        # El módulo capacity ya gestiona su propio acceso al session_state
-        capacity.mostrar_pantalla()
+        capacity.mostrar_pantalla(nombre_analista, user_id)
     elif seleccion == "🔔 Alertas":
         from modulos import alertas
         alertas.mostrar_pantalla( user_id)
@@ -59,7 +58,6 @@ def orquestar_paginas(seleccion):
         reportes.mostrar_pantalla(user_actual, user_id)
     elif seleccion == "👥 Gestión de usuarios":
         from modulos import gestion
-        # CORRECCIÓN: Se pasan 2 argumentos (nombre y ID)
         gestion.mostrar_pantalla(nombre_analista, user_id)
     elif seleccion == "🕵️ Auditoría":
         from modulos import auditoria
