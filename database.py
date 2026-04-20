@@ -17,13 +17,23 @@ def conectar_bd():
         return None
 
 def obtener_lista_servidores():
-    """Obtiene el catálogo de servidores para los selectores de la interfaz."""
+    """
+    Obtiene el catálogo completo de servidores.
+    Incluye los IDs de los 5 sensores para que el Agente sepa qué consultar.
+    """
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            # Trae solo los activos para el monitoreo
-            cursor.execute("SELECT ip, nombre_alias, departamento FROM servidores_it WHERE estado_monitoreo = 1")
+            # Agregamos las columnas de los 5 sensores necesarias para el Agente
+            query = """
+                SELECT ip, nombre_alias, departamento, 
+                       id_sensor_cpu, id_sensor_ram, id_sensor_disco, 
+                       id_sensor_red, id_sensor_latencia 
+                FROM servidores_it 
+                WHERE estado_monitoreo = 1
+            """
+            cursor.execute(query)
             resultado = cursor.fetchall()
             cursor.close()
             conn.close()
@@ -49,14 +59,17 @@ def verificar_usuario(usuario, clave):
     return None
 
 def obtener_datos_historicos(ip_objetivo):
-    """Trae la telemetría filtrada por una IP específica."""
+    """
+    Trae la telemetría completa (5 sensores) filtrada por IP.
+    Actualizado para coincidir con la nueva tabla 'monitoreo'.
+    """
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            # Filtramos por IP para que los gráficos SVG no mezclen servidores
+            # Cambiamos uso_cpu/ram por val_cpu/ram/disco/red/latencia
             query = """
-                SELECT fecha_registro, uso_cpu, uso_ram, estado_sistema 
+                SELECT fecha_registro, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema 
                 FROM monitoreo 
                 WHERE ip_servidor = %s 
                 ORDER BY fecha_registro DESC LIMIT 100
@@ -71,12 +84,11 @@ def obtener_datos_historicos(ip_objetivo):
     return []
 
 def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, veredicto):
-    """Registra el análisis de Capacity Planning sincronizado con el nuevo SQL."""
+    """Registra el análisis de Capacity Planning."""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
-            # Columnas ajustadas a tu tabla 'proyecciones' final
             query = """
                 INSERT INTO proyecciones 
                 (usuario_id, ip_servidor, metrica_analizada, valor_actual, valor_proyectado, veredicto)

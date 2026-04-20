@@ -1,7 +1,8 @@
 import time
 import mysql.connector
 from datetime import datetime
-from utils import obtener_telemetria
+# Importamos la nueva función que maneja las 5 métricas
+from utils import obtener_telemetria_total 
 
 # CONFIGURACIÓN UNIFICADA
 DB_CONFIG = {
@@ -13,33 +14,35 @@ DB_CONFIG = {
 }
 
 def obtener_servidores_activos():
-    """Recupera la lista de IPs y nombres desde la tabla servidores_it."""
+    """Recupera la lista completa de servidores y sus 5 IDs de sensores."""
     servidores = []
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        # Solo trae servidores que tengan el monitoreo activo (estado_monitoreo = 1)
-        cursor.execute("SELECT ip, nombre_alias FROM servidores_it WHERE estado_monitoreo = 1")
+        # Traemos todas las columnas de sensores para poder consultarlas
+        query = """
+            SELECT ip, nombre_alias, id_sensor_cpu, id_sensor_ram, 
+                   id_sensor_disco, id_sensor_red, id_sensor_latencia 
+            FROM servidores_it 
+            WHERE estado_monitoreo = 1
+        """
+        cursor.execute(query)
         servidores = cursor.fetchall()
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"❌ Error al consultar catálogo de servidores: {e}")
+        print(f"❌ Error al consultar catálogo: {e}")
     return servidores
 
 def iniciar_agente():
-    print("🚀 Agente SIMPOL Multi-Servidor iniciado")
-    print("📡 Escaneando dispositivos en red interna Banco Caroní...")
+    print("🚀 Agente SIMPOL Multi-Sensor (V2.0) iniciado")
+    print("📡 Monitoreando: RAM, DISCO, CPU, RED y LATENCIA...")
     
-    # El sensor 2094 ha sido comentado y omitido en la lógica de utils.py por solicitud
-    # sensor_id_pc = 2094 
-
     while True:
-        # 1. Obtener la lista actualizada de servidores (permite crecimiento dinámico a 30)
         servidores = obtener_servidores_activos()
         
         if not servidores:
-            print("⚠️ No hay servidores activos en el catálogo. Reintentando...")
+            print("⚠️ Esperando servidores activos...")
             time.sleep(10)
             continue
 
@@ -48,45 +51,56 @@ def iniciar_agente():
             nombre_actual = serv['nombre_alias']
             
             try:
-                # 2. Obtener telemetría (Aquí se asocia un ID_SENSOR por IP si lo tienes, 
-                # por ahora pasamos None para que use la lógica de IP de utils.py)
-                cpu, ram, msg_sensor = obtener_telemetria(id_sensor=None) 
+                # 1. Obtener telemetría total (Pasa el diccionario con los 5 IDs)
+                data = obtener_telemetria_total(serv) 
                 ahora = datetime.now()
                 
-                # 3. Lógica de Estados (Semáforo Institucional)
-                estado = "ESTABLE"
+                # 2. Lógica de Estados (Basada en la métrica más crítica)
+                # Evaluamos CPU, RAM y DISCO para el semáforo
+                max_uso = max(data['cpu'], data['ram'], data['disco'])
+                
+                estado = "ÓPTIMO"
                 icono = "🟢"
-                if cpu >= 90 or ram >= 90:
+                if max_uso >= 90 or data['latencia'] > 200:
                     estado = "CRÍTICO"
                     icono = "🔴"
-                elif cpu >= 75 or ram >= 75:
+                elif max_uso >= 75 or data['latencia'] > 100:
                     estado = "PRECAUCIÓN"
                     icono = "🟠"
 
-                # 4. Inserción identificando IP y Nombre
+                # 3. Inserción en la nueva tabla de monitoreo (5 valores)
                 conn = mysql.connector.connect(**DB_CONFIG)
                 cursor = conn.cursor()
                 
                 query = """
                     INSERT INTO monitoreo 
-                    (fecha_registro, ip_servidor, uso_cpu, uso_ram, estado_sistema, id_sensor) 
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    (fecha_registro, ip_servidor, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """
-                # Usamos un ID genérico 0 para el campo id_sensor si no hay uno específico de PRTG aún
-                cursor.execute(query, (ahora, ip_actual, cpu, ram, estado, 0))
+                valores = (
+                    ahora, 
+                    ip_actual, 
+                    data['cpu'], 
+                    data['ram'], 
+                    data['disco'], 
+                    data['red'], 
+                    data['latencia'], 
+                    estado
+                )
                 
+                cursor.execute(query, valores)
                 conn.commit()
                 cursor.close()
                 conn.close()
                 
-                print(f"[{ahora.strftime('%H:%M:%S')}] {icono} {nombre_actual:20} ({ip_actual}) | CPU: {cpu:5.1f}% | RAM: {ram:5.1f}%")
+                # Log visual en consola más completo
+                print(f"[{ahora.strftime('%H:%M:%S')}] {icono} {nombre_actual:18} | CPU:{data['cpu']:4.1f}% | RAM:{data['ram']:4.1f}% | DISK:{data['disco']:4.1f}% | LAT:{data['latencia']}ms")
 
             except Exception as e:
-                print(f"❌ Error monitoreando {ip_actual}: {e}")
+                print(f"❌ Error en {nombre_actual} ({ip_actual}): {e}")
 
-        # Pausa entre barridos de la lista completa
-        print("--- Fin de ciclo. Esperando 10 segundos para el próximo barrido ---")
-        time.sleep(10)
+        print(f"--- Ciclo completado. {len(servidores)} servidores procesados. ---")
+        time.sleep(15) # Pausa de seguridad para no saturar la API de PRTG
 
 if __name__ == "__main__":
     iniciar_agente()
