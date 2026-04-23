@@ -1,19 +1,37 @@
 import mysql.connector
 import streamlit as st
+import sys
 
 def conectar_bd():
-    """Establece conexión con los parámetros del Banco Caroní."""
+    """Establece conexión con parámetros de compatibilidad forzada para el entorno del Banco."""
     try:
         config = {
             "host": "127.0.0.1",
             "user": "root",
             "password": "1234",
             "database": "simpol",
-            "auth_plugin": "mysql_native_password", 
+            # Forzamos el uso del plugin nativo para evitar el error 2059
+            "auth_plugin": "mysql_native_password",
+            # CLAVE: Usa la implementación pura de Python para evitar depender de DLLs externas
+            "use_pure": True 
         }
         return mysql.connector.connect(**config)
     except mysql.connector.Error as err:
-        st.error(f"Error crítico de conexión: {err}")
+        # Intento de reconexión automática si falla el host local por resolución de nombre
+        if err.errno == 2059 or err.errno == 2003:
+            try:
+                return mysql.connector.connect(
+                    host="localhost", 
+                    user="root", 
+                    password="1234", 
+                    database="simpol",
+                    auth_plugin="mysql_native_password",
+                    use_pure=True
+                )
+            except Exception:
+                st.error(f"Error crítico de conexión (2059): El plugin de autenticación no responde. {err}")
+        else:
+            st.error(f"Error crítico de conexión: {err}")
         return None
 
 def obtener_lista_servidores():
@@ -25,7 +43,6 @@ def obtener_lista_servidores():
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            # Agregamos las columnas de los 5 sensores necesarias para el Agente
             query = """
                 SELECT ip, nombre_alias, departamento, 
                        id_sensor_cpu, id_sensor_ram, id_sensor_disco, 
@@ -61,13 +78,11 @@ def verificar_usuario(usuario, clave):
 def obtener_datos_historicos(ip_objetivo):
     """
     Trae la telemetría completa (5 sensores) filtrada por IP.
-    Actualizado para coincidir con la nueva tabla 'monitoreo'.
     """
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            # Cambiamos uso_cpu/ram por val_cpu/ram/disco/red/latencia
             query = """
                 SELECT fecha_registro, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema 
                 FROM monitoreo 

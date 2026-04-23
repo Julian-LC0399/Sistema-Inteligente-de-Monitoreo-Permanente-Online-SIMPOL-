@@ -1,7 +1,18 @@
-import streamlit.web.cli as stcli
-import os, sys, subprocess, time, webbrowser
-import multiprocessing
+import sys
+from types import ModuleType
 
+# === PARCHE DE COMPATIBILIDAD STREAMLIT ===
+try:
+    import streamlit.runtime.scriptrunner.magic_funcs
+except ImportError:
+    mod = ModuleType("streamlit.runtime.scriptrunner.magic_funcs")
+    sys.modules["streamlit.runtime.scriptrunner.magic_funcs"] = mod
+    mod.magic_funcs = lambda x: x
+# ==========================================
+
+import streamlit.web.cli as stcli
+import os, subprocess, time, webbrowser
+import multiprocessing
 
 def get_resource_path(relative_path):
     try:
@@ -10,23 +21,28 @@ def get_resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-
 if __name__ == "__main__":
-    # Evita que el ejecutable se abra a sí mismo infinitamente en Windows
+    # Necesario para que PyInstaller no ejecute el main infinitamente al crear procesos hijos
     multiprocessing.freeze_support()
 
-    # Lógica para detectar si este proceso es el Agente o la Interfaz
+    # Si el argumento es --agente, arranca la lógica de recolección de PRTG
     if len(sys.argv) > 1 and sys.argv[1] == "--agente":
-        import agente
-
-        agente.iniciar_agente()
+        try:
+            import agente
+            agente.iniciar_agente()
+        except Exception as e:
+            # Registrar error en un archivo local si el agente falla en el servidor
+            with open("error_agente.log", "a") as f:
+                f.write(f"[{time.ctime()}] Error: {str(e)}\n")
         sys.exit(0)
 
-    # Lanzar el proceso del agente en segundo plano (invisible)
-    # 0x08000000 es para que no se abra una ventana de consola extra
-    subprocess.Popen([sys.executable, "--agente"], creationflags=0x08000000)
+    # Lanzar el agente PRTG en segundo plano (invisible, sin consola)
+    # Se usa sys.executable para que apunte al propio archivo .exe generado
+    subprocess.Popen([sys.executable, "--agente"], 
+                     creationflags=0x08000000, 
+                     close_fds=True)
 
-    # Configurar argumentos para Streamlit
+    # Configuración de Streamlit para la interfaz
     sys.argv = [
         "streamlit",
         "run",
@@ -36,11 +52,8 @@ if __name__ == "__main__":
         "--global.developmentMode=false",
     ]
 
-    # Tiempo de cortesía para que el servidor local de Streamlit levante
-    time.sleep(4)
-
-    # Abrir el navegador automáticamente
+    # Espera para que el servidor Streamlit levante antes de abrir el navegador
+    time.sleep(5)
     webbrowser.open("http://localhost:8501")
-
-    # Iniciar la interfaz de Streamlit
+    
     sys.exit(stcli.main())
