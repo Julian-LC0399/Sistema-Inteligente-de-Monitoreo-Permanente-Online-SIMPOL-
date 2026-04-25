@@ -2,43 +2,39 @@ import mysql.connector
 import streamlit as st
 import sys
 
+# --- CONFIGURACIÓN DE CONEXIÓN (Optimizado para el Banco) ---
 def conectar_bd():
-    """Establece conexión con parámetros de compatibilidad forzada para el entorno del Banco."""
+    """Establece conexión con parámetros de compatibilidad forzada para evitar error 2059."""
     try:
         config = {
             "host": "127.0.0.1",
             "user": "root",
             "password": "1234",
             "database": "simpol",
-            # Forzamos el uso del plugin nativo para evitar el error 2059
             "auth_plugin": "mysql_native_password",
-            # CLAVE: Usa la implementación pura de Python para evitar depender de DLLs externas
-            "use_pure": True 
+            "use_pure": True,
+            "connect_timeout": 5 
         }
         return mysql.connector.connect(**config)
     except mysql.connector.Error as err:
-        # Intento de reconexión automática si falla el host local por resolución de nombre
-        if err.errno == 2059 or err.errno == 2003:
-            try:
-                return mysql.connector.connect(
-                    host="localhost", 
-                    user="root", 
-                    password="1234", 
-                    database="simpol",
-                    auth_plugin="mysql_native_password",
-                    use_pure=True
-                )
-            except Exception:
-                st.error(f"Error crítico de conexión (2059): El plugin de autenticación no responde. {err}")
-        else:
-            st.error(f"Error crítico de conexión: {err}")
-        return None
+        # Intento de reconexión por nombre de host local
+        try:
+            return mysql.connector.connect(
+                host="localhost", 
+                user="root", 
+                password="1234", 
+                database="simpol",
+                auth_plugin="mysql_native_password",
+                use_pure=True
+            )
+        except Exception:
+            return None
 
+# --- CONSULTAS CON CACHÉ (Lectura) ---
+
+@st.cache_data(ttl=5)
 def obtener_lista_servidores():
-    """
-    Obtiene el catálogo completo de servidores.
-    Incluye los IDs de los 5 sensores para que el Agente sepa qué consultar.
-    """
+    """Obtiene el catálogo de servidores activos."""
     conn = conectar_bd()
     if conn:
         try:
@@ -59,26 +55,9 @@ def obtener_lista_servidores():
             print(f"Error al obtener catálogo: {e}")
     return []
 
-def verificar_usuario(usuario, clave):
-    """Valida credenciales y devuelve el perfil del usuario."""
-    conn = conectar_bd()
-    if conn:
-        try:
-            cursor = conn.cursor(dictionary=True)
-            query = "SELECT id, usuario, nombre_completo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
-            cursor.execute(query, (usuario, clave))
-            resultado = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            return resultado
-        except Exception as e:
-            st.error(f"Error en login: {e}")
-    return None
-
+@st.cache_data(ttl=5)
 def obtener_datos_historicos(ip_objetivo):
-    """
-    Trae la telemetría completa (5 sensores) filtrada por IP.
-    """
+    """Trae la telemetría completa filtrada por IP."""
     conn = conectar_bd()
     if conn:
         try:
@@ -98,6 +77,24 @@ def obtener_datos_historicos(ip_objetivo):
             print(f"Error al traer históricos de {ip_objetivo}: {e}")
     return []
 
+# --- FUNCIONES DE ESCRITURA Y SEGURIDAD ---
+
+def verificar_usuario(usuario, clave):
+    """Valida credenciales y devuelve el perfil del usuario."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT id, usuario, nombre_completo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
+            cursor.execute(query, (usuario, clave))
+            resultado = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            return resultado
+        except Exception as e:
+            st.error(f"Error en login: {e}")
+    return None
+
 def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, veredicto):
     """Registra el análisis de Capacity Planning."""
     conn = conectar_bd()
@@ -116,7 +113,6 @@ def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, v
             return True
         except Exception as e:
             st.error(f"Error al registrar proyección: {e}")
-            return False
     return False
 
 def registrar_log_acceso(usuario, nombre, rol, resultado="EXITOSO"):
@@ -133,7 +129,10 @@ def registrar_log_acceso(usuario, nombre, rol, resultado="EXITOSO"):
             print(f"Error de log: {e}")
 
 def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, comentario):
-    """Auditoría de cambios en personal."""
+    """
+    Función requerida por gestion.py y usuario.py.
+    Asegura que el nombre sea exacto para evitar ImportError en el EXE.
+    """
     conn = conectar_bd()
     if conn:
         try:
@@ -146,5 +145,7 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, 
             cursor.execute(query, (int(ejecutor_id), afectado, accion, str(anterior), str(nuevo), comentario))
             conn.commit()
             conn.close()
+            return True
         except Exception as e:
             print(f"Error de auditoría: {e}")
+    return False

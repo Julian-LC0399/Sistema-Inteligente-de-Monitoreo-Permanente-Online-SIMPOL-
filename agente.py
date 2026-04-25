@@ -4,131 +4,125 @@ from datetime import datetime
 import sys
 import os
 
-# Importamos la función desde utils.py
-from utils import obtener_telemetria_total 
+# --- SOPORTE PARA RUTAS INTERNAS DEL EXE ---
+def get_resource_path(relative_path):
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
-# CONFIGURACIÓN UNIFICADA (Ajustar IP si la BD no es local)
+# Ajuste de path para encontrar 'utils' dentro del paquete
+if getattr(sys, 'frozen', False):
+    if sys._MEIPASS not in sys.path:
+        sys.path.insert(0, sys._MEIPASS)
+
+# CONFIGURACIÓN DB
 DB_CONFIG = {
     "host": "127.0.0.1", 
     "user": "root", 
     "password": "1234", 
     "database": "simpol", 
-    "auth_plugin": "mysql_native_password",
-    "connect_timeout": 5
+    "auth_plugin": "mysql_native_password", 
+    "use_pure": True,
+    "connect_timeout": 15
 }
 
+def log_agente(mensaje):
+    try:
+        # Forzamos que el log se escriba en la carpeta del ejecutable, no en carpetas temporales
+        directorio_ejecucion = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.getcwd()
+        ruta_log = os.path.join(directorio_ejecucion, "debug_agente.txt")
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(ruta_log, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {mensaje}\n")
+            f.flush()
+    except:
+        pass
+
 def obtener_servidores_activos():
-    """Recupera la lista de servidores con monitoreo activado."""
     servidores = []
     conn = None
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        query = """
-            SELECT ip, nombre_alias, id_sensor_cpu, id_sensor_ram, 
-                   id_sensor_disco, id_sensor_red, id_sensor_latencia 
-            FROM servidores_it 
-            WHERE estado_monitoreo = 1
-        """
+        query = "SELECT * FROM servidores_it WHERE estado_monitoreo = 1"
         cursor.execute(query)
         servidores = cursor.fetchall()
         cursor.close()
     except Exception as e:
-        print(f"❌ Error al consultar catálogo de servidores: {e}")
+        log_agente(f"❌ Error de Catálogo SQL: {e}")
     finally:
         if conn and conn.is_connected():
             conn.close()
     return servidores
 
+# ESTA ES LA FUNCIÓN QUE LLAMA APP.PY
 def iniciar_agente():
-    print("====================================================")
-    print("🚀 AGENTE SIMPOL V2.0 - BANCO CARONÍ")
-    print(f"📅 Inicio: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    print("📡 Estado: Monitoreando RAM, DISCO, CPU, RED y LATENCIA")
-    print("====================================================")
+    log_agente("🚀 --- INICIANDO MOTOR DE MONITOREO ---")
     
-    while True:
-        servidores = obtener_servidores_activos()
-        
-        if not servidores:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Sin servidores activos para monitorear.")
-            time.sleep(20)
-            continue
+    try:
+        # Importación tardía para evitar colisiones de hilos
+        from utils import obtener_telemetria_total
+        log_agente("✅ Módulos de telemetría cargados.")
+    except Exception as e:
+        log_agente(f"💥 Error crítico al importar UTILS: {e}")
+        return
 
-        conn_ins = None
+    while True:
         try:
-            # Una sola conexión por ciclo para mayor eficiencia
+            servidores = obtener_servidores_activos()
+            
+            if not servidores:
+                log_agente("⚠️ Sin servidores activos para monitorear.")
+                time.sleep(20)
+                continue
+
             conn_ins = mysql.connector.connect(**DB_CONFIG)
             cursor_ins = conn_ins.cursor()
 
             for serv in servidores:
-                nombre_actual = serv['nombre_alias']
-                
                 try:
-                    # 1. Obtener telemetría desde utils.py (PRTG o Local)
-                    data = obtener_telemetria_total(serv) 
+                    nombre = serv['nombre_alias']
+                    ip = serv['ip']
+                    
+                    data = obtener_telemetria_total(serv)
                     ahora = datetime.now()
                     
-                    # 2. Lógica de Estados
-                    # Tomamos el valor más alto entre CPU, RAM y Disco para el estado visual
-                    max_uso = max(data.get('cpu', 0), data.get('ram', 0), data.get('disco', 0))
-                    latencia = data.get('latencia', 0)
+                    v_cpu = data.get('cpu', 0)
+                    v_ram = data.get('ram', 0)
+                    v_disco = data.get('disco', 0)
+                    v_lat = data.get('latencia', 0)
                     
+                    max_val = max(v_cpu, v_ram, v_disco)
                     estado = "ÓPTIMO"
-                    icono = "🟢"
-                    
-                    if max_uso >= 90 or latencia > 200:
-                        estado = "CRÍTICO"
-                        icono = "🔴"
-                    elif max_uso >= 75 or latencia > 100:
-                        estado = "PRECAUCIÓN"
-                        icono = "🟠"
+                    if max_val >= 90 or v_lat > 200: estado = "CRÍTICO"
+                    elif max_val >= 75 or v_lat > 100: estado = "PRECAUCIÓN"
 
-                    # 3. Inserción en la base de datos
                     query = """
                         INSERT INTO monitoreo 
                         (fecha_registro, ip_servidor, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema) 
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """
-                    valores = (
-                        ahora, 
-                        serv['ip'], 
-                        data['cpu'], 
-                        data['ram'], 
-                        data['disco'], 
-                        data['red'], 
-                        latencia, 
-                        estado
-                    )
+                    valores = (ahora, ip, v_cpu, v_ram, v_disco, data.get('red', 0), v_lat, estado)
                     
                     cursor_ins.execute(query, valores)
                     conn_ins.commit()
-                    
-                    # Log en consola
-                    origen = data.get('msg', '📡')
-                    print(f"[{ahora.strftime('%H:%M:%S')}] {icono} {nombre_actual:15} | {origen} | CPU:{data['cpu']:5.1f}% | RAM:{data['ram']:5.1f}%")
+                    # Quitamos el log de éxito por cada servidor para no saturar el disco del banco
+                    # log_agente(f"📊 Registro: {nombre}")
 
                 except Exception as e:
-                    print(f"❌ Error procesando servidor {nombre_actual}: {e}")
+                    log_agente(f"❌ Error en {serv.get('nombre_alias')}: {e}")
 
             cursor_ins.close()
-            
+            conn_ins.close()
+
         except Exception as e:
-            print(f"❌ Error crítico de conexión a la Base de Datos: {e}")
-        finally:
-            if conn_ins and conn_ins.is_connected():
-                conn_ins.close()
+            log_agente(f"💥 Error en ciclo principal: {e}")
 
-        # Espera antes del siguiente ciclo de escaneo
-        time.sleep(15)
+        time.sleep(10) # Pausa entre escaneos completos
 
+# Esto permite que el archivo funcione tanto importado como solo
 if __name__ == "__main__":
-    try:
-        iniciar_agente()
-    except KeyboardInterrupt:
-        print("\n\n🛑 Agente detenido manualmente.")
-        print("👋 Cerrando procesos de forma segura...")
-        sys.exit(0)
-    except Exception as e:
-        print(f"❌ Error fatal en el hilo del agente: {e}")
-        time.sleep(5)
+    iniciar_agente()
