@@ -43,7 +43,7 @@ def obtener_lista_servidores():
                 SELECT ip, nombre_alias, departamento, 
                        id_sensor_cpu, id_sensor_ram, id_sensor_disco, 
                        id_sensor_red, id_sensor_latencia 
-                FROM servidores_it 
+                FROM servidores 
                 WHERE estado_monitoreo = 1
             """
             cursor.execute(query)
