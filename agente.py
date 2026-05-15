@@ -47,7 +47,7 @@ def obtener_servidores_activos():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        query = "SELECT * FROM servidores_it WHERE estado_monitoreo = 1"
+        query = "SELECT * FROM servidores WHERE estado_monitoreo = 1"
         cursor.execute(query)
         servidores = cursor.fetchall()
         cursor.close()

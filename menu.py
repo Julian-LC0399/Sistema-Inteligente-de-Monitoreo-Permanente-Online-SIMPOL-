@@ -74,7 +74,7 @@ def generar_menu(seccion_persistente="🏠 Inicio"):
         st.divider()
 
         # NAVEGACIÓN
-        opciones = ["🏠 Inicio", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
+        opciones = ["🏠 Inicio", "🖥️ Servidores", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
         if st.session_state.get("rol") in ["admin", "seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         

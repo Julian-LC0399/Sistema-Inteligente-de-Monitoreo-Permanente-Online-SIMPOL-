@@ -113,6 +113,10 @@ def main():
                     from modulos import inicio
                     inicio.mostrar_pantalla()
                 
+                elif seleccion == "🖥️ Servidores":
+                    from modulos import servidores
+                    servidores.mostrar_tabla_servidores()
+                
                 elif seleccion == "📊 Monitoreo en vivo":
                     from modulos import monitoreo
                     monitoreo.mostrar_pantalla()
