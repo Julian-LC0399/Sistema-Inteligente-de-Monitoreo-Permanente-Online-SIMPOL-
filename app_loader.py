@@ -1,46 +1,67 @@
 import streamlit.web.cli as stcli
-import os, sys, subprocess, time, webbrowser
-import multiprocessing
+import os
+import sys
 
+def resolve_path(path):
+    """
+    Busca el archivo dentro de la carpeta temporal del .exe (_MEIPASS)
+    o en la carpeta actual de trabajo.
+    """
+    if getattr(sys, 'frozen', False):
+        # Cuando corre como .exe, bundle_dir es la carpeta temporal
+        bundle_dir = sys._MEIPASS
+    else:
+        # Cuando corre como script .py
+        bundle_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    return os.path.normpath(os.path.join(bundle_dir, path))
 
-def get_resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+def main():
+    # --- AJUSTE DE RUTAS PARA MÓDULOS INTERNOS ---
+    # Si es un EXE, forzamos a Python a mirar dentro de la carpeta temporal
+    # para que encuentre 'utils', 'modulos', 'auth', etc.
+    if getattr(sys, 'frozen', False):
+        sys.path.insert(0, sys._MEIPASS)
+        # También nos aseguramos de que el directorio de trabajo sea donde está el EXE
+        # para que el agente pueda escribir su log 'debug_agente.txt'
+        os.chdir(os.path.dirname(sys.executable))
 
+    # 1. Localizamos app.py de forma absoluta
+    script_path = resolve_path("app.py")
 
-if __name__ == "__main__":
-    # Evita que el ejecutable se abra a sí mismo infinitamente en Windows
-    multiprocessing.freeze_support()
+    # 2. Verificación de existencia con mensaje de depuración
+    if not os.path.exists(script_path):
+        print(f"--- ERROR CRÍTICO ---")
+        print(f"No se encontró el archivo principal: {script_path}")
+        print(f"Directorio actual: {os.getcwd()}")
+        if getattr(sys, 'frozen', False):
+            print(f"Contenido de _MEIPASS: {os.listdir(sys._MEIPASS)}")
+        input("\nPresione ENTER para salir...")
+        sys.exit(1)
 
-    # Lógica para detectar si este proceso es el Agente o la Interfaz
-    if len(sys.argv) > 1 and sys.argv[1] == "--agente":
-        import agente
-
-        agente.iniciar_agente()
-        sys.exit(0)
-
-    # Lanzar el proceso del agente en segundo plano (invisible)
-    # 0x08000000 es para que no se abra una ventana de consola extra
-    subprocess.Popen([sys.executable, "--agente"], creationflags=0x08000000)
-
-    # Configurar argumentos para Streamlit
+    # 3. Configuramos los argumentos de ejecución de Streamlit
+    # Agregamos configuraciones para mejorar la estabilidad en el Banco
     sys.argv = [
         "streamlit",
         "run",
-        get_resource_path("app.py"),
-        "--server.port=8501",
+        script_path,
         "--server.headless=true",
+        "--client.toolbarMode=viewer",
+        "--server.port=8501",
+        "--browser.gatherUsageStats=false",
         "--global.developmentMode=false",
+        "--server.address=127.0.0.1" # Fuerza a usar localhost para evitar bloqueos de red
     ]
 
-    # Tiempo de cortesía para que el servidor local de Streamlit levante
-    time.sleep(4)
+    # 4. Lanzamos Streamlit
+    try:
+        stcli.main()
+    except Exception as e:
+        print(f"Error al lanzar Streamlit: {e}")
+        input("Presione ENTER para salir...")
 
-    # Abrir el navegador automáticamente
-    webbrowser.open("http://localhost:8501")
-
-    # Iniciar la interfaz de Streamlit
-    sys.exit(stcli.main())
+if __name__ == "__main__":
+    # Soporte para multiprocessing (necesario para el agente en Windows)
+    import multiprocessing
+    multiprocessing.freeze_support()
+    main()

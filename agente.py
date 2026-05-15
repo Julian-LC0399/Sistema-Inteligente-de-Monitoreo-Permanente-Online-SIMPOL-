@@ -1,99 +1,128 @@
 import time
 import mysql.connector
 from datetime import datetime
-from utils import obtener_telemetria
+import sys
+import os
 
-# CONFIGURACIÓN UNIFICADA CON SIMPOL.SQL
+# --- SOPORTE PARA RUTAS INTERNAS DEL EXE ---
+def get_resource_path(relative_path):
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+# Ajuste de path para encontrar 'utils' dentro del paquete
+if getattr(sys, 'frozen', False):
+    if sys._MEIPASS not in sys.path:
+        sys.path.insert(0, sys._MEIPASS)
+
+# CONFIGURACIÓN DB
 DB_CONFIG = {
     "host": "127.0.0.1", 
     "user": "root", 
     "password": "1234", 
     "database": "simpol", 
-    "auth_plugin": "mysql_native_password"
+    "auth_plugin": "mysql_native_password", 
+    "use_pure": True,
+    "connect_timeout": 15
 }
 
-def obtener_umbrales():
-    """Recupera los umbrales actualizados desde historico_umbrales."""
-    # Valores por defecto del Banco
-    p = {"CPU_E": 70, "CPU_P": 80, "CPU_C": 90, "RAM_E": 70, "RAM_P": 80, "RAM_C": 90}
-    
+def log_agente(mensaje):
+    try:
+        # Forzamos que el log se escriba en la carpeta del ejecutable, no en carpetas temporales
+        directorio_ejecucion = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.getcwd()
+        ruta_log = os.path.join(directorio_ejecucion, "debug_agente.txt")
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(ruta_log, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {mensaje}\n")
+            f.flush()
+    except:
+        pass
+
+def obtener_servidores_activos():
+    servidores = []
+    conn = None
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        
-        # Mapeo corregido según simpol.sql (parametro y valor_nuevo)
-        mapa = {
-            "CPU_ESTABLE": "CPU_E", "CPU_PRECAUCION": "CPU_P", "CPU_CRITICO": "CPU_C", 
-            "RAM_ESTABLE": "RAM_E", "RAM_PRECAUCION": "RAM_P", "RAM_CRITICO": "RAM_C"
-        }
-        
-        for m_db, key in mapa.items():
-            # Consulta corregida: valor_nuevo y parametro
-            query = "SELECT valor_nuevo FROM historico_umbrales WHERE parametro = %s ORDER BY fecha_cambio DESC LIMIT 1"
-            cursor.execute(query, (m_db,))
-            res = cursor.fetchone()
-            if res:
-                p[key] = float(res[0])
-                
+        cursor = conn.cursor(dictionary=True)
+        query = "SELECT * FROM servidores_it WHERE estado_monitoreo = 1"
+        cursor.execute(query)
+        servidores = cursor.fetchall()
         cursor.close()
-        conn.close()
     except Exception as e:
-        print(f"⚠️ Nota: Usando umbrales por defecto (Error: {e})")
-    return p
+        log_agente(f"❌ Error de Catálogo SQL: {e}")
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+    return servidores
 
+# ESTA ES LA FUNCIÓN QUE LLAMA APP.PY
 def iniciar_agente():
-    print("🚀 Agente SIMPOL iniciado (Presione Ctrl+C para detener)")
-    sensor_id = 2094 # ID Institucional
+    log_agente("🚀 --- INICIANDO MOTOR DE MONITOREO ---")
     
+    try:
+        # Importación tardía para evitar colisiones de hilos
+        from utils import obtener_telemetria_total
+        log_agente("✅ Módulos de telemetría cargados.")
+    except Exception as e:
+        log_agente(f"💥 Error crítico al importar UTILS: {e}")
+        return
+
     while True:
         try:
-            # 1. Obtener datos actuales y umbrales frescos
-            cpu, ram, msg_sensor = obtener_telemetria()
-            u = obtener_umbrales()
-            ahora = datetime.now()
+            servidores = obtener_servidores_activos()
             
-            # 2. Lógica de estados (Semáforo)
-            max_nivel = 1 # 1: Estable, 2: Precaución, 3: Crítico
-            
-            # Chequeo de CPU
-            if cpu >= u["CPU_C"]: max_nivel = 3
-            elif cpu >= u["CPU_P"] and max_nivel < 3: max_nivel = 2
-            
-            # Chequeo de RAM
-            if ram >= u["RAM_C"]: max_nivel = 3
-            elif ram >= u["RAM_P"] and max_nivel < 3: max_nivel = 2
-            
-            estado = "CRÍTICO" if max_nivel == 3 else "PRECAUCIÓN" if max_nivel == 2 else "ESTABLE"
-            icono = "🔴" if max_nivel == 3 else "🟠" if max_nivel == 2 else "🟢"
+            if not servidores:
+                log_agente("⚠️ Sin servidores activos para monitorear.")
+                time.sleep(20)
+                continue
 
-            # 3. Inserción en la base de datos
-            try:
-                conn = mysql.connector.connect(**DB_CONFIG)
-                cursor = conn.cursor()
-                
-                # Sincronizado exactamente con simpol.sql
-                query = """
-                    INSERT INTO monitoreo 
-                    (fecha_registro, id_sensor, uso_cpu, uso_ram, estado_sistema) 
-                    VALUES (%s, %s, %s, %s, %s)
-                """
-                cursor.execute(query, (ahora, sensor_id, cpu, ram, estado))
-                
-                conn.commit()
-                cursor.close()
-                conn.close()
-                
-                timestamp = ahora.strftime('%H:%M:%S')
-                print(f"[{timestamp}] {icono} {estado:11} | CPU: {cpu:5.1f}% | RAM: {ram:5.1f}% | Fuente: {msg_sensor}")
-                
-            except mysql.connector.Error as err:
-                print(f"[{ahora.strftime('%H:%M:%S')}] ⚠️ Error de Inserción: {err}")
+            conn_ins = mysql.connector.connect(**DB_CONFIG)
+            cursor_ins = conn_ins.cursor()
+
+            for serv in servidores:
+                try:
+                    nombre = serv['nombre_alias']
+                    ip = serv['ip']
+                    
+                    data = obtener_telemetria_total(serv)
+                    ahora = datetime.now()
+                    
+                    v_cpu = data.get('cpu', 0)
+                    v_ram = data.get('ram', 0)
+                    v_disco = data.get('disco', 0)
+                    v_lat = data.get('latencia', 0)
+                    
+                    max_val = max(v_cpu, v_ram, v_disco)
+                    estado = "ÓPTIMO"
+                    if max_val >= 90 or v_lat > 200: estado = "CRÍTICO"
+                    elif max_val >= 75 or v_lat > 100: estado = "PRECAUCIÓN"
+
+                    query = """
+                        INSERT INTO monitoreo 
+                        (fecha_registro, ip_servidor, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    valores = (ahora, ip, v_cpu, v_ram, v_disco, data.get('red', 0), v_lat, estado)
+                    
+                    cursor_ins.execute(query, valores)
+                    conn_ins.commit()
+                    # Quitamos el log de éxito por cada servidor para no saturar el disco del banco
+                    # log_agente(f"📊 Registro: {nombre}")
+
+                except Exception as e:
+                    log_agente(f"❌ Error en {serv.get('nombre_alias')}: {e}")
+
+            cursor_ins.close()
+            conn_ins.close()
 
         except Exception as e:
-            print(f"❌ Error inesperado en el ciclo: {e}")
+            log_agente(f"💥 Error en ciclo principal: {e}")
 
-        # Espera de 5 segundos para el siguiente ciclo
-        time.sleep(5)
+        time.sleep(10) # Pausa entre escaneos completos
 
+# Esto permite que el archivo funcione tanto importado como solo
 if __name__ == "__main__":
     iniciar_agente()

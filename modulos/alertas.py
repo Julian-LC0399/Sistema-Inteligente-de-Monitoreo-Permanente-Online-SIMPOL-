@@ -1,116 +1,86 @@
 import streamlit as st
-from database import conectar_bd, registrar_auditoria_umbral
+from database import obtener_lista_servidores, conectar_bd
 
-def cargar_config_umbrales():
-    """Carga los niveles de umbral desde la base de datos."""
-    metricas_lista = ["CPU_ESTABLE", "CPU_PRECAUCION", "CPU_CRITICO", 
-                      "RAM_ESTABLE", "RAM_PRECAUCION", "RAM_CRITICO"]
-    
-    for m in metricas_lista:
-        if m not in st.session_state:
-            st.session_state[m] = 70 if "ESTABLE" in m else (80 if "PRECAUCION" in m else 90)
-
-    try:
-        conn = conectar_bd()
-        if conn:
-            cursor = conn.cursor()
-            for m in metricas_lista:
-                query = "SELECT valor_nuevo FROM historico_umbrales WHERE parametro = %s ORDER BY fecha_cambio DESC LIMIT 1"
-                cursor.execute(query, (m,))
-                res = cursor.fetchone()
-                if res: 
-                    st.session_state[m] = float(res[0])
+# Mantenemos el caché pero con un scope más controlado
+@st.cache_data(ttl=5)
+def obtener_alertas_por_ip(ip):
+    conn = conectar_bd()
+    alertas = []
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = """
+                SELECT fecha_registro, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema 
+                FROM monitoreo 
+                WHERE ip_servidor = %s AND estado_sistema != 'ÓPTIMO'
+                ORDER BY fecha_registro DESC LIMIT 30
+            """
+            cursor.execute(query, (ip,))
+            alertas = cursor.fetchall()
             cursor.close()
             conn.close()
-    except Exception as e:
-        st.error(f"Error de sincronización: {e}")
+        except Exception as e:
+            st.error(f"Error al cargar el historial de alertas: {e}")
+    return alertas
 
-@st.fragment(run_every=5)
-def fragmento_alertas(user_id):
-    # --- CSS AISLADO Y CORRECCIÓN DE COLOR DE TEXTO ---
-    st.markdown("""
-        <style>
-            /* 1. Área de texto blanca con letras negras (Solo en Main) */
-            [data-testid="stMain"] div[data-baseweb="textarea"] {
-                background-color: white !important;
-                border: 1px solid #d3d3d3 !important;
-            }
-            [data-testid="stMain"] textarea {
-                color: black !important;
-                -webkit-text-fill-color: black !important;
-                background-color: white !important;
-            }
-
-            /* 2. Botón Azul con TEXTO BLANCO (Solo en Main) */
-            [data-testid="stMain"] .stButton > button {
-                background-color: #003366 !important;
-                color: white !important; /* Fuerza el texto a blanco */
-                border-radius: 5px !important;
-                font-weight: bold !important;
-                border: none !important;
-            }
-            
-            /* Forzar el color blanco en el texto del botón incluso en hover/foco */
-            [data-testid="stMain"] .stButton > button p {
-                color: white !important;
-            }
-
-            [data-testid="stMain"] .stButton > button:hover {
-                background-color: #00509d !important;
-                color: white !important;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<h4 style='color:#003366;'>⚠️ Gestión de Umbrales de Alerta</h4>", unsafe_allow_html=True)
+# ELIMINAMOS 'run_every' del fragmento para el .EXE
+# El refresco automático es el que causa la superposición fantasma
+@st.fragment()
+def renderizar_lista_alertas(ip_sel, nombre_alias):
+    # Contenedor local para asegurar limpieza en cada llamada del fragmento
+    espacio_alertas = st.container()
     
-    with st.container(border=True):
-        st.write("Ajuste los parámetros de tolerancia institucional:")
+    with espacio_alertas:
+        alertas = obtener_alertas_por_ip(ip_sel)
         
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Procesamiento (CPU)**")
-            n_cpu_e = st.slider("Estable (%)", 0, 100, int(st.session_state.get('CPU_ESTABLE', 70)), key="s_cpu_e")
-            n_cpu_p = st.slider("Precaución (%)", 0, 100, int(st.session_state.get('CPU_PRECAUCION', 80)), key="s_cpu_p")
-            n_cpu_c = st.slider("Crítico (%)", 0, 100, int(st.session_state.get('CPU_CRITICO', 90)), key="s_cpu_c")
-
-        with c2:
-            st.markdown("**Memoria (RAM)**")
-            n_ram_e = st.slider("Estable (%)", 0, 100, int(st.session_state.get('RAM_ESTABLE', 70)), key="s_ram_e")
-            n_ram_p = st.slider("Precaución (%)", 0, 100, int(st.session_state.get('RAM_PRECAUCION', 80)), key="s_ram_p")
-            n_ram_c = st.slider("Crítico (%)", 0, 100, int(st.session_state.get('RAM_CRITICO', 90)), key="s_ram_c")
-
-        st.write("")
+        criticas = [a for a in alertas if a['estado_sistema'] == 'CRÍTICO']
         
-        comentario = st.text_area(
-            "Justificación del cambio (Auditoría):", 
-            placeholder="Describa el motivo...",
-            height=100
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Alertas Críticas (Recientes)", len(criticas), delta_color="inverse")
+        with col2:
+            st.metric("Total Incidentes Detectados", len(alertas))
 
-        if st.button("💾 GUARDAR Y ACTUALIZAR SISTEMA", use_container_width=True):
-            dict_nuevos = {
-                "CPU_ESTABLE": n_cpu_e, "CPU_PRECAUCION": n_cpu_p, "CPU_CRITICO": n_cpu_c,
-                "RAM_ESTABLE": n_ram_e, "RAM_PRECAUCION": n_ram_p, "RAM_CRITICO": n_ram_c
-            }
-            try:
-                cambios = 0
-                for metrica, val_nuevo in dict_nuevos.items():
-                    val_anterior = st.session_state.get(metrica)
-                    if val_nuevo != val_anterior:
-                        registrar_auditoria_umbral(metrica, val_anterior, val_nuevo, user_id, comentario)
-                        st.session_state[metrica] = val_nuevo
-                        cambios += 1
-                if cambios > 0:
-                    st.success(f"✅ Se han actualizado {cambios} parámetros.")
-                    st.rerun()
-                else:
-                    st.info("No se detectaron cambios.")
-            except Exception as e:
-                st.error(f"Error técnico: {e}")
+        st.divider()
+        st.subheader(f"Historial de eventos: {nombre_alias}")
+        
+        if not alertas:
+            st.success(f"✅ El servidor {nombre_alias} no presenta incidencias.")
+        else:
+            # Agregamos una key única al loop para que el .exe identifique cada alerta
+            for i, alerta in enumerate(alertas):
+                fecha = alerta['fecha_registro'].strftime('%H:%M:%S | %d-%m')
+                estado = alerta['estado_sistema']
+                detalle = (f"**CPU:** {alerta['val_cpu']}% | **RAM:** {alerta['val_ram']}% | "
+                           f"**LAT:** {alerta['val_latencia']}ms")
+                
+                if estado == "CRÍTICO":
+                    st.error(f"🔴 **CRÍTICO** | {fecha} \n\n {detalle}", icon="🔥")
+                elif estado == "PRECAUCIÓN":
+                    st.warning(f"🟠 **PRECAUCIÓN** | {fecha} \n\n {detalle}", icon="⚠️")
 
-def mostrar_pantalla(user_id):
-    # Forzar negro en etiquetas del cuerpo principal solamente
-    st.markdown("<style>[data-testid='stMain'] p, [data-testid='stMain'] label { color: black !important; }</style>", unsafe_allow_html=True)
-    cargar_config_umbrales()
-    fragmento_alertas(user_id)
+def mostrar_pantalla(usuario_id=None):
+    # === ANCLA DE LIMPIEZA TOTAL (Crucial para el .exe) ===
+    # Si esta página se cierra, este 'empty' se destruye y con él todo el rastro
+    canvas_alertas = st.empty()
+    
+    with canvas_alertas.container():
+        st.title("🔔 Centro de Alertas y Notificaciones")
+        
+        servidores = obtener_lista_servidores()
+        if not servidores:
+            st.warning("⚠️ No hay servidores registrados en el catálogo.")
+            return
+
+        opciones = {f"{s['nombre_alias']} ({s['ip']})": s for s in servidores}
+        # Key única para el widget de selección
+        seleccion = st.selectbox("Filtrar alertas por servidor:", list(opciones.keys()), key="alertas_filter_select")
+        
+        serv_info = opciones[seleccion]
+        
+        # Botón de refresco manual (Más seguro que el automático en .exe para evitar fantasmas)
+        if st.button("🔄 Actualizar Alertas Ahora", key="btn_refresco_alertas"):
+            st.cache_data.clear()
+            st.rerun()
+            
+        renderizar_lista_alertas(serv_info['ip'], serv_info['nombre_alias'])

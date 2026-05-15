@@ -1,23 +1,86 @@
 import mysql.connector
 import streamlit as st
+import sys
 
+# --- CONFIGURACIÓN DE CONEXIÓN (Optimizado para el Banco) ---
 def conectar_bd():
-    """Establece conexión con los parámetros del Banco Caroní."""
+    """Establece conexión con parámetros de compatibilidad forzada para evitar error 2059."""
     try:
         config = {
             "host": "127.0.0.1",
             "user": "root",
             "password": "1234",
             "database": "simpol",
-            "auth_plugin": "mysql_native_password", 
+            "auth_plugin": "mysql_native_password",
+            "use_pure": True,
+            "connect_timeout": 5 
         }
         return mysql.connector.connect(**config)
     except mysql.connector.Error as err:
-        st.error(f"Error crítico de conexión: {err}")
-        return None
+        # Intento de reconexión por nombre de host local
+        try:
+            return mysql.connector.connect(
+                host="localhost", 
+                user="root", 
+                password="1234", 
+                database="simpol",
+                auth_plugin="mysql_native_password",
+                use_pure=True
+            )
+        except Exception:
+            return None
+
+# --- CONSULTAS CON CACHÉ (Lectura) ---
+
+@st.cache_data(ttl=5)
+def obtener_lista_servidores():
+    """Obtiene el catálogo de servidores activos."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = """
+                SELECT ip, nombre_alias, departamento, 
+                       id_sensor_cpu, id_sensor_ram, id_sensor_disco, 
+                       id_sensor_red, id_sensor_latencia 
+                FROM servidores_it 
+                WHERE estado_monitoreo = 1
+            """
+            cursor.execute(query)
+            resultado = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return resultado
+        except Exception as e:
+            print(f"Error al obtener catálogo: {e}")
+    return []
+
+@st.cache_data(ttl=5)
+def obtener_datos_historicos(ip_objetivo):
+    """Trae la telemetría completa filtrada por IP."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = """
+                SELECT fecha_registro, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema 
+                FROM monitoreo 
+                WHERE ip_servidor = %s 
+                ORDER BY fecha_registro DESC LIMIT 100
+            """
+            cursor.execute(query, (ip_objetivo,))
+            datos = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return datos
+        except Exception as e:
+            print(f"Error al traer históricos de {ip_objetivo}: {e}")
+    return []
+
+# --- FUNCIONES DE ESCRITURA Y SEGURIDAD ---
 
 def verificar_usuario(usuario, clave):
-    """Valida credenciales y devuelve el ID numérico para las llaves foráneas."""
+    """Valida credenciales y devuelve el perfil del usuario."""
     conn = conectar_bd()
     if conn:
         try:
@@ -32,21 +95,25 @@ def verificar_usuario(usuario, clave):
             st.error(f"Error en login: {e}")
     return None
 
-def obtener_datos_historicos():
-    """Trae la telemetría usando el nuevo estándar de id_sensor."""
+def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, veredicto):
+    """Registra el análisis de Capacity Planning."""
     conn = conectar_bd()
     if conn:
         try:
-            cursor = conn.cursor(dictionary=True)
-            query = "SELECT fecha_registro, id_sensor, uso_cpu, uso_ram, estado_sistema FROM monitoreo ORDER BY fecha_registro DESC LIMIT 100"
-            cursor.execute(query)
-            datos = cursor.fetchall()
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO proyecciones 
+                (usuario_id, ip_servidor, metrica_analizada, valor_actual, valor_proyectado, veredicto)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (usuario_id, ip_servidor, metrica, actual, proyectado, veredicto))
+            conn.commit()
             cursor.close()
             conn.close()
-            return datos
+            return True
         except Exception as e:
-            print(f"Error al traer históricos: {e}")
-    return []
+            st.error(f"Error al registrar proyección: {e}")
+    return False
 
 def registrar_log_acceso(usuario, nombre, rol, resultado="EXITOSO"):
     """Registra auditoría de accesos."""
@@ -62,12 +129,14 @@ def registrar_log_acceso(usuario, nombre, rol, resultado="EXITOSO"):
             print(f"Error de log: {e}")
 
 def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, comentario):
-    """Sincronizado con tabla 'historico_usuarios' de simpol.sql"""
+    """
+    Función requerida por gestion.py y usuario.py.
+    Asegura que el nombre sea exacto para evitar ImportError en el EXE.
+    """
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
-            # Columnas exactas de simpol.sql
             query = """
                 INSERT INTO historico_usuarios 
                 (usuario_id, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, comentario)
@@ -76,44 +145,7 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, 
             cursor.execute(query, (int(ejecutor_id), afectado, accion, str(anterior), str(nuevo), comentario))
             conn.commit()
             conn.close()
-        except Exception as e:
-            print(f"Error de auditoría (User): {e}")
-
-def registrar_auditoria_umbral(metrica, anterior, nuevo, usuario_id, comentario):
-    """Sincronizado con tabla 'historico_umbrales' de simpol.sql"""
-    conn = conectar_bd()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            # CORRECCIÓN: Nombres de columnas según tu línea 40 de simpol.sql
-            query = """
-                INSERT INTO historico_umbrales 
-                (usuario_id, parametro, valor_anterior, valor_nuevo, justificacion)
-                VALUES (%s, %s, %s, %s, %s)
-            """
-            cursor.execute(query, (int(usuario_id), str(metrica), str(anterior), str(nuevo), str(comentario)))
-            conn.commit()
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            st.error(f"Error de auditoría (Umbral): {e}")
-            
-def registrar_proyeccion(recurso, actual, proyectado, fecha_fin, dias, veredicto, usuario_id):
-    """Sincronizado con la tabla proyecciones de simpol.sql"""
-    conn = conectar_bd()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO proyecciones 
-                (usuario_id, recurso_analizado, valor_actual, valor_proyectado, fecha_proyeccion, dias_proyectados, veredicto)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(query, (usuario_id, recurso, actual, proyectado, fecha_fin, dias, veredicto))
-            conn.commit()
-            conn.close()
             return True
         except Exception as e:
-            print(f"Error al registrar proyección: {e}")
-            return False
+            print(f"Error de auditoría: {e}")
     return False

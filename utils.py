@@ -4,21 +4,28 @@ import requests
 import urllib3
 import os
 import sys
+import base64
+import time
 
-# Desactivar advertencias de certificados SSL (Necesario para la API de PRTG local)
+# Desactivar advertencias de seguridad para la red interna
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# =========================================================
+# CONFIGURACIÓN PRTG
+# =========================================================
+PRTG_API_TOKEN = "W5O5WVLSXXUMGEI6BETLXRIZB7KZ5IIBGQKV6CLSHE======"
+PRTG_BASE_URL = "http://127.0.0.1/api/table.json" 
+
 def get_resource_path(relative_path):
-    """Obtiene la ruta absoluta para recursos (logo, css)."""
+    """Obtiene la ruta absoluta para recursos, compatible con PyInstaller."""
     try:
         base_path = sys._MEIPASS
-        
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
 def load_css(file_name):
-    """Inyecta el CSS institucional."""
+    """Inyecta el CSS institucional del banco."""
     try:
         ruta_real = get_resource_path(file_name)
         if os.path.exists(ruta_real):
@@ -27,35 +34,66 @@ def load_css(file_name):
     except Exception:
         pass
 
-def obtener_telemetria():
-    """Obtiene datos de CPU y RAM con sincronía forzada para PRTG."""
-    # 1. Preparar respaldo local con intervalo real para evitar el 0.0
-    cpu_local = float(psutil.cpu_percent(interval=0.1))
-    ram_local = float(psutil.virtual_memory().percent)
-    
-    cpu = cpu_local
-    ram = ram_local
-    msg = "💻 (MODO LOCAL)"
-    
+def obtener_valor_prtg(id_sensor):
+    """Extrae métricas de PRTG usando la API JSON."""
+    if not id_sensor or int(id_sensor) == 0:
+        return 0.0, False
+
     try:
-        # 2. URL de PRTG (Aumentamos estabilidad)
-        # Nota: He mantenido tu token, pero subimos el timeout a 2.0 segundos
-        url = "https://127.0.0.1/api/table.json?content=sensors&columns=objid,lastvalue,lastvalue_raw&filter_objid=2094&apitoken=ZX2K4GHPDFS4UDR3DVQWSZVYIDARCP6GCHQDHLZANM======"
-        
-        r = requests.get(url, timeout=2.0, verify=False)
+        params = {
+            "content": "sensors",
+            "columns": "objid,lastvalue,lastvalue_raw",
+            "filter_objid": id_sensor,
+            "apitoken": PRTG_API_TOKEN
+        }
+        # Timeout corto para no congelar la interfaz
+        r = requests.get(PRTG_BASE_URL, params=params, timeout=2.0, verify=False)
         
         if r.status_code == 200:
             json_data = r.json()
             if "sensors" in json_data and len(json_data["sensors"]) > 0:
-                # Extraemos el valor raw (PRTG suele darlo multiplicado por 10 o en escala)
-                raw_val = json_data["sensors"][0].get("lastvalue_raw", cpu_local)
+                raw_val = float(json_data["sensors"][0].get("lastvalue_raw", 0))
                 
-                # Ajuste de escala: Si PRTG envía 450 para decir 45.0%
-                cpu = float(raw_val) / 10 if raw_val > 100 else float(raw_val)
-                
-                msg = "🛰️ (PRTG SENSOR 2094)"
-    except Exception as e:
-        # Si hay error, msg se queda como MODO LOCAL
+                # Escalas según ID de sensor
+                if int(id_sensor) == 2635: # Red
+                    return round(raw_val / 1024, 2), True
+                elif int(id_sensor) == 2625: # Latencia
+                    return raw_val, True
+                else: # CPU/RAM/Disco
+                    final_val = raw_val / 10 if raw_val > 100 else raw_val
+                    return round(float(final_val), 2), True
+    except:
         pass
+    return 0.0, False
 
-    return cpu, ram, msg
+def obtener_telemetria_total(config_servidor):
+    """Calcula telemetría con respaldo local instantáneo."""
+    # Interval=None permite lectura inmediata de CPU
+    cpu_l = float(psutil.cpu_percent(interval=None))
+    ram_l = float(psutil.virtual_memory().percent)
+    
+    data = {
+        "cpu": cpu_l, "ram": ram_l, "disco": 0.0, 
+        "red": 0.0, "latencia": 0.0, "msg": "💻 (MODO LOCAL)"
+    }
+
+    ids = [
+        config_servidor.get('id_sensor_cpu'),
+        config_servidor.get('id_sensor_ram'),
+        config_servidor.get('id_sensor_disco'),
+        config_servidor.get('id_sensor_red'),
+        config_servidor.get('id_sensor_latencia')
+    ]
+    
+    resultados = [obtener_valor_prtg(i) for i in ids]
+    
+    # Si PRTG responde, actualizamos valores
+    if any(res[1] for res in resultados):
+        data["cpu"] = resultados[0][0] if resultados[0][1] else cpu_l
+        data["ram"] = resultados[1][0] if resultados[1][1] else ram_l
+        data["disco"] = resultados[2][0]
+        data["red"] = resultados[3][0]
+        data["latencia"] = resultados[4][0]
+        data["msg"] = "🛰️ (PRTG ONLINE)"
+
+    return data
