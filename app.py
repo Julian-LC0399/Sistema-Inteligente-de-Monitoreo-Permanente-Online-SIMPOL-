@@ -88,15 +88,17 @@ def main():
     else:
         lanzar_hilo_monitoreo()
 
-        # Obtener sección actual (prioridad: session_state -> URL -> Inicio)
-        actual = st.session_state.get("seccion_actual", params.get("p", "🏠 Inicio"))
+        # Aseguramos la persistencia interna en session_state antes de invocar el menú
+        if "seccion_actual" not in st.session_state:
+            st.session_state["seccion_actual"] = params.get("p", "🏠 Inicio")
         
-        # Renderizar Menú
-        seleccion = generar_menu(actual)
+        # Invocamos la función sin argumentos tal como está definida en menu.py
+        generar_menu()
         
-        # ACTUALIZACIÓN DE PERSISTENCIA
-        st.session_state["seccion_actual"] = seleccion
-        # Guardamos datos críticos en la URL para el próximo F5
+        # Recuperamos la sección activa modificada por el control st.radio interno del menú
+        seleccion = st.session_state.get("seccion_actual", "🏠 Inicio")
+        
+        # ACTUALIZACIÓN DE PERSISTENCIA EN URL
         st.query_params.update({
             "s": "1", 
             "p": seleccion, 

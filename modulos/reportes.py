@@ -3,6 +3,7 @@ from fpdf import FPDF
 from database import conectar_bd
 from datetime import datetime, timedelta, time
 import io
+import traceback
 
 class PDF(FPDF):
     def header(self):
@@ -10,52 +11,119 @@ class PDF(FPDF):
         self.set_text_color(0, 51, 102) 
         self.cell(0, 10, "BANCO CARONI - SISTEMA SIMPOL", 0, 1, "C")
         self.set_font("Arial", "I", 10)
-        self.cell(0, 5, "Reporte de Auditoría de Infraestructura Multi-Sensor", 0, 1, "C")
+        self.cell(0, 5, "Reporte de Auditoria de Infraestructura Multi-Sensor", 0, 1, "C")
         self.ln(10)
 
     def footer(self):
         self.set_y(-15)
         self.set_font("Arial", "I", 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Generado por SIMPOL | Página {self.page_no()} | Confidencial", 0, 0, "C")
+        self.cell(0, 10, f"Generado por SIMPOL | Pagina {self.page_no()} | Confidencial", 0, 0, "C")
 
 def archivar_reporte_en_bd(bin_data, nombre, formato, user_id):
+    """Guarda el archivo en la base de datos de manera conforme."""
+    conn = None
     try:
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor()
-            tamanio = len(bin_data) / 1024 
+            calc_kb = len(bin_data) / 1024.0
+            tamanio_sanitizado = f"{calc_kb:.2f}"
+            
+            datos_finales = bytes(bin_data)
+            
+            id_limpio = None
+            if user_id:
+                try: id_limpio = int(float(str(user_id).strip()))
+                except: id_limpio = None
+            
             query = """
                 INSERT INTO reportes_archivados 
                 (nombre_archivo, formato, contenido, usuario_id, tamanio_kb) 
                 VALUES (%s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (nombre, formato, bin_data, user_id, tamanio))
+            cursor.execute(query, (nombre, formato, datos_finales, id_limpio, tamanio_sanitizado))
             conn.commit()
+            cursor.close()
             conn.close()
-    except:
-        pass
+            return True
+    except Exception as e:
+        with open("simpol_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now()}] Error interno en Query de Archivación ({formato}): {e}\n")
+    return False
+
+def obtener_historico_reportes():
+    """Extrae la metadata histórica de forma segura protegiendo la UI (Excluye el BLOB pesado)."""
+    reportes = []
+    try:
+        conn = conectar_bd()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            query = """
+                SELECT id, nombre_archivo, formato, tamanio_kb, fecha_generacion, usuario_id 
+                FROM reportes_archivados 
+                ORDER BY fecha_generacion DESC 
+                LIMIT 10
+            """
+            cursor.execute(query)
+            reportes = cursor.fetchall()
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        with open("simpol_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now()}] Error leyendo histórico de BD: {e}\n")
+    return reportes
+
+def descargar_contenido_blob(reporte_id):
+    """
+    EXTRACTOR BAJO DEMANDA: Busca el contenido binario LONGBLOB de un archivo específico
+    y lo sanea de bytearray a bytes puros para que Streamlit pueda procesarlo sin colapsar.
+    """
+    try:
+        conn = conectar_bd()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT contenido FROM reportes_archivados WHERE id = %s"
+            cursor.execute(query, (reporte_id,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if resultado and resultado['contenido']:
+                # El blindaje de conversión crítico que exige tu driver nativo de MySQL
+                return bytes(resultado['contenido'])
+    except Exception as e:
+        with open("simpol_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now()}] Error al extraer contenido BLOB ID {reporte_id}: {e}\n")
+    return None
 
 def mostrar_pantalla(user_actual, user_id):
-    # === ANCLA DE LIMPIEZA ATÓMICA ===
-    canvas_reportes = st.empty()
-    
-    with canvas_reportes.container():
-        st.markdown('<h2 style="color:#003366;">📊 Centro de Reportes y Auditoría</h2>', unsafe_allow_html=True)
-        st.write(f"Analista en sesión: **{user_actual}**")
+    if "rep_listo" not in st.session_state:
+        st.session_state["rep_listo"] = False
+        st.session_state["data_csv"] = None
+        st.session_state["data_pdf"] = None
+        st.session_state["name_csv"] = ""
+        st.session_state["name_pdf"] = ""
 
-        with st.container(border=True):
-            st.subheader("Parámetros del Informe")
-            c1, c2 = st.columns(2)
-            f_i = c1.date_input("Desde", datetime.now() - timedelta(days=7), key="rep_date_ini")
-            f_f = c2.date_input("Hasta", datetime.now(), key="rep_date_fin")
-            
-            # Usamos un contenedor para los botones de descarga para poder limpiarlos
-            area_descarga = st.empty()
-            
-            if st.button("🚀 GENERAR EXPEDIENTE INTEGRAL", use_container_width=True, key="btn_gen_reporte"):
-                try:
-                    conn = conectar_bd()
+    st.markdown('<h2 style="color:#003366;">📊 Centro de Reportes y Auditoría</h2>', unsafe_allow_html=True)
+    st.write(f"Analista en sesión: **{user_actual}**")
+
+    # =====================================================================
+    # SECCIÓN 1: PARÁMETROS Y GENERADOR DE REPORTES
+    # =====================================================================
+    with st.container(border=True):
+        st.subheader("Parámetros del Informe")
+        c1, c2 = st.columns(2)
+        f_i = c1.date_input("Desde", datetime.now() - timedelta(days=7), key="rep_date_ini")
+        f_f = c2.date_input("Hasta", datetime.now(), key="rep_date_fin")
+        
+        area_descarga = st.empty()
+        
+        if st.button("🚀 GENERAR EXPEDIENTE INTEGRAL", use_container_width=True, key="btn_gen_reporte"):
+            conn = None
+            try:
+                conn = conectar_bd()
+                if conn:
                     cursor = conn.cursor(dictionary=True)
                     dt_i = datetime.combine(f_i, time.min)
                     dt_f = datetime.combine(f_f, time.max)
@@ -65,65 +133,142 @@ def mostrar_pantalla(user_actual, user_id):
                         FROM monitoreo 
                         WHERE fecha_registro BETWEEN %s AND %s 
                         ORDER BY fecha_registro DESC
+                        LIMIT 5000
                     """
                     cursor.execute(query, (dt_i, dt_f))
                     datos = cursor.fetchall()
+                    cursor.close()
                     conn.close()
+                    conn = None
+                else:
+                    st.error("No se pudo conectar con la base de datos de infraestructura.")
+                    return
 
-                    if not datos:
-                        st.warning("No existen registros de telemetría para el rango seleccionado.")
+                if not datos:
+                    st.warning("⚠️ No existen registros de telemetría para el rango seleccionado.")
+                else:
+                    output_csv = io.StringIO()
+                    output_csv.write("Fecha,IP Servidor,CPU %,RAM %,Disco %,Red Mbps,Latencia ms,Estado Sistema\n")
+                    for r in datos:
+                        output_csv.write(f"{r['fecha_registro']},{r['ip_servidor']},{r['val_cpu']},{r['val_ram']},{r['val_disco']},{r['val_red']},{r['val_latencia']},{r['estado_sistema']}\n")
+                    
+                    csv_binario = output_csv.getvalue().encode('utf-8', errors='ignore')
+                    timestamp_actual = datetime.now().strftime('%d%m%y_%H%M')
+                    nombre_csv = f"Reporte_SIMPOL_{timestamp_actual}.csv"
+
+                    pdf = PDF(orientation='L', unit='mm', format='A4')
+                    pdf.add_page()
+                    pdf.set_font("Arial", "B", 11)
+                    pdf.cell(0, 10, f"Periodo de Auditoria: {f_i} al {f_f}", 0, 1)
+                    pdf.cell(0, 10, f"Generado por el Analista ID: {user_id} ({user_actual})", 0, 1)
+                    pdf.ln(5)
+                    
+                    pdf.set_fill_color(0, 51, 102)
+                    pdf.set_text_color(255, 255, 255)
+                    cols = [
+                        ("Fecha/Hora", 45), ("IP Servidor", 35), ("CPU", 20), 
+                        ("RAM", 20), ("DISCO", 20), ("RED", 20), ("LAT", 20), ("Estado Sistema", 45)
+                    ]
+                    for txt, w in cols:
+                        pdf.cell(w, 10, txt, 1, 0, "C", True)
+                    pdf.ln()
+
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.set_font("Arial", "", 8)
+                    
+                    for r in datos[:1000]:
+                        pdf.cell(45, 8, str(r['fecha_registro']), 1)
+                        pdf.cell(35, 8, str(r['ip_servidor']), 1)
+                        pdf.cell(20, 8, f"{r['val_cpu']}%", 1, 0, "C")
+                        pdf.cell(20, 8, f"{r['val_ram']}%", 1, 0, "C")
+                        pdf.cell(20, 8, f"{r['val_disco']}%", 1, 0, "C")
+                        pdf.cell(20, 8, f"{r['val_red']} Mb", 1, 0, "C")
+                        pdf.cell(20, 8, f"{r['val_latencia']} ms", 1, 0, "C")
+                        pdf.cell(45, 8, str(r['estado_sistema']), 1, 1, "C")
+
+                    pdf_str = pdf.output(dest='S')
+                    if isinstance(pdf_str, str):
+                        pdf_binario = pdf_str.encode('latin-1', errors='ignore')
                     else:
-                        # --- GENERACIÓN CSV ---
-                        output_csv = io.StringIO()
-                        output_csv.write("Fecha,IP,CPU %,RAM %,Disco %,Red Mbps,Latencia ms,Estado\n")
-                        for r in datos:
-                            output_csv.write(f"{r['fecha_registro']},{r['ip_servidor']},{r['val_cpu']},{r['val_ram']},{r['val_disco']},{r['val_red']},{r['val_latencia']},{r['estado_sistema']}\n")
-                        
-                        csv_binario = output_csv.getvalue().encode('utf-8')
-                        nombre_csv = f"Reporte_SIMPOL_{datetime.now().strftime('%d%m%y_%H%M')}.csv"
+                        pdf_binario = bytes(pdf_str)
 
-                        # --- GENERACIÓN PDF ---
-                        pdf = PDF(orientation='L', unit='mm', format='A4')
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 10, f"Periodo de Auditoría: {f_i} al {f_f}", 0, 1)
-                        
-                        pdf.set_fill_color(0, 51, 102); pdf.set_text_color(255, 255, 255)
-                        cols = [("Fecha/Hora", 45), ("CPU", 25), ("RAM", 25), ("DISCO", 25), ("RED", 25), ("LAT", 25), ("Estado Sistema", 50)]
-                        for txt, w in cols:
-                            pdf.cell(w, 10, txt, 1, 0, "C", True)
-                        pdf.ln()
+                    nombre_pdf = f"Reporte_SIMPOL_{timestamp_actual}.pdf"
 
-                        pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 8)
-                        for r in datos:
-                            pdf.cell(45, 8, str(r['fecha_registro']), 1)
-                            pdf.cell(25, 8, f"{r['val_cpu']}%", 1, 0, "C")
-                            pdf.cell(25, 8, f"{r['val_ram']}%", 1, 0, "C")
-                            pdf.cell(25, 8, f"{r['val_disco']}%", 1, 0, "C")
-                            pdf.cell(25, 8, f"{r['val_red']} Mb", 1, 0, "C")
-                            pdf.cell(25, 8, f"{r['val_latencia']} ms", 1, 0, "C")
-                            pdf.cell(50, 8, str(r['estado_sistema']), 1, 1, "C")
+                    st.session_state["data_csv"] = csv_binario
+                    st.session_state["data_pdf"] = pdf_binario
+                    st.session_state["name_csv"] = nombre_csv
+                    st.session_state["name_pdf"] = nombre_pdf
+                    st.session_state["rep_listo"] = True
 
-                        # Manejo de salida PDF para evitar errores de encoding en el .exe
-                        pdf_output = pdf.output(dest='S')
-                        if isinstance(pdf_output, str):
-                            pdf_binario = pdf_output.encode('latin-1')
-                        else:
-                            pdf_binario = pdf_output
-                            
-                        nombre_pdf = f"Reporte_SIMPOL_{datetime.now().strftime('%d%m%y_%H%M')}.pdf"
+                    archivar_reporte_en_bd(csv_binario, nombre_csv, 'CSV', user_id)
+                    archivar_reporte_en_bd(pdf_binario, nombre_pdf, 'PDF', user_id)
 
-                        # Archivar
-                        archivar_reporte_en_bd(csv_binario, nombre_csv, 'CSV', user_id)
-                        archivar_reporte_en_bd(pdf_binario, nombre_pdf, 'PDF', user_id)
+                    st.rerun()
 
-                        with area_descarga.container():
-                            st.success("✅ Documentos generados exitosamente.")
-                            d_col1, d_col2 = st.columns(2)
-                            d_col1.download_button("⬇️ Descargar Excel (CSV)", data=csv_binario, file_name=nombre_csv, mime="text/csv", key="dl_csv")
-                            d_col2.download_button("⬇️ Descargar Informe (PDF)", data=pdf_binario, file_name=nombre_pdf, mime="application/pdf", key="dl_pdf")
+            except Exception as e:
+                st.error(f"⚠️ Error cargando sección 📄 Reportes. Revisa simpol_debug.log")
+                with open("simpol_debug.log", "a", encoding="utf-8") as f:
+                    f.write(f"==================================================\n")
+                    f.write(f"Error crítico en pantalla al presionar generar: {e}\n")
+                    f.write(traceback.format_exc())
+            finally:
+                if conn:
+                    try: conn.close()
+                    except: pass
 
-                except Exception as e:
-                    st.error(f"Falla en motor de reportes: {e}")
+        if st.session_state["rep_listo"]:
+            with area_descarga.container():
+                st.markdown("---")
+                st.success("✅ Expedientes de auditoría procesados correctamente.")
+                st.info(f"💾 **Trazabilidad:** Analista {user_actual} (ID: {user_id})")
+                
+                d_col1, d_col2 = st.columns(2)
+                d_col1.download_button(
+                    label="⬇️ Descargar Excel (CSV)", 
+                    data=st.session_state["data_csv"], 
+                    file_name=st.session_state["name_csv"], 
+                    mime="text/csv", 
+                    key="dl_btn_csv_final_v3"
+                )
+                d_col2.download_button(
+                    label="⬇️ Descargar Informe (PDF)", 
+                    data=st.session_state["data_pdf"], 
+                    file_name=st.session_state["name_pdf"], 
+                    mime="application/pdf", 
+                    key="dl_btn_pdf_final_v3"
+                )
 
-# Eliminado el bloque if name == main para evitar ejecuciones dobles en el exe
+    # =====================================================================
+    # SECCIÓN 2: HISTORIAL Y RECUPERACIÓN DE REPORTES ARCHIVADOS
+    # =====================================================================
+    st.markdown('<h3 style="color:#003366;">📜 Historial de Reportes Archivados (Últimos 10)</h3>', unsafe_allow_html=True)
+    
+    historico = obtener_historico_reportes()
+    if not historico:
+        st.write("No hay reportes archivados en el histórico de auditoría.")
+    else:
+        for item in historico:
+            with st.container(border=True):
+                col_a, col_b, col_c, col_d = st.columns([2, 1, 1, 1])
+                col_a.write(f"📄 **Archivo:** `{item['nombre_archivo']}`")
+                col_b.write(f"🔹 **Formato:** {item['formato']}")
+                
+                fecha_f = item['fecha_generacion'].strftime('%d/%m/%Y %H:%M') if item['fecha_generacion'] else 'N/A'
+                col_c.write(f"⏱️ **Generado:** {fecha_f}")
+                
+                # Botón interactivo para recuperar el archivo binario guardado en el LONGBLOB
+                mime_tipo = "text/csv" if item['formato'] == "CSV" else "application/pdf"
+                
+                # Extraemos el contenido binario llamando a la función blindada
+                datos_archivo = descargar_contenido_blob(item['id'])
+                
+                if datos_archivo:
+                    col_d.download_button(
+                        label="📥 Descargar",
+                        data=datos_archivo,
+                        file_name=item['nombre_archivo'],
+                        mime=mime_tipo,
+                        key=f"btn_hist_{item['id']}" # Key dinámica única por registro
+                    )
+                else:
+                    col_d.error("No disponible")
