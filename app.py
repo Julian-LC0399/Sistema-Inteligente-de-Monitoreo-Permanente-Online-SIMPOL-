@@ -117,7 +117,8 @@ def main():
                 
                 elif seleccion == "🖥️ Servidores":
                     from modulos import servidores
-                    servidores.mostrar_tabla_servidores()
+                    rol_actual = st.session_state.get("rol")
+                    servidores.mostrar_tabla_servidores(rol_usuario=rol_actual)
                 
                 elif seleccion == "📊 Monitoreo en vivo":
                     from modulos import monitoreo

@@ -1,7 +1,11 @@
 import streamlit as st
 from database import conectar_bd
 
-def mostrar_tabla_servidores():
+def mostrar_tabla_servidores(rol_usuario=None):
+    """
+    Renderiza el catálogo de servidores.
+    Aplica control de acceso estricto: Solo perfiles de Seguridad o Admin ven y operan la consola.
+    """
     # 1. ESTILOS CSS REFORZADOS
     st.markdown("""
         <style>
@@ -18,8 +22,11 @@ def mostrar_tabla_servidores():
     st.markdown("<span class='titulo-gestion'>🖥️ GESTIÓN Y VISTA DE SERVIDORES</span>", unsafe_allow_html=True)
     st.markdown("---")
     
+    # Normalizamos el rol a mayúsculas para evitar fallas por minúsculas o espacios
+    rol_sanitizado = str(rol_usuario).strip().upper() if rol_usuario else ""
+    es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
+    
     try:
-        # Conexión exacta a la base de datos MySQL
         conn = conectar_bd()
         if conn is None:
             st.error("❌ No se pudo establecer conexión con el servidor MySQL. Verifica el servicio de base de datos.")
@@ -27,7 +34,7 @@ def mostrar_tabla_servidores():
             
         cursor = conn.cursor(dictionary=True)
         
-        # Consulta de los parámetros de infraestructura (Sin departamento)
+        # Consulta de los parámetros de infraestructura (Sin departamento según tu DDL)
         query = """
             SELECT ip, nombre_alias, estado_monitoreo, fecha_alta, 
                    id_sensor_cpu, id_sensor_ram, id_sensor_disco, id_sensor_red, id_sensor_latencia 
@@ -121,10 +128,18 @@ def mostrar_tabla_servidores():
             
             st.markdown("---")
             
-            # 3. INTERFAZ DE OPERACIONES (BOTONES)
+            # =====================================================================
+            # FILTRO DE SEGURIDAD: SI EL ROL NO ES PERMITIDO, SE DETIENE AQUÍ
+            # =====================================================================
+            if not es_seguridad:
+                st.info("ℹ️ **Modo Consulta:** Su perfil actual no dispone de permisos para modificar el catálogo de infraestructura.")
+                cursor.close()
+                conn.close()
+                return
+
+            # 3. INTERFAZ DE OPERACIONES (BOTONES) - Solo visible para perfiles autorizados
             col_b1, col_b2, col_b3 = st.columns(3)
             
-            # Inicializar estados de formularios en session_state si no existen
             if "accion_infra" not in st.session_state:
                 st.session_state.accion_infra = None
 
@@ -151,7 +166,7 @@ def mostrar_tabla_servidores():
                     
                     btn_guardar_reg = st.form_submit_button("Guardar Servidor")
                     if btn_guardar_reg:
-                        if not reg_ip or not reg_alias:
+                        if not reg_ip.strip() or not reg_alias.strip():
                             st.error("Campos obligatorios vacíos.")
                         else:
                             try:
@@ -159,13 +174,16 @@ def mostrar_tabla_servidores():
                                     INSERT INTO servidores (ip, nombre_alias, id_sensor_cpu, id_sensor_ram, id_sensor_disco, id_sensor_red, id_sensor_latencia)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                                 """
-                                cursor.execute(ins_query, (reg_ip, reg_alias, reg_cpu, reg_ram, reg_disco, reg_red, reg_lat))
+                                cursor.execute(ins_query, (reg_ip.strip(), reg_alias.strip(), int(reg_cpu), int(reg_ram), int(reg_disco), int(reg_red), int(reg_lat)))
                                 conn.commit()
                                 st.success("Servidor añadido al catálogo.")
                                 st.session_state.accion_infra = None
                                 st.rerun()
                             except Exception as ex:
-                                st.error(f"Error de duplicado o persistencia: {ex}")
+                                if "Duplicate entry" in str(ex):
+                                    st.error("❌ Conflicto de Red: Esta dirección IP ya está asignada a otro servidor.")
+                                else:
+                                    st.error(f"Error de persistencia: {ex}")
 
             # --- FORMULARIO DE EDICIÓN ---
             elif st.session_state.accion_infra == "editar":
@@ -177,9 +195,7 @@ def mostrar_tabla_servidores():
                     fecha_act = srv_actual['fecha_alta'].strftime("%Y-%m-%d %H:%M") if srv_actual['fecha_alta'] else "N/A"
                     
                     with st.form("form_edicion_srv"):
-                        # Campo de fecha NO editable (Bloqueado por parámetro disabled)
                         st.text_input("Fecha de Alta Institucional (No modificable)", value=fecha_act, disabled=True)
-                        
                         edit_alias = st.text_input("Alias / Nombre Comercial", value=srv_actual['nombre_alias'])
                         col_e1, col_e2, col_e3 = st.columns(3)
                         edit_cpu = col_e1.number_input("ID Sensor CPU", value=int(srv_actual['id_sensor_cpu']), step=1)
@@ -197,7 +213,7 @@ def mostrar_tabla_servidores():
                                     SET nombre_alias=%s, id_sensor_cpu=%s, id_sensor_ram=%s, id_sensor_disco=%s, id_sensor_red=%s, id_sensor_latencia=%s
                                     WHERE ip=%s
                                 """
-                                cursor.execute(upd_query, (edit_alias, edit_cpu, edit_ram, edit_disco, edit_red, edit_lat, ip_edit))
+                                cursor.execute(upd_query, (edit_alias.strip(), int(edit_cpu), int(edit_ram), int(edit_disco), int(edit_red), int(edit_lat), ip_edit))
                                 conn.commit()
                                 st.success("Estructura de sensores modificada con éxito.")
                                 st.session_state.accion_infra = None
