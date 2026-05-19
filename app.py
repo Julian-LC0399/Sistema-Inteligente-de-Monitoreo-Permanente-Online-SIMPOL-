@@ -50,16 +50,77 @@ def lanzar_hilo_monitoreo():
 
 # === 5. CONFIGURACIÓN DE PÁGINA Y ESTILOS ===
 st.set_page_config(
-    page_title="SINPOL - Banco Caroní",
+    page_title="SIMPOL - Banco Caroní",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# --- CARGA DEL CSS GLOBAL Y PARCHE DE INYECCIÓN INSTITUCIONAL ---
 css_path = get_resource_path("style.css")
 if os.path.exists(css_path):
     try:
         with open(css_path, 'r', encoding='utf-8') as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+            css_contenido = f.read()
+            
+        # Añadimos al final del estilo global las reglas forzadas para los botones del Banco
+        # Esto asegura que ningún componente nativo rompa la identidad visual.
+        css_institucional = """
+        /* ==========================================================================
+           REFUERZO DE IDENTIDAD CORPORATIVA - BANCO CARONÍ (ESTILOS GLOBALES)
+           ========================================================================== */
+        
+        /* Botones de acción general (Nativos y en columnas) */
+        div.stButton > button {
+            background-color: #003366 !important;
+            color: #FFFFFF !important;
+            border: 1px solid #003366 !important;
+            border-radius: 0px !important;
+            font-weight: bold !important;
+            text-transform: uppercase !important;
+            height: 42px !important;
+            transition: all 0.3s ease-in-out !important;
+        }
+        
+        /* Asegurar visibilidad del texto en los botones */
+        div.stButton > button p {
+            color: #FFFFFF !important;
+            font-weight: bold !important;
+        }
+        
+        /* Comportamiento Hover general (Mouse encima) */
+        div.stButton > button:hover {
+            background-color: #001f3f !important;
+            border: 1px solid #FFCC00 !important;
+            color: #FFCC00 !important;
+        }
+        
+        div.stButton > button:hover p {
+            color: #FFCC00 !important;
+        }
+
+        /* Botones específicos dentro de contenedores st.form */
+        div[data-testid="stForm"] div.stButton > button {
+            background-color: #003366 !important;
+            color: #FFFFFF !important;
+            border: 1px solid #003366 !important;
+            border-radius: 0px !important;
+        }
+        
+        div[data-testid="stForm"] div.stButton > button p {
+            color: #FFFFFF !important;
+        }
+        
+        div[data-testid="stForm"] div.stButton > button:hover {
+            background-color: #001f3f !important;
+            border: 1px solid #FFCC00 !important;
+        }
+        
+        div[data-testid="stForm"] div.stButton > button:hover p {
+            color: #FFCC00 !important;
+        }
+        """
+        st.markdown(f"<style>{css_contenido}\n{css_institucional}</style>", unsafe_allow_html=True)
+        
     except Exception as e:
         logging.warning(f"No se pudo cargar el CSS: {e}")
 
@@ -144,8 +205,9 @@ def main():
                     
                 elif seleccion == "👥 Gestión de usuarios":
                     from modulos import gestion
+                    # CORRECCIÓN DE PARÁMETRO: Se cambia "user_actual" por "nombre_analista" para coincidir con la persistencia
                     gestion.mostrar_pantalla(
-                        st.session_state.get("user_actual"), 
+                        st.session_state.get("nombre_analista"), 
                         st.session_state.get("user_id")
                     )
                     

@@ -8,14 +8,14 @@ def mostrar_pantalla(nombre_analista, usuario_id):
     capas_planning = st.empty()
     
     with capas_planning.container():
-        st.title("📈 Capacity Planning - Banco Caroní")
+        # ==========================================================================
+        # ENCABEZADO CON LA SINTAXIS HOMOLOGADA EN AZUL CORPORATIVO
+        # ==========================================================================
+        st.markdown('<h2 style="color:#003366;">📈 Capacity Planning - Banco Caroní</h2>', unsafe_allow_html=True)
         
-        # Barra de identificación con clase CSS específica para evitar herencia visual
-        st.markdown(f"""
-            <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; border-left: 5px solid #e67e22; margin-bottom: 20px;">
-                <span style="color: #e67e22; font-weight: bold;">👤 Analista Responsable:</span> {nombre_analista}
-            </div>
-        """, unsafe_allow_html=True)
+        # Identificación del analista limpia y sin bloques de color invasivos
+        st.markdown(f"👤 **Analista Responsable:** {nombre_analista}", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
         # 1. Selector Dinámico de Servidor
         servidores = obtener_lista_servidores()
@@ -58,7 +58,7 @@ def mostrar_pantalla(nombre_analista, usuario_id):
             valor_proyectado = min(100.0, valor_proyectado)
         
         # 4. Visualización Gráfica (Protegida)
-        st.subheader(f"Tendencia Proyectada: {metrica_label}")
+        st.markdown(f'<h4 style="color:#003366; margin-top:20px;">Tendencia Proyectada: {metrica_label}</h4>', unsafe_allow_html=True)
         
         h_base = 150
         y_actual = h_base - (min(valor_actual, 100) * 1.2)
@@ -70,11 +70,11 @@ def mostrar_pantalla(nombre_analista, usuario_id):
         <div id="contenedor-grafico" style="background: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #ddd;">
             <svg id="grafico-svg" width="100%" height="180" viewBox="0 0 300 180">
                 <line x1="0" y1="{h_base}" x2="300" y2="{h_base}" stroke="#ccc" stroke-width="2" />
-                <polyline points="{puntos}" fill="rgba(230, 126, 34, 0.2)" stroke="#e67e22" stroke-width="3" />
+                <polyline points="{puntos}" fill="rgba(0, 51, 102, 0.15)" stroke="#003366" stroke-width="3" />
                 <circle cx="0" cy="{y_actual}" r="4" fill="#2c3e50" />
-                <circle cx="300" cy="{y_proy}" r="4" fill="#e67e22" />
+                <circle cx="300" cy="{y_proy}" r="4" fill="#003366" />
                 <text x="5" y="{y_actual - 10}" font-size="12" fill="#2c3e50">Hoy: {valor_actual:.1f}</text>
-                <text x="200" y="{y_proy - 10}" font-size="12" fill="#e67e22" font-weight="bold">Prox: {valor_proyectado:.1f}</text>
+                <text x="200" y="{y_proy - 10}" font-size="12" fill="#003366" font-weight="bold">Prox: {valor_proyectado:.1f}</text>
                 <text x="0" y="170" font-size="10" fill="#999">Estado Actual</text>
                 <text x="240" y="170" font-size="10" fill="#999">+{dias_proy} días</text>
             </svg>
