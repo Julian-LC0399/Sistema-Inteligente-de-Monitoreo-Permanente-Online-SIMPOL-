@@ -107,9 +107,9 @@ def mostrar_pantalla(user_actual, user_id):
                     font-size: 13px;
                     text-transform: uppercase;
                 }
-                .tabla-banco-usr td { \r
-                    color: #000000 !important; \r
-                    border: 1px solid #dee2e6 !important; \r
+                .tabla-banco-usr td { 
+                    color: #000000 !important; 
+                    border: 1px solid #dee2e6 !important; 
                     padding: 10px;
                     text-align: left;
                     font-size: 13px;
@@ -123,11 +123,11 @@ def mostrar_pantalla(user_actual, user_id):
             html_lineas.append("""
                 <thead>
                     <tr>
-                        <th style="width: 10%;">ID USUARIO</th>
-                        <th style="width: 25%;">LOGIN / USUARIO</th>
-                        <th style="width: 35%;">NOMBRE COMPLETO</th>
-                        <th style="width: 15%;">ROL ASIGNADO</th>
-                        <th style="width: 15%;">ESTATUS OPERATIVO</th>
+                        <th style="width: 10%;">ID</th>
+                        <th style="width: 25%;">USUARIO</th>
+                        <th style="width: 35%;">CARGO</th>
+                        <th style="width: 15%;">ROL</th>
+                        <th style="width: 15%;">ESTATUS</th>
                     </tr>
                 </thead>
             """)
@@ -139,14 +139,19 @@ def mostrar_pantalla(user_actual, user_id):
             for u in datos:
                 lista_ids.append(u['id'])
                 mapeo_usuarios[u['id']] = u
-                estado_txt = "🟢 ACTIVO" if u['estado'] == 1 else "🔴 SUSPENDIDO"
+                
+                # Resaltado por color de texto directo (Sin iconos)
+                if u['estado'] == 1:
+                    estado_html = '<span style="color: #2E7D32; font-weight: bold;">ACTIVO</span>'
+                else:
+                    estado_html = '<span style="color: #C62828; font-weight: bold;">SUSPENDIDO</span>'
                 
                 html_lineas.append('<tr>')
                 html_lineas.append(f'<td style="text-align: center;"><b>{u["id"]}</b></td>')
                 html_lineas.append(f'<td><code>{u["usuario"]}</code></td>')
                 html_lineas.append(f'<td><b>{u["nombre_completo"]}</b></td>')
                 html_lineas.append(f'<td style="text-align: center;">{str(u["rol"]).upper()}</td>')
-                html_lineas.append(f'<td style="text-align: center;">{estado_txt}</td>')
+                html_lineas.append(f'<td style="text-align: center;">{estado_html}</td>')
                 html_lineas.append('</tr>')
                 
             html_lineas.append('</tbody></table>')
@@ -230,11 +235,11 @@ def mostrar_pantalla(user_actual, user_id):
                 
                 if id_est:
                     usr_sel = mapeo_usuarios[id_est]
-                    estado_actual_str = "🟢 ACTIVO (Acceso Concedido)" if usr_sel['estado'] == 1 else "🔴 SUSPENDIDO (Acceso Revocado)"
+                    estado_actual_str = "ACTIVO" if usr_sel['estado'] == 1 else "SUSPENDIDO"
                     st.info(f"Estatus actual del usuario en la base: **{estado_actual_str}**")
                     
                     with st.form("form_estatus_usr"):
-                        nuevo_est_str = st.selectbox("Seleccione Nuevo Estatus Lógico", ["🟢 Activar Acceso", "🔴 Suspender Acceso"])
+                        nuevo_est_str = st.selectbox("Seleccione Nuevo Estatus Lógico", ["Activar Acceso", "Suspender Acceso"])
                         justificacion_est = st.text_input("Justificación de Auditoría obligatoria:")
                         
                         if st.form_submit_button("Confirmar Estatus Lógico"):

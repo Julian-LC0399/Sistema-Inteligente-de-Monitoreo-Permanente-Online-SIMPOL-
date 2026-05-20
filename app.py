@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 import logging
+from datetime import datetime
 
 # === 1. CONFIGURACIÓN DE LOGS (Para diagnóstico en el Banco) ===
 logging.basicConfig(
@@ -48,6 +49,47 @@ def lanzar_hilo_monitoreo():
         except Exception as e:
             logging.error(f"No se pudo crear el hilo: {e}")
 
+# === FUNCIÓN INTEGRADA: VERIFICACIÓN GLOBAL DE ALERTAS SIMPOL ===
+def verificar_alertas_globales():
+    """
+    Escanea la telemetría en tiempo real buscando servidores saturados.
+    Consolida las alertas en una ventana de 5 minutos para evitar saturación de pantalla.
+    """
+    from database import conectar_bd
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            # Ventana móvil de 5 minutos agrupando por IP para consolidar en un solo mensaje
+            query = """
+                SELECT COUNT(DISTINCT ip_servidor) AS total_criticos
+                FROM monitoreo 
+                WHERE estado_sistema = 'CRÍTICO' 
+                  AND fecha_registro >= NOW() - INTERVAL 5 MINUTE
+            """
+            cursor.execute(query)
+            res = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if res and res['total_criticos'] > 0:
+                total = res['total_criticos']
+                plural = "SERVIDORES PRESENTAN" if total > 1 else "SERVIDOR PRESENTA"
+                
+                # Inyección visual elegante en la cabecera (Estilo Warning Corporativo)
+                st.markdown(f"""
+                    <div style="background-color: #ffcccc; padding: 14px; border-radius: 4px; 
+                                border-left: 6px solid #cc0000; margin-bottom: 20px; text-align: center;">
+                        <span style="color: #cc0000; font-weight: bold; font-size: 15px;">
+                            🚨 ALERTA CRÍTICA DE INFRAESTRUCTURA: ¡Atención! {total} {plural} saturación severa en los últimos 5 minutos.
+                        </span>
+                        <br>
+                        <small style="color: #555;">Por favor, verifique el módulo de 'Monitoreo en vivo' para identificar los nodos afectados.</small>
+                    </div>
+                """, unsafe_allow_html=True)
+        except Exception as e:
+            logging.error(f"Error en escaneo global de alertas: {e}")
+
 # === 5. CONFIGURACIÓN DE PÁGINA Y ESTILOS ===
 st.set_page_config(
     page_title="SIMPOL - Banco Caroní",
@@ -62,14 +104,11 @@ if os.path.exists(css_path):
         with open(css_path, 'r', encoding='utf-8') as f:
             css_contenido = f.read()
             
-        # Añadimos al final del estilo global las reglas forzadas para los botones del Banco
-        # Esto asegura que ningún componente nativo rompa la identidad visual.
         css_institucional = """
         /* ==========================================================================
            REFUERZO DE IDENTIDAD CORPORATIVA - BANCO CARONÍ (ESTILOS GLOBALES)
            ========================================================================== */
         
-        /* Botones de acción general (Nativos y en columnas) */
         div.stButton > button {
             background-color: #003366 !important;
             color: #FFFFFF !important;
@@ -81,13 +120,11 @@ if os.path.exists(css_path):
             transition: all 0.3s ease-in-out !important;
         }
         
-        /* Asegurar visibilidad del texto en los botones */
         div.stButton > button p {
             color: #FFFFFF !important;
             font-weight: bold !important;
         }
         
-        /* Comportamiento Hover general (Mouse encima) */
         div.stButton > button:hover {
             background-color: #001f3f !important;
             border: 1px solid #FFCC00 !important;
@@ -98,7 +135,6 @@ if os.path.exists(css_path):
             color: #FFCC00 !important;
         }
 
-        /* Botones específicos dentro de contenedores st.form */
         div[data-testid="stForm"] div.stButton > button {
             background-color: #003366 !important;
             color: #FFFFFF !important;
@@ -133,7 +169,6 @@ def main():
     params = st.query_params
     
     if "autenticado" not in st.session_state:
-        # Si el F5 borró la sesión pero la URL dice que estábamos autenticados
         if params.get("s") == "1":
             st.session_state["autenticado"] = True
             st.session_state["seccion_actual"] = params.get("p", "🏠 Inicio")
@@ -149,12 +184,15 @@ def main():
     else:
         lanzar_hilo_monitoreo()
 
-        # Aseguramos la persistencia interna en session_state antes de invocar el menú
         if "seccion_actual" not in st.session_state:
             st.session_state["seccion_actual"] = params.get("p", "🏠 Inicio")
         
-        # Invocamos la función sin argumentos tal como está definida en menu.py
+        # Invocamos la barra lateral de navegación
         generar_menu()
+        
+        # === INYECCIÓN ESTRATÉGICA DE ALERTAS EN TIEMPO REAL VIVO ===
+        # Se ejecuta de cabecera superior en toda la app antes de cargar el módulo activo
+        verificar_alertas_globales()
         
         # Recuperamos la sección activa modificada por el control st.radio interno del menú
         seleccion = st.session_state.get("seccion_actual", "🏠 Inicio")
@@ -194,7 +232,10 @@ def main():
                     
                 elif seleccion == "🔔 Alertas":
                     from modulos import alertas
-                    alertas.mostrar_pantalla()
+                    # SE ADAPTA LLAMADO: Se pasan parámetros de control para unificar la pantalla limpia
+                    rol_actual = st.session_state.get("rol", "OPERADOR")
+                    uid_actual = st.session_state.get("user_id", 1)
+                    alertas.mostrar_pantalla(usuario_id=uid_actual, rol_usuario=rol_actual)
                     
                 elif seleccion == "📄 Reportes":
                     from modulos import reportes
@@ -205,7 +246,6 @@ def main():
                     
                 elif seleccion == "👥 Gestión de usuarios":
                     from modulos import gestion
-                    # CORRECCIÓN DE PARÁMETRO: Se cambia "user_actual" por "nombre_analista" para coincidir con la persistencia
                     gestion.mostrar_pantalla(
                         st.session_state.get("nombre_analista"), 
                         st.session_state.get("user_id")

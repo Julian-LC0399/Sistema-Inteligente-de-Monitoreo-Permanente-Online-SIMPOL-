@@ -1,1 +1,3 @@
 [2026-05-15 18:49:00] 🚀 --- INICIANDO MOTOR DE MONITOREO ---
+[2026-05-19 04:23:49] 🚀 --- INICIANDO MOTOR DE MONITOREO ---
+[2026-05-19 04:23:49] ✅ Módulos de telemetría cargados.

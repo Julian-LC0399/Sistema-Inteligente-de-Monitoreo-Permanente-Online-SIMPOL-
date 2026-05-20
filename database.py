@@ -34,13 +34,13 @@ def conectar_bd():
 
 @st.cache_data(ttl=5)
 def obtener_lista_servidores():
-    """Obtiene el catálogo de servidores activos (Fiel a tu estructura original)."""
+    """Obtiene el catálogo de servidores activos (Actualizado: incluye columna sistema_operativo)."""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT ip, nombre_alias, 
+                SELECT ip, nombre_alias, sistema_operativo, 
                        id_sensor_cpu, id_sensor_ram, id_sensor_disco, 
                        id_sensor_red, id_sensor_latencia 
                 FROM servidores 
@@ -76,6 +76,34 @@ def obtener_datos_historicos(ip_objetivo):
         except Exception as e:
             print(f"Error al traer históricos de {ip_objetivo}: {e}")
     return []
+
+# --- CONSULTA DE CONFIGURACIÓN Y AUDITORÍA DE UMBRALES (Nueva Tabla Integrada) ---
+
+def obtener_umbrales_actuales(ip):
+    """
+    Consulta los límites de tolerancia activos de hardware para una IP específica.
+    Retorna los valores de contingencia si no existen registros previos en la tabla.
+    """
+    umbrales = {"cpu_critico": 80, "ram_critico": 85, "disco_critico": 90}
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = """
+                SELECT cpu_critico, ram_critico, disco_critico 
+                FROM historico_umbrales 
+                WHERE ip_servidor = %s 
+                ORDER BY id_historico DESC LIMIT 1
+            """
+            cursor.execute(query, (ip,))
+            res = cursor.fetchone()
+            if res:
+                umbrales = res
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            print(f"Error al obtener umbrales actuales para {ip}: {e}")
+    return umbrales
 
 # --- NUEVA FUNCIÓN: CARGAR MATRIZ DE PERMISOS (Soporte M:N) ---
 
@@ -131,9 +159,9 @@ def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, v
         try:
             cursor = conn.cursor()
             query = """
-                INSERT INTO proyecciones \r
+                INSERT INTO proyecciones 
                 (usuario_id, ip_servidor, metrica_analizada, valor_actual, valor_proyectado, veredicto)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                WHERE %s, %s, %s, %s, %s, %s)
             """
             cursor.execute(query, (usuario_id, ip_servidor, metrica, actual, proyectado, veredicto))
             conn.commit()
@@ -168,7 +196,7 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, 
         try:
             cursor = conn.cursor()
             query = """
-                INSERT INTO historico_usuarios \r
+                INSERT INTO historico_usuarios 
                 (usuario_id, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, comentario)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """
