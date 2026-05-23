@@ -34,22 +34,30 @@ def mostrar_pantalla():
                 cursor.close()
                 conn.close()
 
-                # 4. Banner institucional (Optimizado para no romper el layout)
-                st.markdown(f"""
-                    <div style="background-color:#003366; padding:15px; border-radius:10px; color:white; text-align:center; margin-bottom:20px;">
-                        <p style="margin:0; font-size:11px; text-transform:uppercase; letter-spacing:1px;">Registros en Base de Datos</p>
-                        <h1 style="margin:0; color:white; font-size:32px; font-weight:bold;">{total}</h1>
+                # 4. Banner Estadístico Institucional
+                st.markdown(
+                    f"""
+                    <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #cbd5e1; font-family: sans-serif;">
+                        <span style="color: #475569; font-size: 13px; font-weight: bold;">TOTAL DE EVENTOS REGISTRADOS:</span>
+                        <span style="color: #003366; font-size: 16px; font-weight: bold; margin-left: 5px;">{total}</span>
                     </div>
-                """, unsafe_allow_html=True)
+                    """, 
+                    unsafe_allow_html=True
+                )
 
-                # 5. Renderizado de Tarjetas (ENCAPSULADAS)
+                # 5. Renderizado de línea de tiempo HTML5 (Cero Pandas para estabilidad del EXE)
                 if logs:
-                    # Usamos un solo bloque de Markdown para reducir la carga de hilos en el .exe
-                    # En lugar de 30 st.markdown, generamos un solo string HTML
                     html_acumulado = ""
                     for l in logs:
                         u, f, ip, res = l[0], l[1].strftime('%d/%m/%Y %H:%M'), l[2], l[3]
-                        color_borde = "#28a745" if res == "EXITOSO" else "#d32f2f"
+                        
+                        # Establecemos colores institucionales según criticidad de auditoría
+                        if res == "EXITOSO":
+                            color_borde = "#28a745"
+                        elif res == "SUSPENDIDO":
+                            color_borde = "#ff9800"
+                        else:
+                            color_borde = "#d32f2f"
                         
                         html_acumulado += f"""
                         <div style="border-left: 5px solid {color_borde}; background-color: white; padding: 12px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #eee; border-left-width: 5px; font-family: sans-serif;">
@@ -65,7 +73,8 @@ def mostrar_pantalla():
                         """
                     st.markdown(html_acumulado, unsafe_allow_html=True)
                 else:
-                    st.warning("No se encontraron resultados para la búsqueda.")
-
+                    st.info("No se registran eventos de autenticación bajo el criterio suministrado.")
+            else:
+                st.error("No se pudo establecer conexión con el repositorio de logs.")
         except Exception as e:
-            st.error(f"Error en Auditoría: {str(e)}")
+            st.error(f"Fallo crítico en el hilo de auditoría: {e}")

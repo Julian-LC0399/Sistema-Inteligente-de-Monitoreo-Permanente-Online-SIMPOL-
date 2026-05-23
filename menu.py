@@ -1,91 +1,104 @@
 import streamlit as st
 import base64
 import os
-from database import conectar_bd
-from utils import obtener_telemetria_total, get_resource_path
+from utils import get_resource_path
 
-# Optimizamos la carga de imagen para que solo ocurra UNA vez
 @st.cache_resource
 def get_base64_image(image_path):
+    """Carga y procesa el logo institucional de forma eficiente en memoria"""
     try:
         if os.path.exists(image_path):
             with open(image_path, "rb") as f: 
                 return base64.b64encode(f.read()).decode()
-    except: return None
+    except Exception: 
+        return None
     return None
 
-@st.cache_data(ttl=10) # Aumentamos un poco el TTL para dar respiro al .exe
-def obtener_datos_menu():
-    estados = []
-    conn = None
-    try:
-        conn = conectar_bd()
-        if conn:
-            cursor = conn.cursor(dictionary=True)
-            query = """
-                SELECT m.ip_servidor, m.val_cpu, m.estado_sistema, s.nombre_alias
-                FROM monitoreo m
-                INNER JOIN (
-                    SELECT ip_servidor, MAX(fecha_registro) as max_fecha
-                    FROM monitoreo GROUP BY ip_servidor
-                ) m2 ON m.ip_servidor = m2.ip_servidor AND m.fecha_registro = m2.max_fecha
-                INNER JOIN servidores_it s ON m.ip_servidor = s.ip
-                WHERE s.estado_monitoreo = 1
-            """
-            cursor.execute(query)
-            estados = cursor.fetchall()
-            cursor.close()
-    except: pass
-    finally:
-        if conn: conn.close()
-    return estados
-
-def seccion_alertas_dinamicas():
-    servidores = obtener_datos_menu()
-    if servidores:
-        st.markdown("<p style='font-size:11px; font-weight:bold; color:grey; margin-bottom:5px;'>ESTADO VIVO:</p>", unsafe_allow_html=True)
-        html_sidebar = ""
-        for s in servidores:
-            color = "#ff4b4b" if s['estado_sistema'] == "CRÍTICO" else "#f39c12" if s['estado_sistema'] == "PRECAUCIÓN" else "#28a745"
-            html_sidebar += f"""
-                <div style="border-left: 3px solid {color}; background: #f0f2f6; padding: 5px; 
-                            border-radius: 3px; margin-bottom: 2px; font-size: 10px; color: #333;">
-                    <b>{s['nombre_alias']}</b> | {s['val_cpu']}%
-                </div>
-            """
-        st.markdown(html_sidebar, unsafe_allow_html=True)
-
 def cambiar_pagina():
-    """Función para limpiar todo rastro antes de cambiar de sección"""
-    st.cache_data.clear()
+    """Manejador seguro para la conmutación de secciones"""
+    if "nav_radio" in st.session_state:
+        st.session_state["seccion_actual"] = st.session_state["nav_radio"]
 
-# === CAMBIO CLAVE PARA EVITAR EL TYPEERROR ===
-def generar_menu(seccion_persistente="🏠 Inicio"):
-    with st.sidebar:
-        # LOGO OPTIMIZADO
-        img_path = get_resource_path("logo-banco.jpg")
-        img_b64 = get_base64_image(img_path)
-        if img_b64:
-            st.markdown(f'<div style="text-align:center;"><img src="data:image/jpeg;base64,{img_b64}" style="width:100%; border-radius:10px; margin-bottom:15px;"></div>', unsafe_allow_html=True)
+def generar_menu():
+    """Genera la estructura del menú lateral totalmente aislada de app.py"""
+    seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
+    
+    # ==========================================================================
+    # DETECTOR DE CLIC EN LOGOUT (HTML PARSER)
+    # ==========================================================================
+    if st.query_params.get("logout") == "1":
+        st.query_params.clear()
+        st.query_params.update({
+            "s": "0",
+            "p": "🏠 Inicio",
+            "r": "",
+            "uid": "",
+            "n": ""
+        })
+        st.session_state["autenticado"] = False
+        st.session_state["seccion_actual"] = "🏠 Inicio"
         
-        # MONITOR
-        seccion_alertas_dinamicas()
+        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "nav_radio"]
+        for clave in claves_a_remover:
+            if clave in st.session_state:
+                del st.session_state[clave]
+        st.rerun()
+
+    with st.sidebar:
+        st.markdown("""
+            <style>
+                .sidebar-institucional { padding: 5px; }
+                div[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {
+                    color: #003366 !important;
+                    font-weight: bold !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="sidebar-institucional">', unsafe_allow_html=True)
+        
+        # ==========================================================================
+        # 1. RUTA CORREGIDA: BUSCAR "logo-banco" EN LA CARPETA RAÍZ
+        # ==========================================================================
+        img_path = None
+        # Evaluamos las extensiones más probables que pueda tener tu archivo en la raíz
+        for ext in [".png", ".jpg", ".jpeg"]:
+            posible_ruta = get_resource_path(f"logo-banco{ext}")
+            if os.path.exists(posible_ruta):
+                img_path = posible_ruta
+                break
+            
+            # Intento alternativo por si estás ejecutando en entorno local puro
+            posible_ruta_local = os.path.abspath(f"logo-banco{ext}")
+            if os.path.exists(posible_ruta_local):
+                img_path = posible_ruta_local
+                break
+
+        img_b64 = get_base64_image(img_path) if img_path else None
+
+        if img_b64:
+            # Determinamos el tipo de contenido dinámicamente según el archivo encontrado
+            mime_type = "png" if img_path.lower().endswith(".png") else "jpeg"
+            st.markdown(f'<div style="text-align:center;"><img src="data:image/{mime_type};base64,{img_b64}" style="width:100%; max-width:260px; border-radius:4px; margin-bottom:15px;"></div>', unsafe_allow_html=True)
+        else:
+            # Si no encuentra el archivo, mantiene el respaldo de texto limpio
+            st.markdown("<h3 style='color:#003366; text-align:center; font-family:Arial; margin-bottom:20px;'>🏛️ BANCO CARONÍ</h3>", unsafe_allow_html=True)
         
         st.divider()
 
-        # NAVEGACIÓN
-        opciones = ["🏠 Inicio", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
-        if st.session_state.get("rol") in ["admin", "seguridad"]:
+        # 2. FILTRADO DINÁMICO DE OPCIONES
+        opciones = ["🏠 Inicio", "🖥️ Servidores", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
+        rol_usuario = str(st.session_state.get("rol")).strip().lower() if st.session_state.get("rol") else ""
+        if rol_usuario in ["admin", "seguridad", "oficial"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # Lógica de índice para que el radio sepa dónde estaba tras el F5
         try:
             idx = opciones.index(seccion_persistente)
         except (ValueError, KeyError):
             idx = 0
 
         seleccion = st.radio(
-            "Menú", 
+            "Navegación del Sistema", 
             opciones, 
             index=idx, 
             key="nav_radio", 
@@ -94,15 +107,33 @@ def generar_menu(seccion_persistente="🏠 Inicio"):
         )
         
         st.session_state["seccion_actual"] = seleccion
-
         st.divider()
 
-        # CIERRE DE SESIÓN
-        if st.button("🚪 Cerrar Sesión", use_container_width=True, type="primary", key="btn_logout"):
-            st.query_params.clear()
-            for key in list(st.session_state.keys()):
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.rerun()
-            
-        return seleccion
+        # 3. BOTÓN MAESTRO DE LOGOUT EN HTML PURO
+        html_logout = """
+        <a href="?logout=1" target="_self" style="text-decoration: none;">
+            <div style="
+                background-color: #ECEFF1;
+                color: #003366 !important;
+                border: 1px solid #003366;
+                border-radius: 4px;
+                height: 40px;
+                line-height: 40px;
+                text-align: center;
+                font-weight: bold;
+                font-family: Arial, sans-serif;
+                font-size: 14px;
+                text-transform: uppercase;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                display: block;
+                width: 100%;
+            " 
+            onmouseover="this.style.backgroundColor='#001f3f'; this.style.color='#FFCC00'; this.style.borderColor='#FFCC00';" 
+            onmouseout="this.style.backgroundColor='#ECEFF1'; this.style.color='#003366'; this.style.borderColor='#003366';">
+                🚪 Cerrar Sesión
+            </div>
+        </a>
+        """
+        st.markdown(html_logout, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)

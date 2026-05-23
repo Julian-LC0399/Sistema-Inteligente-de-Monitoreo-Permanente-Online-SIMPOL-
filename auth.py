@@ -9,8 +9,6 @@ def registrar_acceso_auditoria(usuario, nombre, rol):
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor()
-            # Nota: Si el banco usa un Proxy o red interna, aquí podrías capturar la IP real.
-            # Por ahora, mantenemos la lógica pero aseguramos el cierre de conexiones.
             query = """
                 INSERT INTO log_accesos (usuario, nombre_completo, rol, ip_cliente, resultado) 
                 VALUES (%s, %s, %s, '127.0.0.1', 'EXITOSO')
@@ -20,12 +18,10 @@ def registrar_acceso_auditoria(usuario, nombre, rol):
             cursor.close()
             conn.close()
     except Exception as e:
-        # En el .exe, los 'print' van a la consola oculta. Es lo correcto.
         print(f"Error en auditoría de acceso: {e}")
 
 def mostrar_login():
     # === ANCLA DE LIMPIEZA DE LOGIN ===
-    # Esto asegura que al autenticar, TODO el formulario desaparezca instantáneamente
     canvas_login = st.empty()
 
     with canvas_login.container():
@@ -43,7 +39,7 @@ def mostrar_login():
             )
             st.write("---")
 
-            # Formulario con Key única para evitar colisiones en el .exe
+            # Mantenemos el formulario seguro con Key única para el .exe
             with st.form("login_form", clear_on_submit=False):
                 st.markdown(
                     "<p style='color: #003366; font-weight: bold;'>🔐 Acceso al Sistema</p>",
@@ -56,31 +52,35 @@ def mostrar_login():
                     user_data = verificar_usuario(usuario, clave)
                     
                     if user_data:
-                        # 1. PERSISTENCIA DE SESIÓN
+                        # 1. TRUCO MAESTRO: Limpiar los parámetros residuales del logout (?s=0...)
+                        # Esto evita que app.py lea la URL corrupta post-logout.
+                        st.query_params.clear()
+                        
+                        # 2. PERSISTENCIA DE SESIÓN ATÓMICA EN MEMORIA (Prioridad absoluta)
                         st.session_state["autenticado"] = True
                         st.session_state["user_id"] = user_data["id"]
                         st.session_state["user_actual"] = user_data["usuario"]
                         st.session_state["nombre_analista"] = user_data["nombre_completo"]
                         st.session_state["rol"] = user_data["rol"].lower()
                         
-                        # 2. AUDITORÍA
+                        # 3. AUDITORÍA SÍNCRONA
                         registrar_acceso_auditoria(
                             user_data["usuario"], 
                             user_data["nombre_completo"], 
                             user_data["rol"]
                         )
                         
-                        # 3. ACTUALIZACIÓN DE PARÁMETROS URL
-                        # Usamos el nuevo formato de query_params
+                        # 4. ASIGNACIÓN LIMPIA DE NUEVOS PARÁMETROS
                         st.query_params.update({
-                            "session": "active",
+                            "s": "1",
+                            "p": "🏠 Inicio",
+                            "r": user_data["rol"].lower(),
                             "uid": str(user_data["id"]),
                             "u": user_data["usuario"],
-                            "n": user_data["nombre_completo"],
-                            "r": user_data["rol"]
+                            "n": user_data["nombre_completo"]
                         })
                         
-                        # Vaciamos el contenedor de login manualmente antes del rerun
+                        # 5. DESMONTAJE VISUAL Y REFRESCO INMEDIATO
                         canvas_login.empty()
                         st.rerun()
                     else:
@@ -88,7 +88,7 @@ def mostrar_login():
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # Footer institucional fuera del canvas para que no parpadee
+    # Footer institucional fuera del canvas para evitar parpadeos
     st.markdown(
         """
         <div style='text-align: center; color: #999; font-size: 12px; margin-top: 50px;'>
