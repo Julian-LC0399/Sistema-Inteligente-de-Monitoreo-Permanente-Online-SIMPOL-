@@ -90,7 +90,6 @@ def descargar_contenido_blob(reporte_id):
             conn.close()
             
             if resultado and resultado['contenido']:
-                # El blindaje de conversión crítico que exige tu driver nativo de MySQL
                 return bytes(resultado['contenido'])
     except Exception as e:
         with open("simpol_debug.log", "a", encoding="utf-8") as f:
@@ -128,8 +127,11 @@ def mostrar_pantalla(user_actual, user_id):
                     dt_i = datetime.combine(f_i, time.min)
                     dt_f = datetime.combine(f_f, time.max)
 
+                    # === SOLUCIÓN RECOMENDADA: Extracción Multidisco Sanada ===
                     query = """
-                        SELECT fecha_registro, ip_servidor, val_cpu, val_ram, val_disco, val_red, val_latencia, estado_sistema 
+                        SELECT fecha_registro, ip_servidor, val_cpu, val_ram, 
+                               val_disco_1, val_disco_2, val_disco_3, val_disco_4, val_disco_5, 
+                               val_red, val_latencia, estado_sistema 
                         FROM monitoreo 
                         WHERE fecha_registro BETWEEN %s AND %s 
                         ORDER BY fecha_registro DESC
@@ -147,44 +149,57 @@ def mostrar_pantalla(user_actual, user_id):
                 if not datos:
                     st.warning("⚠️ No existen registros de telemetría para el rango seleccionado.")
                 else:
+                    # --- CONSTRUCCIÓN DEL DATASTREAM CSV MULTIDISCO ---
                     output_csv = io.StringIO()
-                    output_csv.write("Fecha,IP Servidor,CPU %,RAM %,Disco %,Red Mbps,Latencia ms,Estado Sistema\n")
+                    output_csv.write("Fecha,IP Servidor,CPU %,RAM %,Disco 1 %,Disco 2 %,Disco 3 %,Disco 4 %,Disco 5 %,Red Mbps,Latencia ms,Estado Sistema\n")
                     for r in datos:
-                        output_csv.write(f"{r['fecha_registro']},{r['ip_servidor']},{r['val_cpu']},{r['val_ram']},{r['val_disco']},{r['val_red']},{r['val_latencia']},{r['estado_sistema']}\n")
+                        output_csv.write(
+                            f"{r['fecha_registro']},{r['ip_servidor']},{r['val_cpu']},{r['val_ram']},"
+                            f"{r['val_disco_1']},{r['val_disco_2']},{r['val_disco_3']},{r['val_disco_4']},{r['val_disco_5']},"
+                            f"{r['val_red']},{r['val_latencia']},{r['estado_sistema']}\n"
+                        )
                     
                     csv_binario = output_csv.getvalue().encode('utf-8', errors='ignore')
                     timestamp_actual = datetime.now().strftime('%d%m%y_%H%M')
                     nombre_csv = f"Reporte_SIMPOL_{timestamp_actual}.csv"
 
+                    # --- CONSTRUCCIÓN DEL EXPEDIENTE PDF ---
                     pdf = PDF(orientation='L', unit='mm', format='A4')
                     pdf.add_page()
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 10, f"Periodo de Auditoria: {f_i} al {f_f}", 0, 1)
-                    pdf.cell(0, 10, f"Generado por el Analista ID: {user_id} ({user_actual})", 0, 1)
-                    pdf.ln(5)
+                    pdf.set_font("Arial", "B", 10)
+                    pdf.cell(0, 8, f"Periodo de Auditoria: {f_i} al {f_f}", 0, 1)
+                    pdf.cell(0, 8, f"Generado por el Analista ID: {user_id} ({user_actual})", 0, 1)
+                    pdf.ln(4)
                     
                     pdf.set_fill_color(0, 51, 102)
                     pdf.set_text_color(255, 255, 255)
+                    
+                    # Ajuste de anchos para acomodar las 5 columnas de discos sin desbordar el A4 Horizontal (297mm)
                     cols = [
-                        ("Fecha/Hora", 45), ("IP Servidor", 35), ("CPU", 20), 
-                        ("RAM", 20), ("DISCO", 20), ("RED", 20), ("LAT", 20), ("Estado Sistema", 45)
+                        ("Fecha/Hora", 40), ("IP Servidor", 30), ("CPU", 13), 
+                        ("RAM", 13), ("D1", 12), ("D2", 12), ("D3", 12), 
+                        ("D4", 12), ("D5", 12), ("RED", 16), ("LAT", 14), ("Estado Sistema", 40)
                     ]
                     for txt, w in cols:
-                        pdf.cell(w, 10, txt, 1, 0, "C", True)
+                        pdf.cell(w, 8, txt, 1, 0, "C", True)
                     pdf.ln()
 
                     pdf.set_text_color(0, 0, 0)
                     pdf.set_font("Arial", "", 8)
                     
                     for r in datos[:1000]:
-                        pdf.cell(45, 8, str(r['fecha_registro']), 1)
-                        pdf.cell(35, 8, str(r['ip_servidor']), 1)
-                        pdf.cell(20, 8, f"{r['val_cpu']}%", 1, 0, "C")
-                        pdf.cell(20, 8, f"{r['val_ram']}%", 1, 0, "C")
-                        pdf.cell(20, 8, f"{r['val_disco']}%", 1, 0, "C")
-                        pdf.cell(20, 8, f"{r['val_red']} Mb", 1, 0, "C")
-                        pdf.cell(20, 8, f"{r['val_latencia']} ms", 1, 0, "C")
-                        pdf.cell(45, 8, str(r['estado_sistema']), 1, 1, "C")
+                        pdf.cell(40, 7, str(r['fecha_registro']), 1)
+                        pdf.cell(30, 7, str(r['ip_servidor']), 1)
+                        pdf.cell(13, 7, f"{r['val_cpu']}%", 1, 0, "C")
+                        pdf.cell(13, 7, f"{r['val_ram']}%", 1, 0, "C")
+                        pdf.cell(12, 7, f"{r['val_disco_1']}%" if r['val_disco_1'] is not None else "-", 1, 0, "C")
+                        pdf.cell(12, 7, f"{r['val_disco_2']}%" if r['val_disco_2'] is not None else "-", 1, 0, "C")
+                        pdf.cell(12, 7, f"{r['val_disco_3']}%" if r['val_disco_3'] is not None else "-", 1, 0, "C")
+                        pdf.cell(12, 7, f"{r['val_disco_4']}%" if r['val_disco_4'] is not None else "-", 1, 0, "C")
+                        pdf.cell(12, 7, f"{r['val_disco_5']}%" if r['val_disco_5'] is not None else "-", 1, 0, "C")
+                        pdf.cell(16, 7, f"{r['val_red']} Mb", 1, 0, "C")
+                        pdf.cell(14, 7, f"{r['val_latencia']} ms", 1, 0, "C")
+                        pdf.cell(40, 7, str(r['estado_sistema']), 1, 1, "C")
 
                     pdf_str = pdf.output(dest='S')
                     if isinstance(pdf_str, str):
@@ -219,7 +234,7 @@ def mostrar_pantalla(user_actual, user_id):
         if st.session_state["rep_listo"]:
             with area_descarga.container():
                 st.markdown("---")
-                st.success("✅ Expedientes de auditoría procesados correctamente.")
+                st.success("✅ Expedientes de auditoría procesados correctamente con arquitectura multi-sensor.")
                 st.info(f"💾 **Trazabilidad:** Analista {user_actual} (ID: {user_id})")
                 
                 d_col1, d_col2 = st.columns(2)
@@ -256,10 +271,7 @@ def mostrar_pantalla(user_actual, user_id):
                 fecha_f = item['fecha_generacion'].strftime('%d/%m/%Y %H:%M') if item['fecha_generacion'] else 'N/A'
                 col_c.write(f"⏱️ **Generado:** {fecha_f}")
                 
-                # Botón interactivo para recuperar el archivo binario guardado en el LONGBLOB
                 mime_tipo = "text/csv" if item['formato'] == "CSV" else "application/pdf"
-                
-                # Extraemos el contenido binario llamando a la función blindada
                 datos_archivo = descargar_contenido_blob(item['id'])
                 
                 if datos_archivo:
@@ -268,7 +280,7 @@ def mostrar_pantalla(user_actual, user_id):
                         data=datos_archivo,
                         file_name=item['nombre_archivo'],
                         mime=mime_tipo,
-                        key=f"btn_hist_{item['id']}" # Key dinámica única por registro
+                        key=f"btn_hist_{item['id']}" 
                     )
                 else:
                     col_d.error("No disponible")
