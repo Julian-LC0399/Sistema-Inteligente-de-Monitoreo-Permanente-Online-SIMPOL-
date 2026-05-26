@@ -1,142 +1,179 @@
 import streamlit as st
 from database import obtener_lista_servidores, obtener_datos_historicos
-import time
 
-# Definimos la zona de telemetría como un fragmento aislado del resto de SIMPOL
+# =====================================================================
+# SECCIÓN 1: COMPONENTE DINÁMICO REFRESCO EN TIEMPO REAL (FRAGMENT)
+# =====================================================================
+
 @st.fragment(run_every=3)
-def renderizar_telemetria_dinamica(ip_seleccionada, seleccion, info_servidor):
+def renderizar_telemetria_v33(servidores):
     """
     Bloque aislado que se refresca automáticamente cada 3 segundos.
-    Muestra los datos en tiempo real de RAM y 5 discos leídos directamente en GB desde la BD V3.2.
-    SOLUCIÓN ARQUITECTÓNICA: Lee las etiquetas de los volúmenes dinámicamente de la base de datos.
+    Mueve el selector al contexto del fragmento para evitar congelamiento de argumentos.
+    Procesamiento puro mediante estructuras de datos nativas (Listas y Diccionarios).
     """
-    # OBTENER DATOS ESPECÍFICOS (Histórico reciente de 5 discos)
-    datos = obtener_datos_historicos(ip_seleccionada)
+    st.markdown("---")
+    
+    # 1. CONSTRUCCIÓN DEL SELECTOR DENTRO DEL FRAGMENTO
+    # Sanitización estricta de cadenas (TRIM implícito en la IP)
+    dict_servidores = {f"🖥️ {s['nombre_alias']} ({str(s['ip']).strip()})": s for s in servidores}
+    
+    seleccion = st.selectbox(
+        "Seleccione el Servidor del Banco para Monitorear:",
+        options=list(dict_servidores.keys()),
+        key="simpol_live_server_selector"
+    )
+    
+    # Extracción de la metadata de infraestructura
+    info_servidor = dict_servidores[seleccion]
+    ip_objetivo = str(info_servidor['ip']).strip()
+    
+    st.info(f"🛰️ **Línea de datos activa:** Conectado a {info_servidor['nombre_alias']} ({ip_objetivo}) | S.O: {info_servidor['sistema_operativo']}")
 
+    # 2. CONSUMO DE TELEMETRÍA Y CONTROL DE BUFFER VACÍO
+    datos = obtener_datos_historicos(ip_objetivo)
+    
     if not datos:
-        st.info(f"⏳ Esperando transmisiones de telemetría del agente para el nodo {ip_seleccionada}...")
-        if st.button("Forzar reconexión con el agente", key="btn_reconect_agente"):
+        st.error(f"⏳ Esperando transmisiones de telemetría del agente para el nodo {ip_objetivo}...")
+        st.caption("Nota CSU: Si el nodo está registrado en la base de datos, verifique que el agente remoto esté transmitiendo hacia el MySQL central.")
+        if st.button("Forzar Limpieza de Buffer (Caché)", key="btn_clear_cache_mon"):
+            st.cache_data.clear()
             st.rerun()
         return
 
+    # Extraemos la muestra más reciente del backend (Índice 0)
     reciente = datos[0]
     
-    # Extraemos valores actuales de la telemetría viva base
-    pct_cpu_uso = reciente['val_cpu']
-    ram_libre_gb = reciente['val_ram']  # Ya viene expresado directamente en GB desde la BD
-
-    # === 1. DISPOSICIÓN DE MÉTRICAS BASE EN PANTALLA (Fila 1) ===
+    # =====================================================================
+    # 3. FILA 1: RENDIMIENTO NÚCLEO (MÉTRICAS BASE ADAPTATIVAS N/A)
+    # =====================================================================
     col1, col2, col3, col4 = st.columns(4)
     
+    # Validación dinámica de existencia de sensores activos en el catálogo del Banco
+    cpu_activa = int(info_servidor.get('id_sensor_cpu') or 0) > 0
+    ram_activa = int(info_servidor.get('id_sensor_ram') or 0) > 0
+    red_activa = int(info_servidor.get('id_sensor_red') or 0) > 0
+    lat_activa = int(info_servidor.get('id_sensor_latencia') or 0) > 0
+
     col1.metric(
-        label="🌡️ Carga de CPU", 
-        value=f"{pct_cpu_uso}%"
+        label="🔥 Carga de CPU", 
+        value=f"{reciente['val_cpu']}%" if cpu_activa else "N/A",
+        help="Monitoreo de procesador central." if cpu_activa else "Métrica no configurada para este servidor en el Catálogo."
     )
     
     col2.metric(
         label="🧠 RAM Disponible", 
-        value=f"{ram_libre_gb} GB",
-        help="Cantidad neta de memoria RAM física libre en el sistema operativo."
+        value=f"{reciente['val_ram']} GB" if ram_activa else "N/A",
+        help="Memoria RAM física neta disponible." if ram_activa else "Métrica no configurada para este servidor en el Catálogo."
     )
     
-    col3.metric(label="🌐 Rendimiento Red", value=f"{reciente['val_red']} Mb/s")
-    col4.metric(label="⏳ Latencia de Enlace", value=f"{reciente['val_latencia']} ms")
+    col3.metric(
+        label="🌐 Tráfico de Red", 
+        value=f"{reciente['val_red']} Mb/s" if red_activa else "N/A",
+        help="Ancho de banda ocupado en la interfaz." if red_activa else "Métrica no configurada para este servidor en el Catálogo."
+    )
+    
+    col4.metric(
+        label="⏳ Latencia Enlace", 
+        value=f"{reciente['val_latencia']} ms" if lat_activa else "N/A",
+        help="Tiempo de respuesta ICMP / API." if lat_activa else "Métrica no configurada para este servidor en el Catálogo."
+    )
 
     st.markdown("---")
-    st.write("### 💽 Estado de Almacenamiento Dinámico (Multi-Volumen)")
+    st.write("### 💽 Estado de Almacenamiento Adaptativo (Matriz de 5 Volúmenes)")
 
-    # === 2. PROCESAMIENTO MÚLTIPLE DE HASTA 5 DISCOS DINÁMICOS ===
-    # Identificamos cuáles discos realmente tienen un sensor mapeado (> 0) en el catálogo del servidor
+    # 4. ITERACIÓN FILTRADA DE DISCOS SEGÚN SENSORES ACTIVOS (> 0)
     discos_activos = []
     for i in range(1, 6):
-        if info_servidor.get(f'id_sensor_disco_{i}', 0) > 0:
-            discos_activos.append(i)
+        try:
+            id_sensor = int(info_servidor.get(f'id_sensor_disco_{i}') or 0)
+            if id_sensor > 0:
+                discos_activos.append(i)
+        except (ValueError, TypeError):
+            continue
 
     if not discos_activos:
-        st.caption("ℹ️ No hay volúmenes de disco indexados para este servidor en el catálogo.")
+        st.warning("ℹ️ Este servidor no posee volúmenes de almacenamiento indexados en la base de datos.")
     else:
-        # Creamos columnas dinámicas según la cantidad de discos activos encontrados
+        # Generación dinámica de columnas según cantidad de discos activos
         columnas_discos = st.columns(len(discos_activos))
         
         for idx, num_disco in enumerate(discos_activos):
-            disco_libre_gb = reciente[f'val_disco_{num_disco}']  # Ya viene expresado en GB desde la BD
+            val_actual_gb = reciente[f'val_disco_{num_disco}']
+            letra_volumen = info_servidor.get(f'letra_disco_{num_disco}')
             
-            # SOLUCIÓN ARQUITECTÓNICA: Extracción dinámica de etiquetas directo de la BD V3.2
-            letra_volumen = info_servidor.get(f'letra_disco_{num_disco}', f"Disk_{num_disco}")
-            
-            # Si por alguna razón la cadena viene vacía de la BD, asignamos un fallback descriptivo
-            if not letra_volumen or letra_volumen.strip() == "":
-                letra_volumen = f"Vol_{num_disco}"
-            
-            # Cálculo de tendencia histórica del volumen específico utilizando deltas en Gigabytes reales
-            delta_disco = None
+            # Formateo estético de etiquetas vacías en Python básico
+            if not letra_volumen or str(letra_volumen).strip() == "":
+                letra_volumen = f"Vol_{num_disco}:\\"
+
+            # Cálculo de tendencia histórica utilizando deltas reales (Muestra actual vs anterior)
+            delta_texto = "0.0 GB"
             if len(datos) > 1:
                 val_anterior_gb = datos[1][f'val_disco_{num_disco}']
-                diferencia_gb = round(disco_libre_gb - val_anterior_gb, 2)
-                
-                # Formateo visual del Delta según el signo
+                diferencia_gb = round(val_actual_gb - val_anterior_gb, 2)
                 if diferencia_gb > 0:
-                    delta_disco = f"+{diferencia_gb} GB"
+                    delta_texto = f"+{diferencia_gb} GB"
                 elif diferencia_gb < 0:
-                    delta_disco = f"{diferencia_gb} GB"
-                else:
-                    delta_disco = "0.0 GB"
+                    delta_texto = f"{diferencia_gb} GB"
 
-            # Renderizado en su respectiva columna adaptativa
+            # Renderizado de la celda de almacenamiento
             columnas_discos[idx].metric(
-                label=f"Volumen {letra_volumen}",
-                value=f"{disco_libre_gb} GB",
-                delta=delta_disco,
-                delta_color="inverse",  # Alerta visual si disminuye el espacio libre
-                help=f"Espacio libre neto reportado por el sensor asignado al volumen {letra_volumen}"
+                label=f"Letra {letra_volumen}",
+                value=f"{val_actual_gb} GB",
+                delta=delta_texto,
+                delta_color="normal", 
+                help=f"Sensor ID: {info_servidor[f'id_sensor_disco_{num_disco}']} - Espacio Libre reportado."
             )
             
-            # Impresión del resumen de auditoría individual compacto por debajo de la métrica
+            # Contenedor estético HTML descriptivo
             columnas_discos[idx].markdown(f"""
-                <div style="background-color: #f8f9fa; padding: 6px; border-radius: 4px; text-align: center; font-size: 11px; color: #555; margin-top:5px; border: 1px solid #e9ecef;">
-                    <b>{letra_volumen} real:</b> {disco_libre_gb} GB Libres
+                <div style="background-color: #f8f9fa; padding: 5px; border-radius: 4px; text-align: center; font-size: 11px; color: #212529; font-weight: bold; margin-top: 3px; border: 1px solid #e9ecef;">
+                    📍 {letra_volumen}
                 </div>
             """, unsafe_allow_html=True)
 
-    # === 3. SEMÁFORO DE ESTADO CRÍTICO ===
+    # 5. SEMÁFORO OPERATIVO INTEGRAL
     st.markdown("---")
-    estado_actual = reciente['estado_sistema']
-    st.write(f"### Estado General del Servidor: **{estado_actual}**")
+    estado_sistema = str(reciente.get('estado_sistema', 'ÓPTIMO')).upper().strip()
     
-    if estado_actual == "CRÍTICO":
-        st.error(f"⚠️ ALERTA: El servidor {seleccion} presenta saturación o falta de disponibilidad crítica en uno o más sensores.")
-    elif estado_actual == "PRECAUCIÓN":
-        st.warning(f"🔔 AVISO: Se recomienda revisar la carga o la reducción de espacio libre en {seleccion}.")
+    if "CRÍTICO" in estado_sistema or "CRITICO" in estado_sistema:
+        st.error(f"🔴 **Estado General: CRÍTICO**\n\n⚠️ ALERTA DE INFRAESTRUCTURA: El servidor {info_servidor['nombre_alias']} ha sobrepasado los umbrales críticos establecidos por el CSU.")
+    elif estado_sistema in ["PRECAUCIÓN", "PRECAUCION", "ADVERTENCIA", "AMARILLO"]:
+        st.warning(f"🟡 **Estado General: PRECAUCIÓN**\n\n🔔 AVISO OPERATIVO: Rangos preventivos detectados en el nodo {info_servidor['nombre_alias']}. Monitoree el almacenamiento.")
     else:
-        st.success(f"✅ El servidor {seleccion} opera con normalidad y rangos óptimos de disponibilidad.")
+        st.success(f"🟢 **Estado General: ÓPTIMO**\n\n✅ Operación Normal: El nodo {info_servidor['nombre_alias']} opera de forma estable bajo los rangos ideales.")
 
-    st.caption("🔄 Actualización automática de telemetría activa (Aislado vía Fragment cada 3s)")
+    st.caption(f"🔄 Sincronización SIMPOL activa • Registros en memoria: {len(datos)} métricas.")
 
 
-def mostrar_pantalla(nombre_analista="Analista"):
-    st.markdown('<h2 style="color:#003366;">🛰️ Monitoreo de Infraestructura - Banco Caroní</h2>', unsafe_allow_html=True)
-    st.markdown("---")
+# =====================================================================
+# SECCIÓN 2: CONTROLADOR Y VISTA PRINCIPAL
+# =====================================================================
+
+def mostrar_pantalla():
+    """Lanza la interfaz principal verificando la matriz de permisos de la sesión."""
     
-    # 1. OBTENER CATÁLOGO DE SERVIDORES
+    # Verificación de Seguridad Atómica (Matriz Muchos a Muchos)
+    if "usuario" in st.session_state:
+        permisos_activos = st.session_state.get("permisos", [])
+        if "VER_SISTEMA" not in permisos_activos:
+            st.error("🚫 Acceso Denegado: Su cuenta no posee el código de permiso [VER_SISTEMA] en la matriz del Banco.")
+            return
+
+    # Encabezado Corporativo Actualizado con Icono Sincronizado
+    st.markdown('<h2 style="color:#003366;">🖥️ Monitoreo de servidores - Banco Caroní</h2>', unsafe_allow_html=True)
+    
+    # Extracción del catálogo de servidores activos (estado_monitoreo = 1)
     servidores = obtener_lista_servidores()
     
     if not servidores:
-        st.warning("⚠️ No se encontraron servidores en el catálogo. Verifique la tabla 'servidores'.")
+        st.warning("⚠️ No se encontraron servidores activos o mapeados en el catálogo central de la base de datos.")
         return
 
-    # 2. SELECTOR DE SERVIDOR
-    opciones_servidores = {f"{s['nombre_alias']} ({s['ip']})": s for s in servidores}
-    
-    seleccion = st.selectbox(
-        "Seleccione el servidor a inspeccionar:", 
-        list(opciones_servidores.keys()), 
-        key="monitoreo_server_select_final"
-    )
-    serv_info = opciones_servidores[seleccion]
-    ip_seleccionada = serv_info['ip']
+    # Ejecución del fragmento dinámico aislado
+    renderizar_telemetria_v33(servidores)
 
-    # Invocamos el fragmento dinámico pasando la info completa del catálogo
-    renderizar_telemetria_dinamica(ip_seleccionada, seleccion, serv_info)
 
 if __name__ == "__main__":
+    st.set_page_config(page_title="SIMPOL - Monitoreo", layout="wide")
     mostrar_pantalla()

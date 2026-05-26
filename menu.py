@@ -87,7 +87,7 @@ def generar_menu():
         st.divider()
 
         # 2. FILTRADO DINÁMICO DE OPCIONES
-        opciones = ["🏠 Inicio", "🖥️ Servidores", "📊 Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
+        opciones = ["🏠 Inicio", "🖥️ Servidores", "🖥️ Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
         rol_usuario = str(st.session_state.get("rol")).strip().lower() if st.session_state.get("rol") else ""
         if rol_usuario in ["admin", "seguridad", "oficial"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]

@@ -11,17 +11,18 @@ def mostrar_pantalla():
         try:
             conn = conectar_bd()
             if conn:
-                cursor = conn.cursor()
+                # Se fuerza cursor con diccionario para estabilidad arquitectónica del EXE
+                cursor = conn.cursor(dictionary=True)
                 
                 # 1. Búsqueda con Key Única para el .exe
-                busqueda = st.text_input("🔍 Buscar usuario:", placeholder="Ej: seguridad_csu", key="input_busqueda_auditoria")
+                busqueda = st.text_input("🔍 Buscar usuario por login:", placeholder="Ej: seguridad_csu", key="input_busqueda_auditoria")
                 
-                # 2. Conteo total
-                cursor.execute("SELECT COUNT(*) FROM log_accesos")
-                total = cursor.fetchone()[0]
+                # 2. Conteo total de la tabla de logs institucional
+                cursor.execute("SELECT COUNT(*) as total FROM log_accesos")
+                total = cursor.fetchone()["total"]
                 
-                # 3. Consulta con filtro
-                query = "SELECT usuario, fecha_acceso, ip_cliente, resultado FROM log_accesos"
+                # 3. Consulta con filtro incorporando la nueva columna 'cargo' de la V3.3
+                query = "SELECT usuario, cargo, fecha_acceso, resultado FROM log_accesos"
                 params = []
                 if busqueda:
                     query += " WHERE usuario LIKE %s"
@@ -49,7 +50,10 @@ def mostrar_pantalla():
                 if logs:
                     html_acumulado = ""
                     for l in logs:
-                        u, f, ip, res = l[0], l[1].strftime('%d/%m/%Y %H:%M'), l[2], l[3]
+                        u = l["usuario"]
+                        cargo_val = l["cargo"] if l["cargo"] else "Sin Cargo Asignado"
+                        f = l["fecha_acceso"].strftime('%d/%m/%Y %H:%M')
+                        res = l["resultado"]
                         
                         # Establecemos colores institucionales según criticidad de auditoría
                         if res == "EXITOSO":
@@ -65,9 +69,9 @@ def mostrar_pantalla():
                                 <span style="color:#003366; font-weight:bold; font-size: 15px;">{u}</span>
                                 <span style="color:{color_borde}; font-weight:bold; font-size: 11px; background:{color_borde}15; padding: 2px 8px; border-radius:10px;">{res}</span>
                             </div>
-                            <div style="color:#666; font-size: 12px; margin-top: 6px; display: flex; gap: 15px;">
-                                <span>📅 {f}</span>
-                                <span>💻 IP: {ip}</span>
+                            <div style="color:#666; font-size: 12px; margin-top: 6px; display: flex; flex-wrap: wrap; gap: 15px;">
+                                <span>💼 <b>Cargo:</b> {cargo_val}</span>
+                                <span>📅 <b>Fecha:</b> {f}</span>
                             </div>
                         </div>
                         """
