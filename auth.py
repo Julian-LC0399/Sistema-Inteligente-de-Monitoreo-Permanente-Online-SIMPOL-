@@ -1,24 +1,27 @@
 import streamlit as st
 from database import verificar_usuario, conectar_bd 
 
-def registrar_acceso_auditoria(usuario, nombre, rol):
+def registrar_acceso_auditoria(usuario, cargo, rol):
     """
-    Inserta un registro en la tabla log_accesos con manejo de errores silencioso para .exe
+    Inserta un registro en la tabla log_accesos con manejo de errores silencioso para entornos .exe
     """
+    conn = None
     try:
         conn = conectar_bd()
         if conn:
             cursor = conn.cursor()
             query = """
-                INSERT INTO log_accesos (usuario, nombre_completo, rol, ip_cliente, resultado) 
+                INSERT INTO log_accesos (usuario, cargo, rol, ip_cliente, resultado) 
                 VALUES (%s, %s, %s, '127.0.0.1', 'EXITOSO')
             """
-            cursor.execute(query, (usuario, nombre, rol))
+            cursor.execute(query, (usuario, cargo, rol))
             conn.commit()
             cursor.close()
-            conn.close()
     except Exception as e:
         print(f"Error en auditoría de acceso: {e}")
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
 
 def mostrar_login():
     # === ANCLA DE LIMPIEZA DE LOGIN ===
@@ -39,7 +42,7 @@ def mostrar_login():
             )
             st.write("---")
 
-            # Mantenemos el formulario seguro con Key única para el .exe
+            # Mantenemos el formulario seguro con Key única para el subproceso .exe
             with st.form("login_form", clear_on_submit=False):
                 st.markdown(
                     "<p style='color: #003366; font-weight: bold;'>🔐 Acceso al Sistema</p>",
@@ -52,32 +55,31 @@ def mostrar_login():
                     user_data = verificar_usuario(usuario, clave)
                     
                     if user_data:
-                        # 1. TRUCO MAESTRO: Limpiar los parámetros residuales del logout (?s=0...)
-                        # Esto evita que app.py lea la URL corrupta post-logout.
+                        # 1. Limpiar parámetros residuales del logout
                         st.query_params.clear()
                         
-                        # 2. PERSISTENCIA DE SESIÓN ATÓMICA EN MEMORIA (Prioridad absoluta)
+                        # 2. PERSISTENCIA DE SESIÓN ATÓMICA (Uso de 'cargo')
                         st.session_state["autenticado"] = True
                         st.session_state["user_id"] = user_data["id"]
                         st.session_state["user_actual"] = user_data["usuario"]
-                        st.session_state["nombre_analista"] = user_data["nombre_completo"]
+                        st.session_state["cargo"] = user_data["cargo"]  # Corregido
                         st.session_state["rol"] = user_data["rol"].lower()
                         
-                        # 3. AUDITORÍA SÍNCRONA
+                        # 3. AUDITORÍA SÍNCRONA DE ACCESO
                         registrar_acceso_auditoria(
                             user_data["usuario"], 
-                            user_data["nombre_completo"], 
+                            user_data["cargo"], 
                             user_data["rol"]
                         )
                         
-                        # 4. ASIGNACIÓN LIMPIA DE NUEVOS PARÁMETROS
+                        # 4. ASIGNACIÓN LIMPIA DE NUEVOS PARÁMETROS EN LA URL
                         st.query_params.update({
                             "s": "1",
                             "p": "🏠 Inicio",
                             "r": user_data["rol"].lower(),
                             "uid": str(user_data["id"]),
                             "u": user_data["usuario"],
-                            "n": user_data["nombre_completo"]
+                            "c": user_data["cargo"]  # Pasamos 'c' de cargo en la URL si hace falta
                         })
                         
                         # 5. DESMONTAJE VISUAL Y REFRESCO INMEDIATO
@@ -88,7 +90,7 @@ def mostrar_login():
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # Footer institucional fuera del canvas para evitar parpadeos
+    # Footer institucional
     st.markdown(
         """
         <div style='text-align: center; color: #999; font-size: 12px; margin-top: 50px;'>

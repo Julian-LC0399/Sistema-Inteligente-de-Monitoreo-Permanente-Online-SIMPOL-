@@ -19,6 +19,7 @@ def mostrar_pantalla(user_actual, user_id):
                 margin-top: -10px;
                 margin-bottom: 20px;
                 display: block;
+                line-height: 1.2;
             }
             
             /* Afectar ÚNICAMENTE a los botones que estén dentro de .modulo-banco */
@@ -68,6 +69,12 @@ def mostrar_pantalla(user_actual, user_id):
     st.markdown('<div class="modulo-banco">', unsafe_allow_html=True)
     st.markdown(f'<p class="analista-sesion-tag">Analista en sesión: <b>{user_actual}</b></p>', unsafe_allow_html=True)
 
+    # Inicializar estados de sesión para el filtro de analistas y acciones
+    if "filtro_analista" not in st.session_state:
+        st.session_state.filtro_analista = "-- Seleccione un Analista --"
+    if "accion_personal" not in st.session_state:
+        st.session_state.accion_personal = None
+
     try:
         conn = conectar_bd()
         if conn is None:
@@ -76,19 +83,60 @@ def mostrar_pantalla(user_actual, user_id):
             return
             
         cursor = conn.cursor(dictionary=True)
-        busqueda = st.text_input("🔍 Filtrar analistas:", placeholder="Escriba nombre o usuario para buscar...")
         
-        query = "SELECT id, usuario, nombre_completo, rol, estado FROM usuarios"
-        params = []
-        if busqueda:
-            query += " WHERE LOWER(usuario) LIKE LOWER(%s) OR LOWER(nombre_completo) LIKE LOWER(%s)"
-            params = [f"%{busqueda}%", f"%{busqueda}%"]
-            
-        cursor.execute(query, params)
-        datos = cursor.fetchall()
+        # 1. CARGA DINÁMICA DE USUARIOS PARA EL SELECTBOX (Formato: Cargo [usuario] v3.3)
+        cursor.execute("SELECT id, usuario, cargo FROM usuarios ORDER BY cargo ASC")
+        lista_raw = cursor.fetchall()
+        
+        # Mapeamos un diccionario para identificar fácilmente la selección y construir las opciones
+        mapeo_opciones = {f"{u['cargo']} [{u['usuario']}]": u['id'] for u in lista_raw}
+        opciones_selectbox = ["-- Seleccione un Analista --"] + list(mapeo_opciones.keys())
 
-        if datos:
-            # 3. TABLA EN HTML PURO (Cero Pandas / Cero Numpy)
+        # Determinar índice para permanencia del estado
+        idx_actual = 0
+        if st.session_state.filtro_analista in opciones_selectbox:
+            idx_actual = opciones_selectbox.index(st.session_state.filtro_analista)
+
+        # ==========================================================================
+        # SECCIÓN DE FILTRADO (Control por clic con alineación exacta a 36px)
+        # ==========================================================================
+        col_f1, col_f2 = st.columns([3, 1])
+        
+        seleccion = col_f1.selectbox(
+            "Filtrar Analistas por Cargo Institucional:",
+            options=opciones_selectbox,
+            index=idx_actual
+        )
+        
+        # Espaciado de alineación milimétrica homologada
+        col_f2.markdown('<div style="margin-top: 36px;"></div>', unsafe_allow_html=True)
+        
+        if col_f2.button("🧹 Limpiar Filtro", use_container_width=True):
+            st.session_state.filtro_analista = "-- Seleccione un Analista --"
+            st.session_state.accion_personal = None
+            st.rerun()
+
+        if seleccion != st.session_state.filtro_analista:
+            st.session_state.filtro_analista = seleccion
+            st.session_state.accion_personal = None
+            st.rerun()
+
+        # Validación del estado del filtro
+        hay_filtro = st.session_state.filtro_analista != "-- Seleccione un Analista --"
+        datos_filtrados = []
+
+        if not hay_filtro:
+            st.info("💡 Por favor, seleccione un analista de la lista desplegable superior para evaluar sus credenciales y estatus corporativo.")
+        else:
+            # Obtener el ID correspondiente al registro seleccionado
+            id_seleccionado = mapeo_opciones[st.session_state.filtro_analista]
+            cursor.execute("SELECT id, usuario, cargo, rol, estado FROM usuarios WHERE id = %s", (id_seleccionado,))
+            datos_filtrados = cursor.fetchall()
+
+        # ==========================================================================
+        # RENDERIZADO DE TABLA (Solo si hay un analista seleccionado)
+        # ==========================================================================
+        if datos_filtrados:
             html_lineas = []
             html_lineas.append("""
             <style>
@@ -125,7 +173,7 @@ def mostrar_pantalla(user_actual, user_id):
                     <tr>
                         <th style="width: 10%;">ID</th>
                         <th style="width: 25%;">USUARIO</th>
-                        <th style="width: 35%;">CARGO</th>
+                        <th style="width: 35%;">CARGO INSTITUCIONAL</th>
                         <th style="width: 15%;">ROL</th>
                         <th style="width: 15%;">ESTATUS</th>
                     </tr>
@@ -136,11 +184,10 @@ def mostrar_pantalla(user_actual, user_id):
             lista_ids = []
             mapeo_usuarios = {}
             
-            for u in datos:
+            for u in datos_filtrados:
                 lista_ids.append(u['id'])
                 mapeo_usuarios[u['id']] = u
                 
-                # Resaltado por color de texto directo (Sin iconos)
                 if u['estado'] == 1:
                     estado_html = '<span style="color: #2E7D32; font-weight: bold;">ACTIVO</span>'
                 else:
@@ -149,7 +196,7 @@ def mostrar_pantalla(user_actual, user_id):
                 html_lineas.append('<tr>')
                 html_lineas.append(f'<td style="text-align: center;"><b>{u["id"]}</b></td>')
                 html_lineas.append(f'<td><code>{u["usuario"]}</code></td>')
-                html_lineas.append(f'<td><b>{u["nombre_completo"]}</b></td>')
+                html_lineas.append(f'<td><b>{u["cargo"]}</b></td>')
                 html_lineas.append(f'<td style="text-align: center;">{str(u["rol"]).upper()}</td>')
                 html_lineas.append(f'<td style="text-align: center;">{estado_html}</td>')
                 html_lineas.append('</tr>')
@@ -157,110 +204,106 @@ def mostrar_pantalla(user_actual, user_id):
             html_lineas.append('</tbody></table>')
             
             html_final = "".join(html_lineas)
-            altura_vista = max(180, len(datos) * 42 + 65)
+            altura_vista = max(180, len(datos_filtrados) * 42 + 65)
             st.components.v1.html(html_final, height=altura_vista, scrolling=True)
-            
             st.markdown("---")
 
-            # 4. BOTONES OPERATIVOS DENTRO DEL CONTENEDOR SEGURO
-            col_b1, col_b2, col_b3 = st.columns(3)
-            
-            if "accion_personal" not in st.session_state:
-                st.session_state.accion_personal = None
-
-            if col_b1.button("➕ Registrar Usuario", use_container_width=True):
+        # ==========================================================================
+        # INTERFAZ DE OPERACIONES CONDICIONAL
+        # ==========================================================================
+        if not hay_filtro:
+            # Caso 1: Sin selección -> Solo se permite "Registrar Usuario"
+            if st.button("➕ Registrar Usuario", use_container_width=True):
                 st.session_state.accion_personal = "registrar"
-            if col_b2.button("📝 Modificar Nombre", use_container_width=True):
+        else:
+            # Caso 2: Analista seleccionado -> Habilitar "Modificar" y "Alterar Estatus"
+            col_b1, col_b2 = st.columns(2)
+            if col_b1.button("📝 Modificar Cargo Filtrado", use_container_width=True):
                 st.session_state.accion_personal = "editar"
-            if col_b3.button("⚙️ Alterar Estatus", use_container_width=True):
+            if col_b2.button("⚙️ Alterar Estatus Lógico", use_container_width=True):
                 st.session_state.accion_personal = "estatus"
 
-            # --- FORMULARIO DE REGISTRO ---
-            if st.session_state.accion_personal == "registrar":
-                st.markdown("### 📥 Alta de Nuevo Integrante")
-                with st.form("form_alta_usr"):
-                    c1, c2 = st.columns(2)
-                    f_user = c1.text_input("Usuario (Login de acceso a red):")
-                    f_pass = c2.text_input("Contraseña inicial:", type="password")
-                    f_nombre = c1.text_input("Nombre Completo:")
-                    f_rol = c2.selectbox("Rol institucional:", ["operador", "seguridad", "admin"])
-                    
-                    if st.form_submit_button("Guardar Credenciales"):
-                        if not f_user.strip() or not f_pass.strip() or not f_nombre.strip():
-                            st.error("Error: Todos los campos del formulario son de carácter obligatorio.")
-                        else:
-                            try:
-                                cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol) VALUES (%s, %s, %s, %s)", (f_user.strip(), f_pass, f_nombre.strip(), f_rol))
-                                conn.commit()
-                                registrar_auditoria_usuario(f_user.strip(), "REGISTRO", "N/A", f"ROL:{f_rol}", user_id, "Alta institucional en SIMPOL")
-                                st.success("Analista registrado exitosamente en el sistema.")
-                                st.session_state.accion_personal = None
-                                st.rerun()
-                            except Exception as ex:
-                                if "Duplicate entry" in str(ex):
-                                    st.error("❌ Conflicto de Registro: El nombre de usuario ya se encuentra asignado.")
-                                else:
-                                    st.error(f"Error de persistencia: {ex}")
-
-            # --- FORMULARIO DE MODIFICACIÓN ---
-            elif st.session_state.accion_personal == "editar":
-                st.markdown("### 📝 Modificación de Credenciales Nominales")
-                id_edit = st.selectbox("Seleccione el ID del Empleado a modificar:", lista_ids)
+        # --- FORMULARIO DE REGISTRO (Solo si no hay filtro) ---
+        if st.session_state.accion_personal == "registrar" and not hay_filtro:
+            st.markdown("### 📥 Nuevo Integrante")
+            with st.form("form_alta_usr"):
+                c1, c2 = st.columns(2)
+                f_user = c1.text_input("Usuario:")
+                f_pass = c2.text_input("Contraseña:", type="password")
+                f_cargo = c1.text_input("Cargo:")
+                f_rol = c2.selectbox("Rol institucional:", ["operador", "seguridad", "admin"])
                 
-                if id_edit:
-                    usr_sel = mapeo_usuarios[id_edit]
-                    with st.form("form_edicion_usr"):
-                        st.text_input("Identificador de Acceso (No modificable)", value=usr_sel['usuario'], disabled=True)
-                        nuevo_nom = st.text_input("Nombre Completo:", value=usr_sel['nombre_completo'])
-                        justificacion = st.text_input("Justificación de Auditoría:")
-                        
-                        if st.form_submit_button("Aplicar Modificación"):
-                            if not nuevo_nom.strip() or not justificacion.strip():
-                                st.error("Debe ingresar el nuevo nombre y la correspondiente justificación de seguridad.")
+                if st.form_submit_button("Guardar Credenciales"):
+                    if not f_user.strip() or not f_pass.strip() or not f_cargo.strip():
+                        st.error("Error: Todos los campos del formulario son de carácter obligatorio.")
+                    else:
+                        try:
+                            cursor.execute("INSERT INTO usuarios (usuario, clave, cargo, rol) VALUES (%s, %s, %s, %s)", (f_user.strip(), f_pass, f_cargo.strip(), f_rol))
+                            conn.commit()
+                            registrar_auditoria_usuario(f_user.strip(), "REGISTRO", "N/A", f"ROL:{f_rol}", user_id, "Alta institucional en SIMPOL")
+                            st.success("Analista registrado exitosamente en el sistema.")
+                            st.session_state.accion_personal = None
+                            st.rerun()
+                        except Exception as ex:
+                            if "Duplicate entry" in str(ex):
+                                st.error("❌ Conflicto de Registro: El usuario ya se encuentra asignado.")
                             else:
-                                try:
-                                    cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE id=%s", (nuevo_nom.strip(), id_edit))
-                                    conn.commit()
-                                    registrar_auditoria_usuario(usr_sel['usuario'], "MOD_NOMBRE", usr_sel['nombre_completo'], nuevo_nom.strip(), user_id, justificacion.strip())
-                                    st.success("Nombre institucional actualizado correctamente.")
-                                    st.session_state.accion_personal = None
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"Error al actualizar: {ex}")
+                                st.error(f"Error de persistencia: {ex}")
 
-            # --- FORMULARIO DE CAMBIO DE ESTADO ---
-            elif st.session_state.accion_personal == "estatus":
-                st.markdown("### ⚙️ Alteración de Estatus Operativo")
-                id_est = st.selectbox("Seleccione el ID del Empleado a alterar:", lista_ids)
+        # --- FORMULARIO DE MODIFICACIÓN (Solo sobre nodo filtrado) ---
+        elif st.session_state.accion_personal == "editar" and hay_filtro:
+            st.markdown("### 📝 Modificación de Credenciales Nominales")
+            id_edit = lista_ids[0] # Auto-asigna el ID del único analista en el visor estricto
+            usr_sel = mapeo_usuarios[id_edit]
+            
+            with st.form("form_edicion_usr"):
+                st.text_input("Identificador de Acceso (No modificable)", value=usr_sel['usuario'], disabled=True)
+                nuevo_cargo = st.text_input("Cargo:", value=usr_sel['cargo'])
+                justificacion = st.text_input("Justificación de Auditoría:")
                 
-                if id_est:
-                    usr_sel = mapeo_usuarios[id_est]
-                    estado_actual_str = "ACTIVO" if usr_sel['estado'] == 1 else "SUSPENDIDO"
-                    st.info(f"Estatus actual del usuario en la base: **{estado_actual_str}**")
-                    
-                    with st.form("form_estatus_usr"):
-                        nuevo_est_str = st.selectbox("Seleccione Nuevo Estatus Lógico", ["Activar Acceso", "Suspender Acceso"])
-                        justificacion_est = st.text_input("Justificación de Auditoría obligatoria:")
-                        
-                        if st.form_submit_button("Confirmar Estatus Lógico"):
-                            if str(usr_sel['usuario']) == str(user_actual):
-                                st.error("Operación inválida: No puede revocar o alterar las propiedades de su propio usuario activo.")
-                            elif not justificacion_est.strip():
-                                st.error("Error: Toda alteración de estatus de seguridad requiere una justificación válida.")
-                            else:
-                                bit_val = 1 if "Activar" in nuevo_est_str else 0
-                                v_v, v_n = ("ACTIVO", "SUSPENDIDO") if usr_sel['estado'] == 1 else ("SUSPENDIDO", "ACTIVO")
-                                try:
-                                    cursor.execute("UPDATE usuarios SET estado=%s WHERE id=%s", (bit_val, id_est))
-                                    conn.commit()
-                                    registrar_auditoria_usuario(usr_sel['usuario'], "MOD_ESTADO", v_v, v_n, user_id, justificacion_est.strip())
-                                    st.success(f"Estatus del analista {usr_sel['usuario']} actualizado con éxito.")
-                                    st.session_state.accion_personal = None
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"Error: {ex}")
-        else:
-            st.warning("No se encontraron analistas registrados en los archivos del sistema.")
+                if st.form_submit_button("Aplicar Modificación"):
+                    if not nuevo_cargo.strip() or not justificacion.strip():
+                        st.error("Debe ingresar el nuevo cargo y la correspondiente justificación de seguridad.")
+                    else:
+                        try:
+                            cursor.execute("UPDATE usuarios SET cargo=%s WHERE id=%s", (nuevo_cargo.strip(), id_edit))
+                            conn.commit()
+                            registrar_auditoria_usuario(usr_sel['usuario'], "MOD_CARGO", usr_sel['cargo'], nuevo_cargo.strip(), user_id, justificacion.strip())
+                            st.success("Cargo institucional actualizado correctamente.")
+                            st.session_state.accion_personal = None
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"Error al actualizar: {ex}")
+
+        # --- FORMULARIO DE CAMBIO DE ESTADO (Solo sobre nodo filtrado) ---
+        elif st.session_state.accion_personal == "estatus" and hay_filtro:
+            st.markdown("### ⚙️ Alteración de Estatus Operativo")
+            id_est = lista_ids[0]
+            usr_sel = mapeo_usuarios[id_est]
+            estado_actual_str = "ACTIVO" if usr_sel['estado'] == 1 else "SUSPENDIDO"
+            st.info(f"Estatus actual del usuario en la base: **{estado_actual_str}**")
+            
+            with st.form("form_estatus_usr"):
+                nuevo_est_str = st.selectbox("Seleccione Nuevo Estatus Lógico", ["Activar Acceso", "Suspender Acceso"])
+                justificacion_est = st.text_input("Justificación de Auditoría obligatoria:")
+                
+                if st.form_submit_button("Confirmar Estatus Lógico"):
+                    if str(usr_sel['usuario']) == str(user_actual):
+                        st.error("Operación inválida: No puede revocar o alterar las propiedades de su propio usuario activo.")
+                    elif not justificacion_est.strip():
+                        st.error("Error: Toda alteración de estatus de seguridad requiere una justificación válida.")
+                    else:
+                        bit_val = 1 if "Activar" in nuevo_est_str else 0
+                        v_v, v_n = ("ACTIVO", "SUSPENDIDO") if usr_sel['estado'] == 1 else ("SUSPENDIDO", "ACTIVO")
+                        try:
+                            cursor.execute("UPDATE usuarios SET estado=%s WHERE id=%s", (bit_val, id_est))
+                            conn.commit()
+                            registrar_auditoria_usuario(usr_sel['usuario'], "MOD_ESTADO", v_v, v_n, user_id, justificacion_est.strip())
+                            st.success(f"Estatus del analista {usr_sel['usuario']} actualizado con éxito.")
+                            st.session_state.accion_personal = None
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"Error: {ex}")
 
         cursor.close()
         conn.close()
@@ -271,12 +314,12 @@ def mostrar_pantalla(user_actual, user_id):
     # Cierre del contenedor maestro seguro
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- FUNCIONES DE BACKEND ---
-def crear_nuevo_usuario(u, c, n, r, ejecutor_id):
+
+# --- FUNCIONES DE BACKEND AUTOMATIZADAS (Mantenidas por compatibilidad de arquitectura) ---
+def crear_nuevo_usuario(u, c, cargo_val, r, ejecutor_id):
     try:
-        conn = conectar_bd()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO usuarios (usuario, clave, nombre_completo, rol) VALUES (%s, %s, %s, %s)", (u, c, n, r))
+        conn = conectar_bd(); cursor = conn.cursor()
+        cursor.execute("INSERT INTO usuarios (usuario, clave, cargo, rol) VALUES (%s, %s, %s, %s)", (u, c, cargo_val, r))
         conn.commit()
         registrar_auditoria_usuario(u, "REGISTRO", "N/A", f"ROL:{r}", ejecutor_id, "Alta institucional")
         conn.close(); st.success("Registrado."); st.session_state.mostrar_registro = False; st.rerun()
@@ -285,10 +328,10 @@ def crear_nuevo_usuario(u, c, n, r, ejecutor_id):
 def ejecutar_update_nombre(log, v, n, ejecutor_id, mot):
     try:
         conn = conectar_bd(); cursor = conn.cursor()
-        cursor.execute("UPDATE usuarios SET nombre_completo=%s WHERE usuario=%s", (n, log))
+        cursor.execute("UPDATE usuarios SET cargo=%s WHERE usuario=%s", (n, log))
         conn.commit()
-        registrar_auditoria_usuario(log, "MOD_NOMBRE", v, n, ejecutor_id, mot)
-        conn.close(); st.success("Nombre actualizado."); st.rerun()
+        registrar_auditoria_usuario(log, "MOD_CARGO", v, n, ejecutor_id, mot)
+        conn.close(); st.success("Cargo actualizado."); st.rerun()
     except Exception as e: st.error(f"Error: {e}")
 
 def ejecutar_update_estado(log, est_v, ejecutor_id, ejecutor_log, mot):

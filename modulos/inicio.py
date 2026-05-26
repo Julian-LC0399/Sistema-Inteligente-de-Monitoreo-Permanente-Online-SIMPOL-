@@ -6,7 +6,9 @@ def mostrar_pantalla():
     contenedor_principal = st.empty()
     
     with contenedor_principal.container():
-        nombre = st.session_state.get("nombre_analista", "Analista")
+        # Capturamos el cargo directamente del session_state sincronizado por app.py
+        # Si no existe, usamos "Analista" como respaldo por defecto
+        cargo = st.session_state.get("cargo", "Analista")
         rol = st.session_state.get("rol", "operador").upper()
 
         # --- BLOQUE DE ESTILOS (Inyectados localmente) ---
@@ -31,7 +33,8 @@ def mostrar_pantalla():
         """, unsafe_allow_html=True)
 
         # 2. CONTENIDO ENCAPSULADO
-        st.markdown(f"<h1 class='bienvenida-titulo'>Bienvenido al sistema, {nombre}</h1>", unsafe_allow_html=True)
+        # Mostramos explícitamente el cargo en el encabezado principal del SIMPOL
+        st.markdown(f"<h1 class='bienvenida-titulo'>Bienvenido al sistema, {cargo}</h1>", unsafe_allow_html=True)
         st.divider()
 
         col1, col2 = st.columns([2, 1])
@@ -44,7 +47,8 @@ def mostrar_pantalla():
                 <h3>📊 Estatus de Sesión</h3>
                 <p>Usted ha ingresado al <b>SIMPOL</b> (Sistema Inteligente de Monitoreo Permanente Online).</p>
                 <ul>
-                    <li><b>Rango:</b> {rol}</li>
+                    <li><b>Cargo Institucional:</b> {cargo}</li>
+                    <li><b>Rango de Sistema:</b> {rol}</li>
                     <li><b>Ubicación:</b> Central Banco Caroní</li>
                     <li><b>Acceso:</b> Autorizado</li>
                 </ul>
