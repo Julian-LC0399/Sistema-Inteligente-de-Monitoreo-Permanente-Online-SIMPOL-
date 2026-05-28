@@ -292,7 +292,7 @@ def main():
                 elif seleccion == "🖥️ Servidores":
                     from modulos import servidores
                     servidores.mostrar_tabla_servidores(rol_usuario=st.session_state.get("rol"))
-                elif seleccion == "📊 Monitoreo en vivo":
+                elif seleccion == "🖥️ Monitoreo en vivo":
                     from modulos import monitoreo
                     monitoreo.mostrar_pantalla()
                 elif seleccion == "📈 Capacity planning":
