@@ -4,6 +4,7 @@ import sys
 import threading
 import logging
 from datetime import datetime
+from database import conectar_bd
 
 # === 1. CONFIGURACIÓN DE LOGS ===
 logging.basicConfig(
@@ -49,17 +50,10 @@ def lanzar_hilo_monitoreo():
         except Exception as e:
             logging.error(f"No se pudo crear el hilo: {e}")
 
-# === VERIFICACIÓN DE ALERTAS EXPLICATIVAS EN ESPAÑOL (AISLADA Y REACTIVA) ===
-# SOLUCIÓN DE ARQUITECTURA: Se añade run_every=4 para que consulte la BD y refresque 
-# el banner de forma asíncrona e independiente del módulo que se esté viendo.
+# === VERIFICACIÓN DE ALERTAS EXPLICATIVAS EN ESPAÑOL ===
 @st.fragment(run_every=4)
 def verificar_alertas_globales():
-    """
-    Escanea la telemetría evaluando cada ID de sensor. Muestra las razones detalladas
-    de las alertas cuando un volumen cae por debajo de sus límites. Refresco automático.
-    """
-    from database import conectar_bd
-    
+    """Escanea la telemetría optimizada para no congelar la navegación entre pestañas."""
     if "ultima_alerta_persistente" not in st.session_state:
         st.session_state["ultima_alerta_persistente"] = None
     if "color_alerta_persistente" not in st.session_state:
@@ -67,14 +61,15 @@ def verificar_alertas_globales():
     if "bg_alerta_persistente" not in st.session_state:
         st.session_state["bg_alerta_persistente"] = "#d4edda"
 
+    html_sensores = []
+    tiene_critico = False
+    tiene_advertencia = False
+
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            
-            # SOLUCIÓN CRÍTICA: Rompe el aislamiento REPEATABLE READ en la conexión del hilo visual.
-            # Sin esto, MySQL devolvería siempre los mismos datos guardados en caché.
-            conn.commit()
+            conn.commit()  # Evita el aislamiento REPEATABLE READ
             
             query = """
                 SELECT 
@@ -113,10 +108,6 @@ def verificar_alertas_globales():
             conn.close()
             
             if registros_recientes:
-                html_sensores = []
-                tiene_critico = False
-                tiene_advertencia = False
-                
                 for alr in registros_recientes:
                     ip_nodo = alr['ip_servidor']
                     alias = alr['nombre_alias']
@@ -157,7 +148,7 @@ def verificar_alertas_globales():
                         else:
                             html_sensores.append(f"<span style='color:#28a745;'>🟢 ID:{id_s} RAM ({alias}): {v}GB</span>")
 
-                    # 3. EVALUACIÓN DE DISCOS (Mapeado directo)
+                    # 3. EVALUACIÓN DE DISCOS
                     for idx in range(1, 6):
                         if alr[f'id_sensor_disco_{idx}'] and int(alr[f'id_sensor_disco_{idx}']) > 0:
                             id_s = alr[f'id_sensor_disco_{idx}']
@@ -167,7 +158,6 @@ def verificar_alertas_globales():
                             u_adv = float(alr[f'd{idx}_adv']) if alr[f'd{idx}_adv'] is not None else 40.0
                             u_crit = float(alr[f'd{idx}_crit']) if alr[f'd{idx}_crit'] is not None else 15.0
                             
-                            # Ajuste dinámico si es volumen C de sistema
                             if str(letra).upper() == "C":
                                 u_adv = 25.0
                                 u_crit = 10.0
@@ -181,26 +171,25 @@ def verificar_alertas_globales():
                             else:
                                 html_sensores.append(f"<span style='color:#28a745;'>🟢 ID:{id_s} Disco {letra} ({alias}): {v}GB</span>")
 
-            if html_sensores:
-                st.session_state["ultima_alerta_persistente"] = " &nbsp;|&nbsp; ".join(html_sensores)
-                if tiene_critico:
-                    st.session_state["color_alerta_persistente"] = "#cc0000"
-                    st.session_state["bg_alerta_persistente"] = "#ffcccc"
-                elif tiene_advertencia:
-                    st.session_state["color_alerta_persistente"] = "#856404"
-                    st.session_state["bg_alerta_persistente"] = "#fff3cd"
-                else:
-                    st.session_state["color_alerta_persistente"] = "#28a745"
-                    st.session_state["bg_alerta_persistente"] = "#d4edda"
-            else:
-                st.session_state["ultima_alerta_persistente"] = "⚪ Sin telemetría reciente de sensores en los últimos 5 minutos."
-                st.session_state["color_alerta_persistente"] = "#6c757d"
-                st.session_state["bg_alerta_persistente"] = "#e2e3e5"
-
         except Exception as e:
             logging.error(f"Error formateando la alerta explicativa de discos: {e}")
 
-    # --- INYECCIÓN GRÁFICA EN PANTALLA ---
+    if html_sensores:
+        st.session_state["ultima_alerta_persistente"] = " &nbsp;|&nbsp; ".join(html_sensores)
+        if tiene_critico:
+            st.session_state["color_alerta_persistente"] = "#cc0000"
+            st.session_state["bg_alerta_persistente"] = "#ffcccc"
+        elif tiene_advertencia:
+            st.session_state["color_alerta_persistente"] = "#856404"
+            st.session_state["bg_alerta_persistente"] = "#fff3cd"
+        else:
+            st.session_state["color_alerta_persistente"] = "#28a745"
+            st.session_state["bg_alerta_persistente"] = "#d4edda"
+    else:
+        st.session_state["ultima_alerta_persistente"] = "⚪ Sin telemetría reciente de sensores en los últimos 5 minutes."
+        st.session_state["color_alerta_persistente"] = "#6c757d"
+        st.session_state["bg_alerta_persistente"] = "#e2e3e5"
+
     if "ultima_alerta_persistente" in st.session_state and st.session_state["ultima_alerta_persistente"] is not None:
         color_borde = st.session_state["color_alerta_persistente"]
         color_fondo = st.session_state["bg_alerta_persistente"]
@@ -264,11 +253,29 @@ def main():
     else:
         lanzar_hilo_monitoreo()
         
-        # 2. Recuperar la sección exacta
-        if "seccion_actual" not in st.session_state:
-            st.session_state["seccion_actual"] = params.get("p", "🏠 Inicio")
+        # =====================================================================
+        # MEJORADO: DETECCIÓN Y PRIORIZACIÓN DE RE-DIRECCIÓN EXTERNA (URL -> STATE)
+        # =====================================================================
+        url_pestaña = params.get("p")
         
-        # 3. Blindaje de Variables en URL (Para aguantar el F5 en caliente)
+        # Primero, sincronizamos si se forzó un cambio directo desde servidores.py usando 'navegacion_principal'
+        if "navegacion_principal" in st.session_state:
+            st.session_state["seccion_actual"] = st.session_state["navegacion_principal"]
+            # Limpiamos para evitar loops
+            del st.session_state["navegacion_principal"] 
+        
+        # Inicialización base estándar
+        elif "seccion_actual" not in st.session_state:
+            st.session_state["seccion_actual"] = url_pestaña if url_pestaña else "🏠 Inicio"
+
+        # Interceptamos cambios por parámetros url ordinarios
+        elif url_pestaña and url_pestaña != st.session_state["seccion_actual"]:
+            if st.session_state.get("nav_radio") != st.session_state["seccion_actual"]:
+                st.session_state["seccion_actual"] = url_pestaña
+        
+        # =====================================================================
+        # PERSISTENCIA DE PARÁMETROS EN URL (POST-EVALUACIÓN DE ESTADO)
+        # =====================================================================
         st.query_params["s"] = "1"
         st.query_params["p"] = st.session_state["seccion_actual"]
         st.query_params["rol"] = st.session_state.get("rol", "operador")
@@ -276,12 +283,14 @@ def main():
         st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
         st.query_params["c"] = st.session_state.get("cargo", "Analista")
         
+        # Construcción aislada del menú lateral
         generar_menu()
         
-        # RENDERIZADO REACTIVO INDEPENDIENTE DEL BANNER DE ALERTAS
+        # BANNER DE ALERTAS OPTIMIZADO ASÍNCRONO
         verificar_alertas_globales()
         
-        seleccion = st.session_state.get("seccion_actual", "🏠 Inicio")
+        # RENDERIZADO DEL MÓDULO CORRESPONDIENTE
+        seleccion = st.session_state["seccion_actual"]
         placeholder_principal = st.empty()
 
         with placeholder_principal.container():
@@ -289,6 +298,7 @@ def main():
                 if seleccion == "🏠 Inicio":
                     from modulos import inicio
                     inicio.mostrar_pantalla()
+                # === CORREGIDO === El string debe coincidir con la inyección: "🖥️ Servidores"
                 elif seleccion == "🖥️ Servidores":
                     from modulos import servidores
                     servidores.mostrar_tabla_servidores(rol_usuario=st.session_state.get("rol"))
@@ -297,14 +307,10 @@ def main():
                     monitoreo.mostrar_pantalla()
                 elif seleccion == "📈 Capacity planning":
                     from modulos import capacity
-                    id_usuario = st.session_state.get("user_id", 1)
-                    login_usuario = st.session_state.get("user_actual", "Sistema")
-                    cargo_analista = st.session_state.get("cargo", "Analista")
-                    
                     capacity.mostrar_pantalla(
-                        usuario_id=id_usuario, 
-                        usuario_login=login_usuario, 
-                        nombre_analista=cargo_analista
+                        usuario_id=st.session_state.get("user_id", 1), 
+                        usuario_login=st.session_state.get("user_actual", "Sistema"), 
+                        nombre_analista=st.session_state.get("cargo", "Analista")
                     )
                 elif seleccion == "🔔 Alertas":
                     from modulos import alertas

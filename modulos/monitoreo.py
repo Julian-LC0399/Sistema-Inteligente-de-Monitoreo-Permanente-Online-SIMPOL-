@@ -5,7 +5,8 @@ def mostrar_pantalla():
     """
     Controlador y vista principal del módulo de monitoreo por sensores.
     Usa una lógica de doble filtro limpio por selectbox y genera una gráfica 
-    de comportamiento histórica usando SVG nativo en HTML (100% sin pandas ni numpy).
+    de comportamiento interactiva con leyenda explicativa en SVG/HTML (100% nativo).
+    Soporta redirección entrante en caliente compatible con parámetros de URL Case-Insensitive.
     """
     
     # 1. CONTROL DE ACCESO OPERATIVO (Matriz de Seguridad)
@@ -19,7 +20,7 @@ def mostrar_pantalla():
     st.markdown('<h2 style="color:#003366;">🖥️ Monitoreo Dedicado por Sensores</h2>', unsafe_allow_html=True)
     st.markdown("---")
 
-    # Inicialización de estados de sesión para sostener los filtros limpios desde el inicio
+    # Inicialización estándar de estados si están completamente vacíos
     if "filtro_monitoreo_nombre" not in st.session_state:
         st.session_state.filtro_monitoreo_nombre = "-- Seleccione un Servidor --"
     if "filtro_monitoreo_sensor" not in st.session_state:
@@ -34,16 +35,35 @@ def mostrar_pantalla():
         cursor = conn.cursor(dictionary=True)
         
         # ==========================================================================
-        # PRIMER FILTRO: SELECCIÓN DEL SERVIDOR (Lógica de servidores.py)
+        # CARGA DEL CATÁLOGO DE SERVIDORES DESDE LA BASE DE DATOS
         # ==========================================================================
         cursor.execute("SELECT DISTINCT nombre_alias FROM servidores WHERE nombre_alias IS NOT NULL AND nombre_alias != '' ORDER BY nombre_alias ASC")
         lista_nombres_bd = [r['nombre_alias'] for r in cursor.fetchall()]
         opciones_servidores = ["-- Seleccione un Servidor --"] + lista_nombres_bd
 
+        # ==========================================================================
+        # CAPTURA DE PARÁMETROS URL BLINDADA (Normalización Case-Insensitive)
+        # ==========================================================================
+        srv_url = st.query_params.get("srv")
+        
+        if srv_url:
+            srv_url_limpio = str(srv_url).strip().lower()
+            # Rompemos la discrepancia de mayúsculas buscando coincidencia parcial normalizada
+            for opcion in opciones_servidores:
+                if opcion.strip().lower() == srv_url_limpio:
+                    st.session_state["filtro_monitoreo_nombre"] = opcion
+                    break
+        elif "servidor_seleccionado" in st.session_state and st.session_state["servidor_seleccionado"] != "-- Seleccione un Servidor --":
+            st.session_state["filtro_monitoreo_nombre"] = st.session_state["servidor_seleccionado"]
+
+        # Determinar el índice actual en base al estado de sesión resuelto
         idx_srv_actual = 0
         if st.session_state.filtro_monitoreo_nombre in opciones_servidores:
             idx_srv_actual = opciones_servidores.index(st.session_state.filtro_monitoreo_nombre)
 
+        # ==========================================================================
+        # PRIMER FILTRO: RENDERIZADO DEL SELECTBOX DE SERVIDORES
+        # ==========================================================================
         col_f1, col_f2 = st.columns([3, 1])
         
         seleccion_srv = col_f1.selectbox(
@@ -58,12 +78,24 @@ def mostrar_pantalla():
         if col_f2.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_clear_mon_all"):
             st.session_state.filtro_monitoreo_nombre = "-- Seleccione un Servidor --"
             st.session_state.filtro_monitoreo_sensor = "-- Seleccione un Sensor --"
+            if "servidor_seleccionado" in st.session_state:
+                st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
+            st.query_params.clear()  # Limpia la barra de direcciones
             st.rerun()
             
-        # Si cambia el servidor, reiniciamos el segundo filtro de forma estricta
+        # Si el usuario cambia manualmente de servidor en el selector
         if seleccion_srv != st.session_state.filtro_monitoreo_nombre:
             st.session_state.filtro_monitoreo_nombre = seleccion_srv
+            st.session_state["servidor_seleccionado"] = seleccion_srv
             st.session_state.filtro_monitoreo_sensor = "-- Seleccione un Sensor --"
+            
+            if seleccion_srv != "-- Seleccione un Servidor --":
+                # Preservamos los parámetros existentes en la URL y actualizamos 'srv'
+                parametros_actuales = dict(st.query_params)
+                parametros_actuales["srv"] = seleccion_srv
+                st.query_params.update(parametros_actuales)
+            else:
+                st.query_params.clear()
             st.rerun()
 
         # Control de flujo si el lienzo debe permanecer vacío
@@ -149,7 +181,7 @@ def mostrar_pantalla():
         meta_sensor = dict_sensores_activos[st.session_state.filtro_monitoreo_sensor]
 
         # =====================================================================
-        # EXTRACTOR DE BACKEND Y PROCESAMIENTO NATIVO
+        # EXTRACTOR DE BACKEND Y PROCESAMIENTO NATIVO DE TELEMETRÍA
         # =====================================================================
         datos_historicos = obtener_datos_historicos(ip_objetivo)
         
@@ -192,62 +224,171 @@ def mostrar_pantalla():
                 st.success(f"🟢 **Estado General del Servidor: ÓPTIMO**\n\nOperación dentro de rangos normales.")
 
         # =====================================================================
-        # CONSTRUCCIÓN DE LA GRÁFICA MEDIANTE SVG / HTML (100% LIBRE DE PANDAS)
+        # CONSTRUCCIÓN DE LA GRÁFICA MEDIANTE SVG INTERACTIVO Y LEYENDA
         # =====================================================================
         st.write("### 📈 Gráfica de Comportamiento Histórico")
         
-        # Procesamos la lista invertida cronológicamente
+        # Procesamos las muestras cronológicamente (Pasado -> Presente)
         valores_linea = []
+        fechas_linea = []
+        suma_valores = 0.0
+        
         for reg in reversed(datos_historicos):
             try:
-                valores_linea.append(float(reg[meta_sensor["campo"]] or 0.0))
+                val = float(reg[meta_sensor["campo"]] or 0.0)
+                valores_linea.append(val)
+                suma_valores += val
+                
+                # Formatear la fecha/hora nativa de registro
+                f_reg = reg.get('fecha_registro')
+                str_f = f_reg.strftime("%H:%M:%S") if hasattr(f_reg, 'strftime') else str(f_reg)
+                fechas_linea.append(str_f)
             except (ValueError, TypeError):
                 valores_linea.append(0.0)
+                fechas_linea.append("N/A")
 
-        if len(valores_linea) > 0:
-            # Dimensiones fijas para el lienzo SVG gráfico
-            ancho_svg = 800
-            alto_svg = 250
-            padding = 30
+        puntos_totales = len(valores_linea)
+        
+        if puntos_totales > 0:
+            # Propiedades geométricas estables
+            ancho_svg = 900
+            alto_svg = 260
+            padding_x = 50
+            padding_y = 40
             
-            # Buscamos extremos usando funciones nativas (max/min)
-            max_val = max(valores_linea) if max(valores_linea) != min(valores_linea) else max(valores_linea) + 1
+            # Límites técnicos
+            max_val = max(valores_linea)
             min_val = min(valores_linea)
             rango = (max_val - min_val) if (max_val - min_val) > 0 else 1
             
-            puntos_totales = len(valores_linea)
-            paso_x = (ancho_svg - (2 * padding)) / (puntos_totales - 1) if puntos_totales > 1 else (ancho_svg - (2 * padding))
+            # Cálculo de promedio histórico
+            promedio = round(suma_valores / puntos_totales, 2)
+            y_promedio = (alto_svg - padding_y) - ((promedio - min_val) / rango) * (alto_svg - (2 * padding_y))
             
-            # Generar coordenadas de puntos para la polilínea SVG
+            paso_x = (ancho_svg - (2 * padding_x)) / (puntos_totales - 1) if puntos_totales > 1 else (ancho_svg - (2 * padding_x))
+            
+            # Construir la polilínea principal y los nodos circulares individuales
             lista_coordenadas = []
+            circulos_svg_lista = []
+            
             for i, val in enumerate(valores_linea):
-                x = padding + (i * paso_x)
-                # Invertimos el eje Y porque en SVG el origen (0,0) está arriba a la izquierda
-                y = (alto_svg - padding) - ((val - min_val) / rango) * (alto_svg - (2 * padding))
+                x = padding_x + (i * paso_x)
+                y = (alto_svg - padding_y) - ((val - min_val) / rango) * (alto_svg - (2 * padding_y))
                 lista_coordenadas.append(f"{x},{y}")
+                
+                # Generar un nodo circular interactivo con tooltip nativo (<title>)
+                circulos_svg_lista.append(f"""
+                <circle cx="{x}" cy="{y}" r="4.5" class="punto-grafica">
+                    <title>Muestra N°: {i+1}\nHora: {fechas_linea[i]}\nValor: {val} {meta_sensor['unidad']}</title>
+                </circle>
+                """)
             
             puntos_str = " ".join(lista_coordenadas)
+            circulos_html_final = "".join(circulos_svg_lista)
             
-            # Construcción dinámica del componente SVG en un string
+            # Plantilla SVG HTML enriquecida con CSS y sección de Leyenda Explicativa
             svg_html = f"""
-            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6;">
+            <style>
+                .contenedor-grafica {{
+                    background-color: #ffffff; 
+                    padding: 20px; 
+                    border-radius: 8px; 
+                    border: 1px solid #dee2e6;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+                }}
+                .punto-grafica {{
+                    fill: #ff9900;
+                    stroke: #ffffff;
+                    stroke-width: 1.5;
+                    cursor: pointer;
+                    transition: all 0.15s ease-in-out;
+                }}
+                .punto-grafica:hover {{
+                    fill: #d32f2f;
+                    r: 7; /* Efecto lupa al pasar el puntero */
+                }}
+                /* Estilos de la Leyenda Técnica inferior */
+                .seccion-leyenda {{
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 20px;
+                    margin-top: 15px;
+                    padding-top: 15px;
+                    border-top: 1px dashed #e9ecef;
+                    justify-content: center;
+                }}
+                .item-leyenda {{
+                    display: flex;
+                    align-items: center;
+                    font-size: 12px;
+                    color: #495057;
+                }}
+                .indicador-linea {{
+                    width: 24px;
+                    height: 3px;
+                    background-color: #003366;
+                    margin-right: 8px;
+                    border-radius: 2px;
+                }}
+                .indicador-promedio {{
+                    width: 24px;
+                    height: 0px;
+                    border-top: 2px dashed #003366;
+                    opacity: 0.6;
+                    margin-right: 8px;
+                }}
+                .indicador-punto {{
+                    width: 10px;
+                    height: 10px;
+                    background-color: #ff9900;
+                    border: 1.5px solid #ffffff;
+                    border-radius: 50%;
+                    margin-right: 8px;
+                    box-shadow: 0 0 0 1px #ff9900;
+                }}
+            </style>
+
+            <div class="contenedor-grafica">
                 <svg viewBox="0 0 {ancho_svg} {alto_svg}" width="100%" height="{alto_svg}" xmlns="http://www.w3.org/2000/svg">
-                    <line x1="{padding}" y1="{alto_svg - padding}" x2="{ancho_svg - padding}" y2="{alto_svg - padding}" stroke="#e9ecef" stroke-width="1" />
-                    <line x1="{padding}" y1="{padding}" x2="{ancho_svg - padding}" y2="{padding}" stroke="#e9ecef" stroke-width="1" />
+                    <line x1="{padding_x}" y1="{alto_svg - padding_y}" x2="{ancho_svg - padding_x}" y2="{alto_svg - padding_y}" stroke="#f1f3f5" stroke-width="2" />
+                    <line x1="{padding_x}" y1="{padding_y}" x2="{ancho_svg - padding_x}" y2="{padding_y}" stroke="#f1f3f5" stroke-width="1.5" />
+                    
+                    <line x1="{padding_x}" y1="{y_promedio}" x2="{ancho_svg - padding_x}" y2="{y_promedio}" stroke="#003366" stroke-width="1.5" stroke-dasharray="5,5" opacity="0.6"/>
+                    <text x="{ancho_svg - padding_x - 140}" y="{y_promedio - 6}" fill="#003366" font-size="11" font-family="Arial" font-weight="bold" opacity="0.75">Promedio: {promedio} {meta_sensor['unidad']}</text>
                     
                     <polyline points="{puntos_str}" fill="none" stroke="#003366" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
                     
-                    <text x="{padding}" y="{padding - 10}" fill="#777777" font-size="11" font-family="Arial">Máx: {max_val} {meta_sensor['unidad']}</text>
-                    <text x="{padding}" y="{alto_svg - padding + 18}" fill="#777777" font-size="11" font-family="Arial">Mín: {min_val} {meta_sensor['unidad']}</text>
+                    {circulos_html_final}
+                    
+                    <text x="{padding_x}" y="{padding_y - 12}" fill="#2E7D32" font-size="11" font-family="Arial" font-weight="bold">▲ MÁX: {max_val} {meta_sensor['unidad']}</text>
+                    <text x="{padding_x}" y="{alto_svg - padding_y + 20}" fill="#C62828" font-size="11" font-family="Arial" font-weight="bold">▼ MÍN: {min_val} {meta_sensor['unidad']}</text>
+                    
+                    <text x="{padding_x}" y="{alto_svg - padding_y + 35}" fill="#868e96" font-size="10" font-family="Arial">Primera Muestra ({fechas_linea[0]})</text>
+                    <text x="{ancho_svg - padding_x - 130}" y="{alto_svg - padding_y + 35}" fill="#868e96" font-size="10" font-family="Arial">Última Muestra ({fechas_linea[-1]})</text>
                 </svg>
+
+                <div class="seccion-leyenda">
+                    <div class="item-leyenda">
+                        <div class="indicador-linea"></div>
+                        <span><b>Curva Temporal:</b> Variación secuencial de las lecturas recibidas.</span>
+                    </div>
+                    <div class="item-leyenda">
+                        <div class="indicador-promedio"></div>
+                        <span><b>Línea de Media:</b> Valor promedio del sensor durante esta ventana ({promedio} {meta_sensor['unidad']}).</span>
+                    </div>
+                    <div class="item-leyenda">
+                        <div class="indicador-punto"></div>
+                        <span><b>Punto de Captura (Muestra):</b> Registro instantáneo. <i>Pasa el cursor encima para inspeccionar hora y valor exacto.</i></span>
+                    </div>
+                </div>
             </div>
             """
-            # Renderizado por inyección directa HTML en la UI
-            st.components.v1.html(svg_html, height=alto_svg + 40)
+            st.components.v1.html(svg_html, height=alto_svg + 95)
         else:
-            st.warning("No hay suficientes muestras puntuales para diagramar la curva.")
+            st.warning("Muestras insuficientes para diagramar la curva.")
             
-        st.caption(f"📅 Ventana de visualización: {len(valores_linea)} muestras analizadas consecutivamente.")
+        st.caption(f"📅 Ventana de visualización: {len(valores_linea)} muestras analizadas consecutivas.")
 
         cursor.close()
         conn.close()
