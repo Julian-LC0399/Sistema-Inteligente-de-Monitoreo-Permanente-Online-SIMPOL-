@@ -24,7 +24,7 @@ def get_resource_path(relative_path):
 def obtener_valor_prtg(id_sensor, tipo_metrica):
     """
     Extrae métricas de PRTG usando la API JSON.
-    Recibe el tipo_metrica ('cpu', 'ram', 'disco', 'red', 'latencia') para aplicar escalas dinámicas.
+    Recibe el tipo_metrica ('cpu', 'ram', 'disco', 'red', 'latencia', 'servicio') para aplicar escalas dinámicas.
     """
     if not id_sensor or int(id_sensor) == 0:
         return 0.0, False
@@ -52,10 +52,13 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                     return round(raw_val, 2), True
                 
                 elif tipo_metrica in ["ram", "disco"]:
-                    # Modificación V3.2: Convierte Bytes crudos de PRTG a Gigabytes (GB) Líquidos
-                    # 1073741824 equivale a 1024 * 1024 * 1024
+                    # Convierte Bytes crudos de PRTG a Gigabytes (GB) Líquidos
                     val_gb = round(raw_val / 1073741824, 2) if raw_val > 0 else 0.0
                     return val_gb, True
+                
+                elif tipo_metrica == "servicio":
+                    # Los servicios devuelven estado lógico binario directamente en PRTG
+                    return int(raw_val), True
                 
                 else: 
                     final_val = raw_val / 10 if raw_val > 100 else raw_val
@@ -66,8 +69,7 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
 
 def obtener_telemetria_total(config_servidor):
     """
-    Calcula telemetría con respaldo local instantáneo y mapeo dinámico multidisco (1 al 5).
-    SOLUCIÓN ARQUITECTÓNICA: Expande el diccionario de salida para soportar la matriz de almacenamiento.
+    Calcula telemetría con respaldo local instantáneo y mapeo dinámico multidisco (1 al 6) y multiservicio (1 al 5).
     """
     # Lectura de contingencia local inmediata
     cpu_l = float(psutil.cpu_percent(interval=None))
@@ -76,17 +78,14 @@ def obtener_telemetria_total(config_servidor):
     ram_disponible_local = float(psutil.virtual_memory().available)
     ram_l = round(ram_disponible_local / 1073741824, 2)
     
-    # Inicialización del payload de datos con las llaves requeridas por el agente v3.2
+    # Inicialización del payload de datos mapeado a la estructura final de 6 Discos y 5 Servicios
     data = {
         "cpu": cpu_l, 
         "ram": ram_l, 
-        "disco_1": 0.0,
-        "disco_2": 0.0,
-        "disco_3": 0.0,
-        "disco_4": 0.0,
-        "disco_5": 0.0,
         "red": 0.0, 
         "latencia": 0.0, 
+        "disco_1": 0.0, "disco_2": 0.0, "disco_3": 0.0, "disco_4": 0.0, "disco_5": 0.0, "disco_6": 0.0,
+        "servicio_1": 0, "servicio_2": 0, "servicio_3": 0, "servicio_4": 0, "servicio_5": 0,
         "msg": "💻 (MODO LOCAL)"
     }
 
@@ -105,26 +104,37 @@ def obtener_telemetria_total(config_servidor):
     # Lista de banderas para verificar el estado de la red PRTG
     banderas_ok = [ok_cpu, ok_ram, ok_red, ok_lat]
     
-    # SOLUCIÓN ARQUITECTÓNICA V3.2: Bucle de extracción para los 5 sensores de disco en paralelo
+    # MATRIZ DE ALMACENAMIENTO: Extracción para los 6 sensores de disco en paralelo
     discos_resultados = {}
-    for i in range(1, 6):
+    for i in range(1, 7):
         id_disco = config_servidor.get(f'id_sensor_disco_{i}', 0)
         v_disc, ok_disc = obtener_valor_prtg(id_disco, "disco")
-        
         discos_resultados[f'disco_{i}'] = v_disc
         discos_resultados[f'ok_disco_{i}'] = ok_disc
         banderas_ok.append(ok_disc)
+
+    # MATRIZ DE SERVICIOS: Extracción para los 5 sensores de servicio en paralelo
+    servicios_resultados = {}
+    for i in range(1, 6):
+        id_servicio = config_servidor.get(f'id_sensor_servicio_{i}', 0)
+        v_serv, ok_serv = obtener_valor_prtg(id_servicio, "servicio")
+        servicios_resultados[f'servicio_{i}'] = v_serv if ok_serv else 0
+        banderas_ok.append(ok_serv)
     
-    # Si al menos un sensor de PRTG (base o discos) responde con éxito, conmutamos a ONLINE
+    # Si al menos un sensor de PRTG (base, discos o servicios) responde con éxito, conmutamos a ONLINE
     if any(banderas_ok):
         data["cpu"] = v_cpu if ok_cpu else cpu_l
         data["ram"] = v_ram if ok_ram else ram_l
         data["red"] = v_red if ok_red else 0.0
         data["latencia"] = v_lat if ok_lat else 0.0
         
-        # Inyección dinámica de almacenamiento procesado
-        for i in range(1, 6):
+        # Inyección dinámica de almacenamiento procesado (1 al 6)
+        for i in range(1, 7):
             data[f"disco_{i}"] = discos_resultados[f"disco_{i}"] if discos_resultados[f"ok_disco_{i}"] else 0.0
+
+        # Inyección dinámica de estado de servicios procesado (1 al 5)
+        for i in range(1, 6):
+            data[f"servicio_{i}"] = servicios_resultados[f"servicio_{i}"]
             
         data["msg"] = "🛰️ (PRTG ONLINE)"
 

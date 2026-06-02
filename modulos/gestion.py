@@ -233,7 +233,16 @@ def mostrar_pantalla(user_actual, user_id):
                 f_cargo = c1.text_input("Cargo:")
                 f_rol = c2.selectbox("Rol institucional:", ["operador", "seguridad", "admin"])
                 
-                if st.form_submit_button("Guardar Credenciales"):
+                # Fila balanceada de Botones de Confirmación y Cancelación
+                c_btn1, c_btn2 = st.columns(2)
+                guardar_click = c_btn1.form_submit_button("Guardar Credenciales", use_container_width=True)
+                cancelar_click = c_btn2.form_submit_button("❌ Cancelar", use_container_width=True)
+                
+                if cancelar_click:
+                    st.session_state.accion_personal = None
+                    st.rerun()
+                    
+                if guardar_click:
                     if not f_user.strip() or not f_pass.strip() or not f_cargo.strip():
                         st.error("Error: Todos los campos del formulario son de carácter obligatorio.")
                     else:
@@ -261,7 +270,16 @@ def mostrar_pantalla(user_actual, user_id):
                 nuevo_cargo = st.text_input("Cargo:", value=usr_sel['cargo'])
                 justificacion = st.text_input("Justificación de Auditoría:")
                 
-                if st.form_submit_button("Aplicar Modificación"):
+                # Fila balanceada de Botones de Confirmación y Cancelación
+                c_btn1, c_btn2 = st.columns(2)
+                aplicar_click = c_btn1.form_submit_button("Aplicar Modificación", use_container_width=True)
+                cancelar_click = c_btn2.form_submit_button("❌ Cancelar", use_container_width=True)
+                
+                if cancelar_click:
+                    st.session_state.accion_personal = None
+                    st.rerun()
+                    
+                if aplicar_click:
                     if not nuevo_cargo.strip() or not justificacion.strip():
                         st.error("Debe ingresar el nuevo cargo y la correspondiente justificación de seguridad.")
                     else:
@@ -287,7 +305,16 @@ def mostrar_pantalla(user_actual, user_id):
                 nuevo_est_str = st.selectbox("Seleccione Nuevo Estatus Lógico", ["Activar Acceso", "Suspender Acceso"])
                 justificacion_est = st.text_input("Justificación de Auditoría obligatoria:")
                 
-                if st.form_submit_button("Confirmar Estatus Lógico"):
+                # Fila balanceada de Botones de Confirmación y Cancelación
+                c_btn1, c_btn2 = st.columns(2)
+                confirmar_click = c_btn1.form_submit_button("Confirmar Estatus Lógico", use_container_width=True)
+                cancelar_click = c_btn2.form_submit_button("❌ Cancelar", use_container_width=True)
+                
+                if cancelar_click:
+                    st.session_state.accion_personal = None
+                    st.rerun()
+                    
+                if confirmar_click:
                     if str(usr_sel['usuario']) == str(user_actual):
                         st.error("Operación inválida: No puede revocar o alterar las propiedades de su propio usuario activo.")
                     elif not justificacion_est.strip():

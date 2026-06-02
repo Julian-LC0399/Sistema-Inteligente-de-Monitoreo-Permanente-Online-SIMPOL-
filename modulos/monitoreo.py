@@ -4,8 +4,9 @@ from database import conectar_bd, obtener_datos_historicos
 def mostrar_pantalla():
     """
     Controlador y vista principal del módulo de monitoreo por sensores.
-    Usa una lógica de doble filtro limpio por selectbox y genera una gráfica 
-    de comportamiento interactiva con leyenda explicativa en SVG/HTML (100% nativo).
+    Usa una lógica de doble filtro limpio por indexación dinámica (sin llaves bloqueantes).
+    Muestra el catálogo completo de sensores al elegir un servidor y filtra en detalle en el segundo nivel.
+    Genera una gráfica de comportamiento interactiva con leyenda explicativa en SVG/HTML (100% nativo).
     Soporta redirección entrante en caliente compatible con parámetros de URL Case-Insensitive.
     """
     
@@ -48,7 +49,6 @@ def mostrar_pantalla():
         
         if srv_url:
             srv_url_limpio = str(srv_url).strip().lower()
-            # Rompemos la discrepancia de mayúsculas buscando coincidencia parcial normalizada
             for opcion in opciones_servidores:
                 if opcion.strip().lower() == srv_url_limpio:
                     st.session_state["filtro_monitoreo_nombre"] = opcion
@@ -56,41 +56,39 @@ def mostrar_pantalla():
         elif "servidor_seleccionado" in st.session_state and st.session_state["servidor_seleccionado"] != "-- Seleccione un Servidor --":
             st.session_state["filtro_monitoreo_nombre"] = st.session_state["servidor_seleccionado"]
 
-        # Determinar el índice actual en base al estado de sesión resuelto
+        # Determinar el índice actual para el primer selectbox de forma segura
         idx_srv_actual = 0
         if st.session_state.filtro_monitoreo_nombre in opciones_servidores:
             idx_srv_actual = opciones_servidores.index(st.session_state.filtro_monitoreo_nombre)
 
         # ==========================================================================
-        # PRIMER FILTRO: RENDERIZADO DEL SELECTBOX DE SERVIDORES
+        # PRIMER FILTRO: SELECCIÓN DEL SERVIDOR (Solución: Sin Key fija que bloquee)
         # ==========================================================================
         col_f1, col_f2 = st.columns([3, 1])
         
         seleccion_srv = col_f1.selectbox(
             "1. Filtrar Servidor por Nombre",
             options=opciones_servidores,
-            index=idx_srv_actual,
-            key="sb_mon_servidor"
+            index=idx_srv_actual
         )
         
         col_f2.markdown('<div style="margin-top: 36px;"></div>', unsafe_allow_html=True)
         
+        # OPERACIÓN DEL BOTÓN LIMPIAR: Resetea limpiamente todas las variables de sesión asociadas
         if col_f2.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_clear_mon_all"):
             st.session_state.filtro_monitoreo_nombre = "-- Seleccione un Servidor --"
             st.session_state.filtro_monitoreo_sensor = "-- Seleccione un Sensor --"
             if "servidor_seleccionado" in st.session_state:
                 st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
-            st.query_params.clear()  # Limpia la barra de direcciones
+            st.query_params.clear()
             st.rerun()
             
-        # Si el usuario cambia manualmente de servidor en el selector
         if seleccion_srv != st.session_state.filtro_monitoreo_nombre:
             st.session_state.filtro_monitoreo_nombre = seleccion_srv
             st.session_state["servidor_seleccionado"] = seleccion_srv
             st.session_state.filtro_monitoreo_sensor = "-- Seleccione un Sensor --"
             
             if seleccion_srv != "-- Seleccione un Servidor --":
-                # Preservamos los parámetros existentes en la URL y actualizamos 'srv'
                 parametros_actuales = dict(st.query_params)
                 parametros_actuales["srv"] = seleccion_srv
                 st.query_params.update(parametros_actuales)
@@ -98,18 +96,19 @@ def mostrar_pantalla():
                 st.query_params.clear()
             st.rerun()
 
-        # Control de flujo si el lienzo debe permanecer vacío
+        # Si el lienzo está vacío (No hay servidor seleccionado)
         if st.session_state.filtro_monitoreo_nombre == "-- Seleccione un Servidor --":
             st.info("💡 Por favor, seleccione un servidor para estructurar el catálogo de sensores activos.")
             cursor.close()
             conn.close()
             return
 
-        # Consulta de metadatos del servidor seleccionado
+        # Consulta de metadatos del servidor seleccionado (6 discos y 5 servicios)
         query = """
             SELECT ip, nombre_alias, sistema_operativo, 
                    id_sensor_cpu, id_sensor_ram, 
-                   id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5,
+                   id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
+                   id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
                    id_sensor_red, id_sensor_latencia 
             FROM servidores
             WHERE nombre_alias = %s
@@ -126,7 +125,7 @@ def mostrar_pantalla():
         ip_objetivo = str(info_servidor['ip']).strip()
 
         # ==========================================================================
-        # SEGUNDO FILTRO: MAPEO DINÁMICO Y SELECCIÓN DEL SENSOR
+        # MAPEO DINÁMICO DE LOS SENSORS CONFIGURADOS POR EL SERVIDOR SELECCIONADO
         # ==========================================================================
         dict_sensores_activos = {}
         
@@ -142,11 +141,18 @@ def mostrar_pantalla():
         if int(info_servidor.get('id_sensor_latencia') or 0) > 0:
             dict_sensores_activos["Métrica: Latencia"] = {"tipo": "latencia", "campo": "val_latencia", "unidad": "ms", "id": info_servidor['id_sensor_latencia']}
         
-        letras_unidades = {1: "C:", 2: "F:", 3: "E:", 4: "D:", 5: "G:"}
-        for i in range(1, 6):
+        # Mapeo de almacenamiento extendido a 6 discos
+        letras_unidades = {1: "C:", 2: "F:", 3: "E:", 4: "D:", 5: "G:", 6: "H:"}
+        for i in range(1, 7):
             id_disco = int(info_servidor.get(f'id_sensor_disco_{i}') or 0)
             if id_disco > 0:
                 dict_sensores_activos[f"Disco ({letras_unidades[i]})"] = {"tipo": f"disco_{i}", "campo": f"val_disco_{i}", "unidad": "GB", "id": id_disco}
+
+        # Mapeo dinámico para los 5 sensores de Servicio
+        for i in range(1, 6):
+            id_servicio = int(info_servidor.get(f'id_sensor_servicio_{i}') or 0)
+            if id_servicio > 0:
+                dict_sensores_activos[f"Sensor Servicio {i}"] = {"tipo": f"servicio_{i}", "campo": f"estado_servicio_{i}", "unidad": "Estado", "id": id_servicio}
 
         if not dict_sensores_activos:
             st.warning("ℹ️ Este nodo no posee sensores activos configurados en el catálogo central.")
@@ -154,6 +160,23 @@ def mostrar_pantalla():
             conn.close()
             return
 
+        # ==========================================================================
+        # REQUERIMIENTO DEL BANCO: Mostrar todos los sensores registrados del servidor
+        # ==========================================================================
+        st.markdown(f"#### 📊 Sensores Registrados para el Servidor: `{st.session_state.filtro_monitoreo_nombre}` ({ip_objetivo})")
+        
+        # Se genera una cuadrícula compacta de credenciales técnicas mapeadas en base de datos
+        columnas_sensores = st.columns(min(len(dict_sensores_activos), 4))
+        for idx, (nombre_sensor, metadatos) in enumerate(dict_sensores_activos.items()):
+            col_idx = idx % len(columnas_sensores)
+            with columnas_sensores[col_idx]:
+                st.info(f"**{nombre_sensor}**\n\nID PRTG: `{metadatos['id']}`\n\nUnidad: `{metadatos['unidad']}`")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ==========================================================================
+        # SEGUNDO FILTRO: SELECCIÓN DEL SENSOR INDIVIDUAL (Solución: Sin Key fija que bloquee)
+        # ==========================================================================
         opciones_sensores = ["-- Seleccione un Sensor --"] + list(dict_sensores_activos.keys())
         
         idx_sens_actual = 0
@@ -161,28 +184,26 @@ def mostrar_pantalla():
             idx_sens_actual = opciones_sensores.index(st.session_state.filtro_monitoreo_sensor)
 
         seleccion_sensor = st.selectbox(
-            "2. Seleccione el Sensor Específico para Análisis Temporal",
+            f"2. Seleccione un Sensor Específico para graficar telemetría",
             options=opciones_sensores,
-            index=idx_sens_actual,
-            key="sb_mon_sensor"
+            index=idx_sens_actual
         )
 
         if seleccion_sensor != st.session_state.filtro_monitoreo_sensor:
             st.session_state.filtro_monitoreo_sensor = seleccion_sensor
             st.rerun()
 
-        # Control de flujo si no se ha elegido un sensor definitivo
+        # Detener flujo si se muestra la lista pero aún no se elige un sensor específico
         if st.session_state.filtro_monitoreo_sensor == "-- Seleccione un Sensor --":
-            st.info("💡 Seleccione un sensor específico del menú desplegable para procesar la telemetría.")
+            st.info(f"💡 Por favor, elija uno de los sensores mapeados arriba en la lista desplegable (Paso 2) para procesar su telemetría e histórico de comportamiento.")
             cursor.close()
             conn.close()
             return
 
+        # =====================================================================
+        # DESPLIEGUE DE DATOS HISTÓRICOS Y GRÁFICA DEL SENSOR SELECCIONADO
+        # =====================================================================
         meta_sensor = dict_sensores_activos[st.session_state.filtro_monitoreo_sensor]
-
-        # =====================================================================
-        # EXTRACTOR DE BACKEND Y PROCESAMIENTO NATIVO DE TELEMETRÍA
-        # =====================================================================
         datos_historicos = obtener_datos_historicos(ip_objetivo)
         
         if not datos_historicos:
@@ -191,12 +212,12 @@ def mostrar_pantalla():
             conn.close()
             return
 
-        # Despliegue de métrica actual (Registro en índice 0, el más reciente)
+        # Registro en índice 0 (más reciente)
         registro_reciente = datos_historicos[0]
         valor_actual = registro_reciente[meta_sensor["campo"]]
         
         delta_visual = None
-        if len(datos_historicos) > 1:
+        if len(datos_historicos) > 1 and meta_sensor["unidad"] != "Estado":
             try:
                 diferencia = round(float(valor_actual) - float(datos_historicos[1][meta_sensor["campo"]]), 2)
                 delta_visual = f"+{diferencia} {meta_sensor['unidad']}" if diferencia > 0 else f"{diferencia} {meta_sensor['unidad']}"
@@ -207,12 +228,20 @@ def mostrar_pantalla():
         col_kpi, col_status = st.columns([1, 2])
         
         with col_kpi:
-            st.metric(
-                label=f"Valor Actual: {st.session_state.filtro_monitoreo_sensor}",
-                value=f"{valor_actual} {meta_sensor['unidad']}",
-                delta=delta_visual,
-                delta_color="inverse" if meta_sensor["tipo"] in ["cpu", "red", "latencia"] else "normal"
-            )
+            if meta_sensor["unidad"] == "Estado":
+                txt_estado_svc = "ACTIVO" if int(valor_actual or 0) == 1 else "CAÍDO"
+                st.metric(
+                    label=f"Valor Actual: {st.session_state.filtro_monitoreo_sensor}",
+                    value=txt_estado_svc,
+                    delta=None
+                )
+            else:
+                st.metric(
+                    label=f"Valor Actual: {st.session_state.filtro_monitoreo_sensor}",
+                    value=f"{valor_actual} {meta_sensor['unidad']}",
+                    delta=delta_visual,
+                    delta_color="inverse" if meta_sensor["tipo"] in ["cpu", "red", "latencia"] else "normal"
+                )
 
         with col_status:
             estado_nodo = str(registro_reciente.get('estado_sistema', 'ÓPTIMO')).upper().strip()
@@ -223,12 +252,9 @@ def mostrar_pantalla():
             else:
                 st.success(f"🟢 **Estado General del Servidor: ÓPTIMO**\n\nOperación dentro de rangos normales.")
 
-        # =====================================================================
-        # CONSTRUCCIÓN DE LA GRÁFICA MEDIANTE SVG INTERACTIVO Y LEYENDA
-        # =====================================================================
+        # CONSTRUCCIÓN DE LA GRÁFICA SVG
         st.write("### 📈 Gráfica de Comportamiento Histórico")
         
-        # Procesamos las muestras cronológicamente (Pasado -> Presente)
         valores_linea = []
         fechas_linea = []
         suma_valores = 0.0
@@ -239,7 +265,6 @@ def mostrar_pantalla():
                 valores_linea.append(val)
                 suma_valores += val
                 
-                # Formatear la fecha/hora nativa de registro
                 f_reg = reg.get('fecha_registro')
                 str_f = f_reg.strftime("%H:%M:%S") if hasattr(f_reg, 'strftime') else str(f_reg)
                 fechas_linea.append(str_f)
@@ -250,24 +275,19 @@ def mostrar_pantalla():
         puntos_totales = len(valores_linea)
         
         if puntos_totales > 0:
-            # Propiedades geométricas estables
             ancho_svg = 900
             alto_svg = 260
             padding_x = 50
             padding_y = 40
             
-            # Límites técnicos
             max_val = max(valores_linea)
             min_val = min(valores_linea)
             rango = (max_val - min_val) if (max_val - min_val) > 0 else 1
             
-            # Cálculo de promedio histórico
             promedio = round(suma_valores / puntos_totales, 2)
             y_promedio = (alto_svg - padding_y) - ((promedio - min_val) / rango) * (alto_svg - (2 * padding_y))
-            
             paso_x = (ancho_svg - (2 * padding_x)) / (puntos_totales - 1) if puntos_totales > 1 else (ancho_svg - (2 * padding_x))
             
-            # Construir la polilínea principal y los nodos circulares individuales
             lista_coordenadas = []
             circulos_svg_lista = []
             
@@ -276,17 +296,21 @@ def mostrar_pantalla():
                 y = (alto_svg - padding_y) - ((val - min_val) / rango) * (alto_svg - (2 * padding_y))
                 lista_coordenadas.append(f"{x},{y}")
                 
-                # Generar un nodo circular interactivo con tooltip nativo (<title>)
+                txt_lbl_tooltip = f"{val} {meta_sensor['unidad']}" if meta_sensor["unidad"] != "Estado" else ("ACTIVO" if int(val) == 1 else "CAÍDO")
+                
                 circulos_svg_lista.append(f"""
                 <circle cx="{x}" cy="{y}" r="4.5" class="punto-grafica">
-                    <title>Muestra N°: {i+1}\nHora: {fechas_linea[i]}\nValor: {val} {meta_sensor['unidad']}</title>
+                    <title>Muestra N°: {i+1}\nHora: {fechas_linea[i]}\nValor: {txt_lbl_tooltip}</title>
                 </circle>
                 """)
             
             puntos_str = " ".join(lista_coordenadas)
             circulos_html_final = "".join(circulos_svg_lista)
             
-            # Plantilla SVG HTML enriquecida con CSS y sección de Leyenda Explicativa
+            lbl_max_grafica = f"{max_val} {meta_sensor['unidad']}" if meta_sensor["unidad"] != "Estado" else ("ACTIVO" if int(max_val) == 1 else "CAÍDO")
+            lbl_min_grafica = f"{min_val} {meta_sensor['unidad']}" if meta_sensor["unidad"] != "Estado" else ("ACTIVO" if int(min_val) == 1 else "CAÍDO")
+            lbl_prom_grafica = f"Promedio: {promedio} {meta_sensor['unidad']}" if meta_sensor["unidad"] != "Estado" else ""
+            
             svg_html = f"""
             <style>
                 .contenedor-grafica {{
@@ -306,9 +330,8 @@ def mostrar_pantalla():
                 }}
                 .punto-grafica:hover {{
                     fill: #d32f2f;
-                    r: 7; /* Efecto lupa al pasar el puntero */
+                    r: 7;
                 }}
-                /* Estilos de la Leyenda Técnica inferior */
                 .seccion-leyenda {{
                     display: flex;
                     flex-wrap: wrap;
@@ -354,15 +377,15 @@ def mostrar_pantalla():
                     <line x1="{padding_x}" y1="{alto_svg - padding_y}" x2="{ancho_svg - padding_x}" y2="{alto_svg - padding_y}" stroke="#f1f3f5" stroke-width="2" />
                     <line x1="{padding_x}" y1="{padding_y}" x2="{ancho_svg - padding_x}" y2="{padding_y}" stroke="#f1f3f5" stroke-width="1.5" />
                     
-                    <line x1="{padding_x}" y1="{y_promedio}" x2="{ancho_svg - padding_x}" y2="{y_promedio}" stroke="#003366" stroke-width="1.5" stroke-dasharray="5,5" opacity="0.6"/>
-                    <text x="{ancho_svg - padding_x - 140}" y="{y_promedio - 6}" fill="#003366" font-size="11" font-family="Arial" font-weight="bold" opacity="0.75">Promedio: {promedio} {meta_sensor['unidad']}</text>
+                    {" " if meta_sensor["unidad"] == "Estado" else f'<line x1="{padding_x}" y1="{y_promedio}" x2="{ancho_svg - padding_x}" y2="{y_promedio}" stroke="#003366" stroke-width="1.5" stroke-dasharray="5,5" opacity="0.6"/>'}
+                    {" " if meta_sensor["unidad"] == "Estado" else f'<text x="{ancho_svg - padding_x - 140}" y="{y_promedio - 6}" fill="#003366" font-size="11" font-family="Arial" font-weight="bold" opacity="0.75">{lbl_prom_grafica}</text>'}
                     
                     <polyline points="{puntos_str}" fill="none" stroke="#003366" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
                     
                     {circulos_html_final}
                     
-                    <text x="{padding_x}" y="{padding_y - 12}" fill="#2E7D32" font-size="11" font-family="Arial" font-weight="bold">▲ MÁX: {max_val} {meta_sensor['unidad']}</text>
-                    <text x="{padding_x}" y="{alto_svg - padding_y + 20}" fill="#C62828" font-size="11" font-family="Arial" font-weight="bold">▼ MÍN: {min_val} {meta_sensor['unidad']}</text>
+                    <text x="{padding_x}" y="{padding_y - 12}" fill="#2E7D32" font-size="11" font-family="Arial" font-weight="bold">▲ MÁX: {lbl_max_grafica}</text>
+                    <text x="{padding_x}" y="{alto_svg - padding_y + 20}" fill="#C62828" font-size="11" font-family="Arial" font-weight="bold">▼ MÍN: {lbl_min_grafica}</text>
                     
                     <text x="{padding_x}" y="{alto_svg - padding_y + 35}" fill="#868e96" font-size="10" font-family="Arial">Primera Muestra ({fechas_linea[0]})</text>
                     <text x="{ancho_svg - padding_x - 130}" y="{alto_svg - padding_y + 35}" fill="#868e96" font-size="10" font-family="Arial">Última Muestra ({fechas_linea[-1]})</text>
@@ -373,10 +396,10 @@ def mostrar_pantalla():
                         <div class="indicador-linea"></div>
                         <span><b>Curva Temporal:</b> Variación secuencial de las lecturas recibidas.</span>
                     </div>
-                    <div class="item-leyenda">
+                    {"" if meta_sensor["unidad"] == "Estado" else f"""<div class="item-leyenda">
                         <div class="indicador-promedio"></div>
                         <span><b>Línea de Media:</b> Valor promedio del sensor durante esta ventana ({promedio} {meta_sensor['unidad']}).</span>
-                    </div>
+                    </div>"""}
                     <div class="item-leyenda">
                         <div class="indicador-punto"></div>
                         <span><b>Punto de Captura (Muestra):</b> Registro instantáneo. <i>Pasa el cursor encima para inspeccionar hora y valor exacto.</i></span>
