@@ -146,7 +146,11 @@ def main():
                     )
                 elif seleccion == "🔔 Alertas":
                     from modulos import alertas
-                    alertas.mostrar_pantalla(usuario_id=st.session_state.get("user_id", 1), rol_usuario=st.session_state.get("rol", "operador"))
+                    alertas.mostrar_pantalla(
+                        nombre_analista=st.session_state.get("cargo", "Analista"),
+                        usuario_id=st.session_state.get("user_id", 1),
+                        usuario_login=st.session_state.get("user_actual", "Sistema")
+                    )
                 elif seleccion == "📄 Reportes":
                     from modulos import reportes
                     reportes.mostrar_pantalla(st.session_state.get("cargo", "Analista"), st.session_state.get("user_id", 1))
