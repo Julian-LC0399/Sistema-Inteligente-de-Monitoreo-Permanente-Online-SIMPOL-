@@ -62,7 +62,6 @@ def renderizar_semaforo(valor, adv, crit, tipo="uso", pct_libre=None):
             color = "#48bb78"  # Verde
             texto = "NORMAL"
         
-        # Reflejar el espacio libre en porcentaje al lado de los GB
         if pct_libre is not None:
             unidad = f"GB ({pct_libre}% libre)"
         else:
@@ -86,11 +85,19 @@ def renderizar_semaforo(valor, adv, crit, tipo="uso", pct_libre=None):
     </div>
     """
 
-# REPLICA EXACTA: Firma idéntica a capacity.py
+# =====================================================================
+# VISTA PRINCIPAL DEL MÓDULO (ESTRUCTURADA EN PESTAÑAS)
+# =====================================================================
 def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
+    # Inicialización del estado intermedio para el widget de Alertas
+    if "servidor_seleccionado_alertas" not in st.session_state:
+        st.session_state["servidor_seleccionado_alertas"] = "-- Seleccione un Servidor --"
+
+    # Inicialización de la semilla para forzar limpieza visual del selectbox
+    if "key_semilla_alertas" not in st.session_state:
+        st.session_state["key_semilla_alertas"] = 0
+
     st.markdown('<h2 style="color:#003366;">🔔 Panel de Control de Semáforos y Alertas</h2>', unsafe_allow_html=True)
-    
-    # REPLICA EXACTA: Tu línea estructurada e integrada a la perfección
     st.markdown(f"👤 **Cargo Responsable:** {nombre_analista} (`usuario: {usuario_login}`)", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -99,13 +106,53 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         st.warning("⚠️ No hay servidores activos registrados en la plataforma.")
         return
 
-    tab_alertas_vivo, _ = st.tabs(["🚨 Monitoreo de Alertas (Sensores)", "⚙️ Configuración Avanzada de Umbrales"])
+    tab_alertas_vivo, tab_config_umbrales = st.tabs(["🚨 Monitoreo de Alertas (Sensores)", "⚙️ Configuración Avanzada de Umbrales"])
 
+    # =====================================================================
+    # PESTAÑA 1: INSPECCIÓN VIVA DE SENSORES Y SEMÁFOROS
+    # =====================================================================
     with tab_alertas_vivo:
         st.markdown("### ")
-        opciones_alr = {f"{s['nombre_alias']} ({s['ip']})": s for s in servidores}
-        sel_alr = st.selectbox("Seleccione Servidor para Inspección de Alertas:", list(opciones_alr.keys()), key="sb_alertas_vivo")
-        serv_alr_info = opciones_alr[sel_alr]
+        
+        # Construcción ordenada agregando la opción basal vacía
+        lista_opciones = ["-- Seleccione un Servidor --"] + [f"{s['nombre_alias']} ({s['ip']})" for s in servidores]
+        
+        try:
+            default_index = lista_opciones.index(st.session_state["servidor_seleccionado_alertas"])
+        except ValueError:
+            default_index = 0
+
+        # Fila de Filtro Principal de Servidores con Clave Dinámica
+        col_filtro, col_limpieza = st.columns([4, 1])
+        
+        with col_filtro:
+            sel_alr = st.selectbox(
+                "Seleccione Servidor para Inspección de Alertas:", 
+                lista_opciones, 
+                index=default_index,
+                key=f"sb_alertas_vivo_dyn_{st.session_state['key_semilla_alertas']}"
+            )
+        
+        with col_limpieza:
+            st.markdown("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
+            btn_limpiar = st.button("🧹 Limpiar Filtro", use_container_width=True, key="btn_limpiar_alertas_modulo")
+
+        # LÓGICA DEL BOTÓN LIMPIAR (Reinicia la selección y altera la semilla)
+        if btn_limpiar:
+            st.session_state["servidor_seleccionado_alertas"] = "-- Seleccione un Servidor --"
+            st.session_state["key_semilla_alertas"] += 1
+            st.rerun()
+
+        # Sincronizamos la selección actual en el estado interno
+        st.session_state["servidor_seleccionado_alertas"] = sel_alr
+
+        # REQUISITO EXIGIDO: Si no se ha elegido nada, congelar renderizado y no mostrar datos fantasma
+        if sel_alr == "-- Seleccione un Servidor --":
+            st.info("💡 Por favor, seleccione un servidor de la infraestructura para desplegar el estado de alertas de sus sensores indexados.")
+            return
+
+        # Localizar metadatos del nodo seleccionado
+        serv_alr_info = next(s for s in servidores if f"{s['nombre_alias']} ({s['ip']})" == sel_alr)
         ip_alr_sel = serv_alr_info['ip']
 
         # Consultar la telemetría viva conectada con utils.py
@@ -119,7 +166,7 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         val_cpu = float(telemetria_viva.get('cpu', 0.0))
         val_ram = float(telemetria_viva.get('ram', 0.0))
 
-        # DISEÑO VISUAL DINÁMICO: Elimina el espacio muerto al lado de la RAM si el CPU es 0
+        # DISEÑO VISUAL DINÁMICO
         if val_cpu > 0.0 and val_ram > 0.0:
             c_cpu, c_ram = st.columns(2)
             with c_cpu:
@@ -134,7 +181,6 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 st.markdown(renderizar_semaforo(val_ram, adv_r, crit_r, tipo="inverso", pct_libre=pct_ram_libre), unsafe_allow_html=True)
         
         elif val_ram > 0.0:
-            # Si el CPU es 0.0 y se oculta, la RAM se expande automáticamente al 100% del ancho de la interfaz
             st.markdown("**Memoria Volátil Libre (RAM)**")
             pct_ram_libre = telemetria_viva.get('pct_ram', None)
             adv_r = float(umbrales_alr['ram_advertencia'])
@@ -145,7 +191,6 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("##### 💾 Unidades de Almacenamiento Estático (Libre)")
         
-        # Renderizado de discos filtrando alertas en 0 y distribuyendo en 3 columnas compactas
         columnas_discos = st.columns(3)
         col_idx_actual = 0
         
@@ -153,7 +198,7 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
             if serv_alr_info.get(f'id_sensor_disco_{i}', 0) > 0:
                 val_disco = float(telemetria_viva.get(f'disco_{i}', 0.0))
                 
-                # ELIMINAR ALERTAS EN 0: Si el disco reporta 0, se salta la caja por completo
+                # ELIMINAR ALERTAS EN 0
                 if val_disco == 0.0:
                     continue
                 
@@ -171,6 +216,13 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                     st.markdown(renderizar_semaforo(val_disco, adv_d, crit_d, tipo="inverso", pct_libre=pct_disco_libre), unsafe_allow_html=True)
                     st.markdown("### ")
                 col_idx_actual += 1
+
+    # =====================================================================
+    # PESTAÑA 2: CONFIGURACIÓN AVANZADA DE UMBRALES
+    # =====================================================================
+    with tab_config_umbrales:
+        st.markdown("### ")
+        st.info("⚙️ Módulo de modificación de políticas de criticidad para operaciones centrales de Banco Caroní.")
 
 # REPLICA EXACTA: Inyección idéntica de variables de sesión desde st.session_state
 if __name__ == "__main__":

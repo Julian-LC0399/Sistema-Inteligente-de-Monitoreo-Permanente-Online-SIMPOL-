@@ -102,16 +102,23 @@ def descargar_contenido_blob(reporte_id):
 # VISTA PRINCIPAL DEL MÓDULO (ESTRUCTURADA EN PESTAÑAS NATIVAS)
 # =====================================================================
 def mostrar_pantalla(nombre_analista, usuario_id, usuario_login="admin"):
+    # Inicialización de variables de control en session_state
     if "rep_listo" not in st.session_state:
         st.session_state["rep_listo"] = False
         st.session_state["rep_csv"] = None
         st.session_state["rep_pdf"] = None
         st.session_state["rep_name_csv"] = ""
         st.session_state["rep_name_pdf"] = ""
+    
+    # Estado intermedio para el valor seleccionado del servidor
+    if "servidor_seleccionado_reporte" not in st.session_state:
+        st.session_state["servidor_seleccionado_reporte"] = "-- Seleccione un Servidor --"
+        
+    # SOLUCIÓN DE LIMPIEZA: Semilla dinámica para resetear el selectbox al cambiar su key
+    if "key_semilla_selectbox" not in st.session_state:
+        st.session_state["key_semilla_selectbox"] = 0
 
     st.markdown('<h2 style="color:#003366;">📋 Centro de Reportes Gerenciales</h2>', unsafe_allow_html=True)
-    
-    # CORREGIDO: Se removió por completo la palabra admin y las comillas invertidas vacías
     st.markdown(f"👤 **Analista de Infraestructura:** {nombre_analista}", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -136,10 +143,25 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login="admin"):
             st.warning("⚠️ No se registran nodos de servidores activos en la configuración actual.")
             return
 
-        opciones = {f"{s['nombre_alias']} ({s['ip']}) - {s['sistema_operativo']}": s for s in servidores}
-        seleccion = st.selectbox("Seleccione Servidor Objetivo:", list(opciones.keys()), key="rep_sb_servidor")
-        srv_info = opciones[seleccion]
-        ip_sel = srv_info['ip']
+        # Construcción de opciones agregando la opción por defecto vacía para forzar la selección
+        lista_opciones = ["-- Seleccione un Servidor --"] + [f"{s['nombre_alias']} ({s['ip']}) - {s['sistema_operativo']}" for s in servidores]
+        
+        # Conseguir el índice actual basado en nuestro estado intermedio seguro
+        try:
+            default_index = lista_opciones.index(st.session_state["servidor_seleccionado_reporte"])
+        except ValueError:
+            default_index = 0
+
+        # Filtro principal de selección utilizando un KEY DINÁMICO combinado con la semilla
+        seleccion = st.selectbox(
+            "Seleccione Servidor Objetivo:", 
+            lista_opciones, 
+            index=default_index,
+            key=f"rep_sb_servidor_dyn_{st.session_state['key_semilla_selectbox']}"
+        )
+        
+        # Sincronizamos lo seleccionado de vuelta al estado intermedio
+        st.session_state["servidor_seleccionado_reporte"] = seleccion
 
         col_d1, col_d2 = st.columns(2)
         with col_d1:
@@ -153,7 +175,39 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login="admin"):
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        if st.button("📊 PROCESAR Y ARCHIVAR REPORTES", use_container_width=True, key="btn_procesar_reporte_maestro"):
+        # Fila de botones de acción combinados
+        col_btn1, col_btn2 = st.columns([4, 1])
+        
+        with col_btn1:
+            btn_procesar = st.button("📊 PROCESAR Y ARCHIVAR REPORTES", use_container_width=True, key="btn_procesar_reporte_maestro")
+        
+        with col_btn2:
+            btn_limpiar = st.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_limpiar_reportes")
+
+        # LÓGICA DEL BOTÓN LIMPIAR FILTROS (Solución Correcta y Completa)
+        if btn_limpiar:
+            st.session_state["rep_listo"] = False
+            st.session_state["rep_csv"] = None
+            st.session_state["rep_pdf"] = None
+            st.session_state["rep_name_csv"] = ""
+            st.session_state["rep_name_pdf"] = ""
+            st.session_state["servidor_seleccionado_reporte"] = "-- Seleccione un Servidor --"
+            # Alteramos la semilla para forzar la destrucción y recreación limpia del Selectbox
+            st.session_state["key_semilla_selectbox"] += 1
+            st.rerun()
+
+        # EVALUACIÓN BASAL: Si no se ha elegido un servidor o se tiene la opción por defecto, se congela la vista
+        if seleccion == "-- Seleccione un Servidor --":
+            st.session_state["rep_listo"] = False
+            st.info("💡 Por favor, seleccione un servidor objetivo de la lista y haga clic en **Procesar** para generar los datos teleométricos.")
+            return
+
+        # Si la opción es válida, recuperamos la metadata del servidor
+        srv_info = next(s for s in servidores if f"{s['nombre_alias']} ({s['ip']}) - {s['sistema_operativo']}" == seleccion)
+        ip_sel = srv_info['ip']
+
+        # EJECUCIÓN DEL PROCESAMIENTO BAJO DEMANDA
+        if btn_procesar:
             try:
                 dt_desde = datetime.combine(fecha_inicio, time.min)
                 dt_hasta = datetime.combine(fecha_fin, time.max)
@@ -177,6 +231,7 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login="admin"):
 
                 if not registros:
                     st.error(f"❌ Sin registros de telemetría para {srv_info['nombre_alias']} en el rango seleccionado.")
+                    st.session_state["rep_listo"] = False
                     return
 
                 tot_cpu, tot_ram, tot_red, tot_lat = 0.0, 0.0, 0.0, 0.0
@@ -332,6 +387,7 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login="admin"):
                 with open("simpol_debug.log", "a", encoding="utf-8") as f:
                     f.write(f"Error procesando reportes.py: {e}\n")
 
+        # RENDERIZADO EXCLUSIVO CUANDO EL INFORME ESTÉ LISTO
         if st.session_state["rep_listo"]:
             st.markdown("---")
             col_down1, col_down2 = st.columns(2)

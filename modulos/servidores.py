@@ -72,9 +72,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
     rol_sanitizado = str(rol_usuario).strip().upper() if rol_usuario else ""
     es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
     
-    # Inicializar estados de sesión para filtros y acciones si no existen
-    if "filtro_nombre" not in st.session_state:
-        st.session_state.filtro_nombre = "-- Seleccione un Servidor --"
+    # ==========================================================================
+    # HOMOLOGACIÓN DE ESTADO UNIFICADO PARA AUTOLIMPIEZA DESDE APP.PY
+    # ==========================================================================
+    if "filtro_servidor_nombre" not in st.session_state:
+        st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
     if "accion_infra" not in st.session_state:
         st.session_state.accion_infra = None
 
@@ -88,16 +90,14 @@ def mostrar_tabla_servidores(rol_usuario=None):
 
         # Determinar el índice actual en base al session_state de forma segura
         idx_actual = 0
-        if st.session_state.filtro_nombre in opciones_selectbox:
-            idx_actual = opciones_selectbox.index(st.session_state.filtro_nombre)
+        if st.session_state["filtro_servidor_nombre"] in opciones_selectbox:
+            idx_actual = opciones_selectbox.index(st.session_state["filtro_servidor_nombre"])
 
         # ==========================================================================
-        # SECCIÓN DE FILTRADO (Menú desplegable ultra rápido)
+        # SECCIÓN DE FILTRADO (Asistida por Index para permitir destrucción externa)
         # ==========================================================================
         col_f1, col_f2 = st.columns([3, 1])
         
-        # SOLUCIÓN: Quitamos el parámetro 'key' directo para evitar que Streamlit bloquee la variable.
-        # En su lugar, controlamos la posición usando 'index=idx_actual'
         seleccion = col_f1.selectbox(
             "Filtrar Servidor por Nombre",
             options=opciones_selectbox,
@@ -105,24 +105,22 @@ def mostrar_tabla_servidores(rol_usuario=None):
         )
         
         # Sincronización limpia de estados si el usuario cambia el selector manualmente
-        if seleccion != st.session_state.filtro_nombre:
-            st.session_state.filtro_nombre = seleccion
+        if seleccion != st.session_state["filtro_servidor_nombre"]:
+            st.session_state["filtro_servidor_nombre"] = seleccion
             st.session_state.accion_infra = None
             st.rerun()
 
         col_f2.markdown('<div style="margin-top: 36px;"></div>', unsafe_allow_html=True)
         
-        # AL DAR CLIC A LIMPIAR FILTRO:
-        # Ahora que el selectbox no está encadenado a una llave fija, podemos resetear 'filtro_nombre'
-        # sin que explote. En el próximo rerun, 'idx_actual' volverá a ser 0 de forma natural.
+        # AL DAR CLIC A LIMPIAR FILTRO MANUALMENTE:
         if col_f2.button("🧹 Limpiar Filtro", use_container_width=True, key="btn_limpiar_filtro_srv"):
-            st.session_state.filtro_nombre = "-- Seleccione un Servidor --"
+            st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
             st.session_state.accion_infra = None
             st.query_params.clear() 
             st.rerun()
 
         # Verificamos si se seleccionó un servidor válido
-        hay_filtro = st.session_state.filtro_nombre != "-- Seleccione un Servidor --"
+        hay_filtro = st.session_state["filtro_servidor_nombre"] != "-- Seleccione un Servidor --"
         servidores_filtrados = []
 
         if not hay_filtro:
@@ -140,7 +138,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 FROM servidores
                 WHERE nombre_alias = %s
             """
-            cursor.execute(query, (st.session_state.filtro_nombre,))
+            cursor.execute(query, (st.session_state["filtro_servidor_nombre"],))
             servidores_filtrados = cursor.fetchall()
 
             if not servidores_filtrados:
@@ -151,7 +149,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
         # ==========================================================================
         if hay_filtro and servidores_filtrados:
             
-            # 1. EVALUACIÓN DINÁMICA: ¿Tienen datos estas columnas en los registros actuales?
+            # EVALUACIÓN DINÁMICA: ¿Tienen datos estas columnas en los registros actuales?
             tiene_cpu = any(s['id_sensor_cpu'] != 0 for s in servidores_filtrados)
             tiene_ram = any(s['id_sensor_ram'] != 0 for s in servidores_filtrados)
             tiene_red = any(s['id_sensor_red'] != 0 for s in servidores_filtrados)
@@ -205,7 +203,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             """]
             html_lineas.append('<table class="tabla-banco"><thead><tr>')
             
-            # 2. CONSTRUCCIÓN DINÁMICA DE CABECERAS (Solo columnas activas)
+            # CONSTRUCCIÓN DINÁMICA DE CABECERAS (Solo columnas activas)
             html_lineas.append('<th>DIRECCIÓN IP</th>')
             html_lineas.append('<th>NOMBRE</th>')
             html_lineas.append('<th>SISTEMA OPERATIVO</th>')
@@ -230,7 +228,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             html_lineas.append('<th>FECHA REGISTRO</th>')
             html_lineas.append('</tr></thead><tbody>')
             
-            # 3. GENERACIÓN DE FILAS (Mapeando solo datos de columnas activas)
+            # GENERACIÓN DE FILAS (Mapeando solo datos de columnas activas)
             lista_ips = []
             mapeo_servidores = {}
             
@@ -294,7 +292,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 """, unsafe_allow_html=True)
                 
                 if st.button("🔍 Ver Datos", use_container_width=True, key="btn_ver_datos_exclusivo"):
-                    servidor_elegido = st.session_state.filtro_nombre
+                    servidor_elegido = st.session_state["filtro_servidor_nombre"]
                     
                     # Sincronización masiva de Estados de datos cruzados
                     st.session_state["servidor_seleccionado"] = servidor_elegido
