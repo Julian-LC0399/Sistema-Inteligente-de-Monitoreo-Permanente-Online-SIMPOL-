@@ -6,7 +6,7 @@ from fpdf import FPDF
 from database import obtener_lista_servidores, obtener_datos_historicos, registrar_proyeccion
 
 # =====================================================================
-# CLASE DE CONFIGURACIÓN GRÁFICA DEL REPORTE PDF (ESTILO BANCO CARONÍ)
+# CLASE DE CONFIGURACIÓN GRÁFICA DEL REPORTE PDF (ESTILO BANCO CARONI)
 # =====================================================================
 class PDF(FPDF):
     def header(self):
@@ -14,7 +14,7 @@ class PDF(FPDF):
         self.set_text_color(0, 51, 102) # Azul Corporativo
         self.cell(0, 10, "BANCO CARONI - SISTEMA SIMPOL", 0, 1, "C")
         self.set_font("Arial", "I", 10)
-        self.cell(0, 5, "Informe Tecnico de Planificacion de Capacidad (Capacity Planning)", 0, 1, "C")
+        self.cell(0, 5, "Informe Técnico de Planificación de Capacidad (Capacity Planning)", 0, 1, "C")
         self.ln(10)
 
     def footer(self):
@@ -105,6 +105,16 @@ def descargar_blob_capacity(reporte_id):
 # VISTA PRINCIPAL DE LA PANTALLA (ESTRUCTURADA EN PESTAÑAS)
 # =====================================================================
 def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
+    # Inicialización del control de semillas para la limpieza estricta de filtros
+    if "key_semilla_capacity" not in st.session_state:
+        st.session_state["key_semilla_capacity"] = 0
+
+    if "servidor_seleccionado_capacity" not in st.session_state:
+        st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
+
+    if "metrica_seleccionada_capacity" not in st.session_state:
+        st.session_state["metrica_seleccionada_capacity"] = "-- Seleccione una Métrica --"
+
     if "cap_listo" not in st.session_state:
         st.session_state["cap_listo"] = False
         st.session_state["cap_csv"] = None
@@ -127,48 +137,129 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
             st.warning("⚠️ No hay servidores activos para realizar proyecciones.")
             return
 
-        opciones = {f"{s['nombre_alias']} ({s['ip']})": s for s in servidores}
-        seleccion = st.selectbox("Seleccione Servidor para Análisis de Capacidad:", list(opciones.keys()), key="cap_serv_sel")
-        serv_info = opciones[seleccion]
+        # FILTRO 1: Selector de Servidores con estado neutro inicial
+        opciones_serv = ["-- Seleccione un Servidor --"] + [f"{s['nombre_alias']} ({s['ip']})" for s in servidores]
+        mapa_servidores = {f"{s['nombre_alias']} ({s['ip']})": s for s in servidores}
+
+        try:
+            idx_serv_defecto = opciones_serv.index(st.session_state["servidor_seleccionado_capacity"])
+        except ValueError:
+            idx_serv_defecto = 0
+
+        col_sel, col_limpiar = st.columns([3, 1])
+        with col_sel:
+            seleccion = st.selectbox(
+                "Seleccione Servidor para Análisis de Capacidad:", 
+                opciones_serv, 
+                index=idx_serv_defecto,
+                key=f"sb_servidor_dyn_{st.session_state['key_semilla_capacity']}"
+            )
+            st.session_state["servidor_seleccionado_capacity"] = seleccion
+
+        with col_limpiar:
+            st.markdown("<div style='padding-top: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_clear_capacity_filters"):
+                st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
+                st.session_state["metrica_seleccionada_capacity"] = "-- Seleccione una Métrica --"
+                st.session_state["key_semilla_capacity"] += 1
+                st.session_state["cap_listo"] = False
+                st.session_state["cap_csv"] = None
+                st.session_state["cap_pdf"] = None
+                st.session_state["cap_name_csv"] = ""
+                st.session_state["cap_name_pdf"] = ""
+                st.rerun()
+
+        # Condición 1: No mostrar nada si no se ha seleccionado un servidor
+        if seleccion == "-- Seleccione un Servidor --":
+            st.info("💡 Por favor, utilice el filtro superior seleccionando un servidor de la infraestructura para procesar los modelos de tendencia.")
+            return
+
+        serv_info = mapa_servidores[seleccion]
         ip_sel = serv_info['ip']
+
+        # Discriminación estricta y detección en vivo de sensores registrados para este servidor
+        lista_metricas_raw = []
+        if serv_info.get('id_sensor_cpu', 0) > 0:
+            lista_metricas_raw.append("CPU")
+        if serv_info.get('id_sensor_ram', 0) > 0:
+            lista_metricas_raw.append("RAM")
+            
+        for d_idx in range(1, 7):
+            if serv_info.get(f'id_sensor_disco_{d_idx}', 0) > 0:
+                letra_disco = {1: "C:\\", 2: "F:\\", 3: "E:\\", 4: "D:\\", 5: "G:\\", 6: "Y:\\"}.get(d_idx, "")
+                lista_metricas_raw.append(f"DISCO {d_idx} ({letra_disco})")
+                
+        # Bucle extendido hasta 9 para mapear dinámicamente los servicios del 1 al 8
+        for s_idx in range(1, 9):
+            if serv_info.get(f'id_sensor_servicio_{s_idx}', 0) > 0:
+                lista_metricas_raw.append(f"SERVICIO {s_idx}")
+                
+        if serv_info.get('id_sensor_red', 0) > 0:
+            lista_metricas_raw.append("RED")
+        if serv_info.get('id_sensor_ping', 0) > 0:
+            lista_metricas_raw.append("PING")
+
+        if not lista_metricas_raw:
+            st.error(f"❌ El servidor '{seleccion}' no posee ningún sensor o métrica registrado activamente en el sistema.")
+            return
+
+        # FILTRO 2: Selector de Métricas condicionado, con estado neutro inicial requerido
+        opciones_metricas = ["-- Seleccione una Métrica --"] + lista_metricas_raw
+        
+        try:
+            idx_met_defecto = opciones_metricas.index(st.session_state["metrica_seleccionada_capacity"])
+        except ValueError:
+            idx_met_defecto = 0
 
         col1, col2 = st.columns(2)
         with col1:
             metrica_label = st.selectbox(
-                "Métrica / Sensor a Proyectar:", 
-                ["CPU", "RAM", "DISCO 1 (C:\\)", "DISCO 2 (F:\\)", "DISCO 3 (E:\\)", "DISCO 4 (D:\\)", "DISCO 5 (G:\\)", "RED", "PING"], 
-                key="cap_metrica_sel"
+                "Métrica / Sensor Activo detectado:", 
+                opciones_metricas, 
+                index=idx_met_defecto,
+                key=f"cap_metrica_sel_{st.session_state['key_semilla_capacity']}"
             )
-            mapa_metrica = {
-                "CPU": "val_cpu", "RAM": "val_ram", 
-                "DISCO 1 (C:\\)": "val_disco_1", "DISCO 2 (F:\\)": "val_disco_2", 
-                "DISCO 3 (E:\\)": "val_disco_3", "DISCO 4 (D:\\)": "val_disco_4", 
-                "DISCO 5 (G:\\)": "val_disco_5",
-                "RED": "val_red", "PING": "val_latencia"
-            }
-            columna_db = mapa_metrica[metrica_label]
-            
+            st.session_state["metrica_seleccionada_capacity"] = metrica_label
+
         with col2:
-            dias_proy = st.slider("Días a proyectar:", 7, 90, 30, key="cap_slider_dias")
-        
-        # Validación estricta e indexación por Sensor de Disco
-        if "DISCO" in metrica_label:
-            num_disco = int(metrica_label.split(" ")[1])
-            if serv_info.get(f'id_sensor_disco_{num_disco}', 0) == 0:
-                st.error(f"❌ El volumen seleccionado ({metrica_label}) no se encuentra indexado ni activo en este servidor.")
-                return
+            dias_proy = st.slider("Días a proyectar:", 7, 90, 30, key=f"cap_slider_dias_{st.session_state['key_semilla_capacity']}")
+
+        # Condición 2: No mostrar analítica, gráficas ni botones si no se ha seleccionado una métrica
+        if metrica_label == "-- Seleccione una Métrica --":
+            st.info("📊 Servidor detectado de forma conforme. Ahora elija la métrica específica en el segundo filtro para generar la proyección.")
+            return
+
+        # Mapeo de la métrica hacia la columna de base de datos (INCLUIDOS LOS SERVICIOS 6, 7 Y 8)
+        mapa_metrica = {
+            "CPU": "val_cpu", "RAM": "val_ram", 
+            "DISCO 1 (C:\\)": "val_disco_1", "DISCO 2 (F:\\)": "val_disco_2", 
+            "DISCO 3 (E:\\)": "val_disco_3", "DISCO 4 (D:\\)": "val_disco_4", 
+            "DISCO 5 (G:\\)": "val_disco_5", "DISCO 6 (Y:\\)": "val_disco_6",
+            "SERVICIO 1": "estado_servicio_1", "SERVICIO 2": "estado_servicio_2",
+            "SERVICIO 3": "estado_servicio_3", "SERVICIO 4": "estado_servicio_4",
+            "SERVICIO 5": "estado_servicio_5", "SERVICIO 6": "estado_servicio_6",
+            "SERVICIO 7": "estado_servicio_7", "SERVICIO 8": "estado_servicio_8",
+            "RED": "val_red", "PING": "val_latencia"
+        }
+        columna_db = mapa_metrica[metrica_label]
 
         datos = obtener_datos_historicos(ip_sel)
         if len(datos) < 5:
-            st.error(f"❌ Datos insuficientes para {seleccion}. Se requieren al menos 5 registros históricos.")
+            st.error(f"❌ Datos insuficientes en el historial de {seleccion}. Se requieren al menos 5 registros históricos.")
             return
 
-        valores = [d[columna_db] for d in datos]
-        valor_actual = sum(valores[:5]) / 5  
+        valores = [d[columna_db] for d in datos if d[columna_db] is not None]
+        if not valores:
+            st.error(f"❌ El sensor '{metrica_label}' no posee lecturas telemétricas válidas en este servidor.")
+            return
+            
+        valor_actual = sum(valores[:5]) / len(valores[:5])
         
         if "DISCO" in metrica_label or metrica_label == "RAM":
             factor_reduccion = 0.92 if "DISCO" in metrica_label else 0.95
             valor_proyectado = max(0.0, valor_actual * factor_reduccion)
+        elif "SERVICIO" in metrica_label:
+            valor_proyectado = 1.0 if valor_actual >= 0.8 else 0.0
         else:
             factor_crecimiento = 1.05
             valor_proyectado = valor_actual * factor_crecimiento
@@ -181,7 +272,20 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         y_actual = h_base - (min(valor_actual, 100) * 1.2)
         y_proy = h_base - (min(valor_proyectado, 100) * 1.2)
         puntos = f"0,{h_base} 0,{y_actual} 150,{y_actual} 300,{y_proy} 300,{h_base}"
-        simbolo_unidad = "% Disp." if ("DISCO" in metrica_label or metrica_label == "RAM") else ("%" if metrica_label == "CPU" else ("Mb/s" if metrica_label == "RED" else "ms"))
+        
+        if "DISCO" in metrica_label or metrica_label == "RAM":
+            simbolo_unidad = "% Disp."
+        elif "SERVICIO" in metrica_label:
+            simbolo_unidad = "Estado"
+        elif metrica_label == "CPU":
+            simbolo_unidad = "%"
+        elif metrica_label == "RED":
+            simbolo_unidad = "Mb/s"
+        else:
+            simbolo_unidad = "ms"
+
+        lbl_hoy = f"Hoy: {'ACTIVO' if valor_actual >= 0.8 else 'CAÍDO'}" if simbolo_unidad == "Estado" else f"Hoy: {valor_actual:.1f} {simbolo_unidad}"
+        lbl_prox = f"Prox: {'ACTIVO' if valor_proyectado == 1.0 else 'CAÍDO'}" if simbolo_unidad == "Estado" else f"Prox: {valor_proyectado:.1f} {simbolo_unidad}"
 
         st.markdown(f"""
         <div style="background: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #ddd;">
@@ -190,8 +294,8 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 <polyline points="{puntos}" fill="rgba(0, 51, 102, 0.15)" stroke="#003366" stroke-width="3" />
                 <circle cx="0" cy="{y_actual}" r="4" fill="#2c3e50" />
                 <circle cx="300" cy="{y_proy}" r="4" fill="#003366" />
-                <text x="5" y="{y_actual - 10}" font-size="12" fill="#2c3e50">Hoy: {valor_actual:.1f} {simbolo_unidad}</text>
-                <text x="180" y="{y_proy - 10}" font-size="12" fill="#003366" font-weight="bold">Prox: {valor_proyectado:.1f} {simbolo_unidad}</text>
+                <text x="5" y="{y_actual - 10}" font-size="12" fill="#2c3e50">{lbl_hoy}</text>
+                <text x="160" y="{y_proy - 10}" font-size="12" fill="#003366" font-weight="bold">{lbl_prox}</text>
                 <text x="0" y="170" font-size="10" fill="#999">Estado Actual</text>
                 <text x="240" y="170" font-size="10" fill="#999">+{dias_proy} días</text>
             </svg>
@@ -200,19 +304,22 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
 
         st.divider()
         
-        veredicto = "CRÍTICO" if (("DISCO" in metrica_label or metrica_label == "RAM") and valor_proyectado <= 10.0) or (metrica_label == "CPU" and valor_proyectado >= 85.0) else "SUFICIENTE"
+        if (("DISCO" in metrica_label or metrica_label == "RAM") and valor_proyectado <= 10.0) or \
+           (metrica_label == "CPU" and valor_proyectado >= 85.0) or \
+           ("SERVICIO" in metrica_label and valor_proyectado == 0.0):
+            veredicto = "CRÍTICO"
+        else:
+            veredicto = "SUFICIENTE"
         
         if veredicto == "CRÍTICO":
             st.error(f"🚩 ALERTA DE CAPACITY PLANNING: Se proyecta el colapso o agotamiento de {metrica_label} en la ventana de {dias_proy} días.")
         else:
             st.success(f"✅ Previsión de Capacidad: El recurso {metrica_label} posee suficiente tolerancia operativa.")
 
-        # Botón de Procesamiento
         if st.button("🚀 REGISTRAR Y GENERAR EXPEDIENTES DE CAPACITY", use_container_width=True, key="btn_gen_capacity_files"):
             try:
                 timestamp_actual = datetime.now().strftime('%Y%m%d_%H%M%S')
                 
-                # Compilar CSV
                 output_csv = io.StringIO()
                 output_csv.write("Fecha Analisis,IP Servidor,Nombre,Metrica Analizada,Ventana Dias,Valor Actual,Valor Proyectado,Unidad,Veredicto,Usuario,Cargo\n")
                 output_csv.write(
@@ -222,12 +329,10 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 csv_binario = output_csv.getvalue().encode('utf-8', errors='ignore')
                 nombre_csv = f"Capacity_{ip_sel}_{metrica_label.replace(' ', '_').replace('\\','')}_{timestamp_actual}.csv"
 
-                # Compilar PDF (A4 Horizontal)
                 pdf = PDF(orientation='L', unit='mm', format='A4')
                 pdf.add_page()
                 pdf.set_font("Arial", "B", 10)
                 pdf.cell(0, 8, f"Fecha de Analisis: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", 0, 1)
-                
                 pdf.cell(0, 8, f"Usuario: {usuario_login}", 0, 1)
                 pdf.cell(0, 8, f"Cargo: {nombre_analista}", 0, 1)
                 pdf.ln(4)
@@ -248,8 +353,16 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 pdf.cell(40, 7, str(serv_info['nombre_alias']), 1, 0, "C")
                 pdf.cell(40, 7, str(metrica_label), 1, 0, "C")
                 pdf.cell(25, 7, f"+{dias_proy} dias", 1, 0, "C")
-                pdf.cell(30, 7, f"{valor_actual:.2f} {simbolo_unidad}", 1, 0, "C")
-                pdf.cell(35, 7, f"{valor_proyectado:.2f} {simbolo_unidad}", 1, 0, "C")
+                
+                if simbolo_unidad == "Estado":
+                    txt_pdf_actual = 'ACTIVO' if valor_actual >= 0.8 else 'CAÍDO'
+                    txt_pdf_proy = 'ACTIVO' if valor_proyectado == 1.0 else 'CAÍDO'
+                else:
+                    txt_pdf_actual = f"{valor_actual:.2f} {simbolo_unidad}"
+                    txt_pdf_proy = f"{valor_proyectado:.2f} {simbolo_unidad}"
+                    
+                pdf.cell(30, 7, txt_pdf_actual, 1, 0, "C")
+                pdf.cell(35, 7, txt_pdf_proy, 1, 0, "C")
                 
                 if veredicto == "CRÍTICO":
                     pdf.set_text_color(200, 0, 0)
@@ -264,7 +377,7 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 pdf.cell(0, 6, "Declaracion de Riesgos Operativos e Infraestructura:", 0, 1)
                 pdf.set_font("Arial", "I", 9)
                 if veredicto == "CRÍTICO":
-                    pdf.multi_cell(0, 5, f"ALERTA: Se ha determinado un riesgo inminente por saturacion del recurso '{metrica_label}' dentro del periodo evaluado. Se requiere el escalamiento inmediato al departamento de arquitectura de servidores del Banco Caroni.")
+                    pdf.multi_cell(0, 5, f"ALERTA: Se ha determinado un riesgo inminente por saturacion o degradacion del recurso '{metrica_label}' dentro del periodo evaluado. Se requiere el escalamiento inmediato al departamento de arquitectura de servidores del Banco Caroni.")
                 else:
                     pdf.multi_cell(0, 5, f"EVALUACION CONFORME: El recurso '{metrica_label}' opera dentro de las metricas basales aceptables con holgura suficiente.")
 
@@ -278,7 +391,6 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 st.session_state["cap_name_pdf"] = nombre_pdf
                 st.session_state["cap_listo"] = True
 
-                # Persistencia
                 archivar_reporte_capacity(csv_binario, nombre_csv, 'CSV', metrica_label, ip_sel, usuario_id)
                 archivar_reporte_capacity(pdf_binario, nombre_pdf, 'PDF', metrica_label, ip_sel, usuario_id)
                 

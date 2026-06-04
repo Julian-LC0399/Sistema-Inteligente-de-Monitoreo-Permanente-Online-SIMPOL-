@@ -31,8 +31,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
     Filtra mediante un menú desplegable ágil asistido por caché de datos.
     Oculta dinámicamente las columnas cuyos sensores no estén asignados (valor 0).
     Redirecciona limpiamente mediante un botón corporativo externo exclusivo.
+    Soporta estructuralmente hasta 6 discos y 8 sensores de servicios.
     """
-    # INYECCIÓN DE ESTILOS PARA AMPLIAR FORMULARIOS Y DARLE MÁS ESPACIO A LA TABLA
+    # INYECCIÓN DE ESTILOS PARA AMPLIAR FORMULARIOS, AJUSTAR ESPACIADOS Y MEJORAR BOTONES
     st.markdown("""
         <style>
             /* ==========================================
@@ -43,21 +44,37 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 font-weight: 600 !important;
                 color: #333333 !important;
             }
+            /* Espaciado uniforme inferior en cada contenedor de elemento/input */
             div[data-testid="stForm"] div[data-testid="element-container"] {
-                margin-bottom: 6px;
+                margin-bottom: 12px !important;
             }
             div[data-testid="stForm"] input {
                 padding: 10px 14px !important;
                 font-size: 14px !important;
+                border-radius: 6px !important;
             }
+            /* Separadores de sección internos del formulario */
             .subtitulo-formulario {
                 color: #003366;
-                margin-top: 25px;
-                margin-bottom: 15px;
+                margin-top: 30px;
+                margin-bottom: 18px;
                 border-bottom: 2px solid #ECEFF1;
-                padding-bottom: 5px;
+                padding-bottom: 6px;
                 font-size: 17px;
                 font-weight: bold;
+            }
+            /* Ajuste estructural para la fila de botones finales dentro del formulario */
+            div[data-testid="stForm"] div.stColumns {
+                margin-top: 25px !important;
+                gap: 15px !important;
+            }
+            /* Estilización unificada y pulida para botones de envío/acción dentro de formularios */
+            div[data-testid="stForm"] button {
+                height: 44px !important;
+                font-weight: bold !important;
+                border-radius: 6px !important;
+                font-size: 14px !important;
+                transition: all 0.3s ease;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -134,6 +151,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                        id_sensor_cpu, id_sensor_ram, 
                        id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
                        id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
+                       id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
                        id_sensor_red, id_sensor_latencia 
                 FROM servidores
                 WHERE nombre_alias = %s
@@ -161,10 +179,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
             for i in range(1, 7):
                 discos_activos[i] = any(s[f'id_sensor_disco_{i}'] != 0 for s in servidores_filtrados)
             
-            # Mapear e identificar slots de servicios individuales activos
+            # Mapear e identificar slots de servicios individuales activos (Ampliado a 8)
             servicios_activos = {}
-            for i in range(1, 6):
-                servicios_activos[i] = any(s[f'id_sensor_servicio_{i}'] != 0 for s in servidores_filtrados)
+            for i in range(1, 9):
+                servicios_activos[i] = any(s.get(f'id_sensor_servicio_{i}', 0) != 0 for s in servidores_filtrados)
 
             # Estructura de diseño dividida: 84% Tabla Ampliada, 16% Botón de Acción
             col_tabla, col_accion_btn = st.columns([5.2, 0.8])
@@ -216,8 +234,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 if discos_activos[i]:
                     html_lineas.append(f'<th>DISCO {letras_unidades[i]}</th>')
                     
-            # Columnas individuales de servicios detectados
-            for i in range(1, 6):
+            # Columnas individuales de servicios detectados (Hasta 8 sensores)
+            for i in range(1, 9):
                 if servicios_activos[i]:
                     html_lineas.append(f'<th>SERVICIO {i}</th>')
                     
@@ -252,10 +270,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     if discos_activos[i]:
                         html_lineas.append(f'<td>ID {s[f"id_sensor_disco_{i}"]}</td>')
                         
-                # Celdas dinámicas para cada servicio asignado
-                for i in range(1, 6):
+                # Celdas dinámicas para cada servicio asignado (Hasta 8)
+                for i in range(1, 9):
                     if servicios_activos[i]:
-                        html_lineas.append(f'<td>ID {s[f"id_sensor_servicio_{i}"]}</td>')
+                        html_lineas.append(f'<td>ID {s.get(f"id_sensor_servicio_{i}", 0)}</td>')
                         
                 if tiene_red: html_lineas.append(f'<td>{s["id_sensor_red"]}</td>')
                 if tiene_latencia: html_lineas.append(f'<td>{s["id_sensor_latencia"]}</td>')
@@ -361,7 +379,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 reg_d5 = col_reg_d5.number_input("Disco 5 (Unidad G:)", value=0, step=1)
                 reg_d6 = col_reg_d6.number_input("Disco 6 (Unidad H:)", value=0, step=1)
 
-                st.markdown("<div class='subtitulo-formulario'>⚙️ Monitoreo de Servicios del Sistema (Slots)</div>", unsafe_allow_html=True)
+                st.markdown("<div class='subtitulo-formulario'>⚙️ Monitoreo de Servicios del Sistema (8 Slots Activos)</div>", unsafe_allow_html=True)
                 col_reg_s1, col_reg_s2 = st.columns(2)
                 reg_s1 = col_reg_s1.number_input("ID Sensor - Servicio del Sistema 1", value=0, step=1)
                 reg_s2 = col_reg_s2.number_input("ID Sensor - Servicio del Sistema 2", value=0, step=1)
@@ -370,6 +388,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 reg_s3 = col_reg_s3.number_input("ID Sensor - Servicio 3", value=0, step=1)
                 reg_s4 = col_reg_s4.number_input("ID Sensor - Servicio 4", value=0, step=1)
                 reg_s5 = col_reg_s5.number_input("ID Sensor - Servicio 5", value=0, step=1)
+                
+                col_reg_s6, col_reg_s7, col_reg_s8 = st.columns(3)
+                reg_s6 = col_reg_s6.number_input("ID Sensor - Servicio 6", value=0, step=1)
+                reg_s7 = col_reg_s7.number_input("ID Sensor - Servicio 7", value=0, step=1)
+                reg_s8 = col_reg_s8.number_input("ID Sensor - Servicio 8", value=0, step=1)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 col_btn_reg1, col_btn_reg2 = st.columns(2)
@@ -390,14 +413,16 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                                         id_sensor_cpu, id_sensor_ram, 
                                                         id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
                                                         id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
+                                                        id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
                                                         id_sensor_red, id_sensor_latencia, estado_monitoreo)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
                             """
                             cursor_write.execute(ins_query, (
                                 reg_ip.strip(), reg_alias.strip(), reg_so,
                                 int(reg_cpu), int(reg_ram),
                                 int(reg_d1), int(reg_d2), int(reg_d3), int(reg_d4), int(reg_d5), int(reg_d6),
                                 int(reg_s1), int(reg_s2), int(reg_s3), int(reg_s4), int(reg_s5),
+                                int(reg_s6), int(reg_s7), int(reg_s8),
                                 int(reg_red), int(reg_lat)
                             ))
                             conn_write.commit()
@@ -458,7 +483,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     edit_d5 = col_d5.number_input("Disco 5 (Unidad G:)", value=int(srv_actual['id_sensor_disco_5']), step=1)
                     edit_d6 = col_d6.number_input("Disco 6 (Unidad H:)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=1)
 
-                    st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (Slots)</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (8 Slots Ampliados)</div>", unsafe_allow_html=True)
                     col_s1, col_s2 = st.columns(2)
                     edit_s1 = col_s1.number_input("ID Sensor - Servicio Sistema 1", value=int(srv_actual.get('id_sensor_servicio_1', 0)), step=1)
                     edit_s2 = col_s2.number_input("ID Sensor - Servicio Sistema 2", value=int(srv_actual.get('id_sensor_servicio_2', 0)), step=1)
@@ -467,6 +492,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     edit_s3 = col_s3.number_input("ID Sensor - Servicio 3", value=int(srv_actual.get('id_sensor_servicio_3', 0)), step=1)
                     edit_s4 = col_s4.number_input("ID Sensor - Servicio 4", value=int(srv_actual.get('id_sensor_servicio_4', 0)), step=1)
                     edit_s5 = col_s5.number_input("ID Sensor - Servicio 5", value=int(srv_actual.get('id_sensor_servicio_5', 0)), step=1)
+                    
+                    col_s6, col_s7, col_s8 = st.columns(3)
+                    edit_s6 = col_s6.number_input("ID Sensor - Servicio 6", value=int(srv_actual.get('id_sensor_servicio_6', 0)), step=1)
+                    edit_s7 = col_s7.number_input("ID Sensor - Servicio 7", value=int(srv_actual.get('id_sensor_servicio_7', 0)), step=1)
+                    edit_s8 = col_s8.number_input("ID Sensor - Servicio 8", value=int(srv_actual.get('id_sensor_servicio_8', 0)), step=1)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     col_btn_edi1, col_btn_edi2 = st.columns(2)
@@ -482,6 +512,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 SET nombre_alias=%s, id_sensor_cpu=%s, id_sensor_ram=%s, 
                                     id_sensor_disco_1=%s, id_sensor_disco_2=%s, id_sensor_disco_3=%s, id_sensor_disco_4=%s, id_sensor_disco_5=%s, id_sensor_disco_6=%s,
                                     id_sensor_servicio_1=%s, id_sensor_servicio_2=%s, id_sensor_servicio_3=%s, id_sensor_servicio_4=%s, id_sensor_servicio_5=%s,
+                                    id_sensor_servicio_6=%s, id_sensor_servicio_7=%s, id_sensor_servicio_8=%s,
                                     id_sensor_red=%s, id_sensor_latencia=%s
                                 WHERE ip=%s
                             """
@@ -489,6 +520,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 edit_alias.strip(), int(edit_cpu), int(edit_ram), 
                                 int(edit_d1), int(edit_d2), int(edit_d3), int(edit_d4), int(edit_d5), int(edit_d6),
                                 int(edit_s1), int(edit_s2), int(edit_s3), int(edit_s4), int(edit_s5),
+                                int(edit_s6), int(edit_s7), int(edit_s8),
                                 int(edit_red), int(edit_lat), ip_edit
                             ))
                             conn_edit.commit()

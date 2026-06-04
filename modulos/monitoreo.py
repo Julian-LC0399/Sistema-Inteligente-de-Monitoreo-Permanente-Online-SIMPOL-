@@ -26,7 +26,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     )
     st.markdown("---")
 
-    # REGRA DE AUTOLIMPIEZA: Registrar que estuvimos aquí para limpiar si cambiamos de módulo
+    # REGLA DE AUTOLIMPIEZA: Registrar que estuvimos aquí en este ciclo de ejecución
     st.session_state["modulo_actual_monitoreo"] = True
 
     # Inicialización estándar de estados si están completamente vacíos
@@ -92,12 +92,13 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             conn.close()
             return
 
-        # Consulta de metadatos del servidor seleccionado
+        # Consulta de metadatos del servidor (AÑADIDOS SERVICIOS 6, 7 Y 8)
         query = """
             SELECT ip, nombre_alias, sistema_operativo, 
                    id_sensor_cpu, id_sensor_ram, 
                    id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
                    id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
+                   id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
                    id_sensor_red, id_sensor_latencia 
             FROM servidores
             WHERE nombre_alias = %s
@@ -124,13 +125,14 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         if int(info_servidor.get('id_sensor_latencia') or 0) > 0:
             dict_sensores_activos["Métrica: Latencia"] = {"tipo": "latencia", "campo": "val_latencia", "unidad": "ms", "id": info_servidor['id_sensor_latencia'], "umbral_advertencia": 150.0, "direccion_critica": "alta"}
         
-        letras_unidades = {1: "C:", 2: "F:", 3: "E:", 4: "D:", 5: "G:", 6: "H:"}
+        letras_unidades = {1: "C:", 2: "F:", 3: "E:", 4: "D:", 5: "G:", 6: "Y:"}
         for i in range(1, 7):
             id_disco = int(info_servidor.get(f'id_sensor_disco_{i}') or 0)
             if id_disco > 0:
                 dict_sensores_activos[f"Disco ({letras_unidades[i]})"] = {"tipo": f"disco_{i}", "campo": f"val_disco_{i}", "unidad": "GB", "id": id_disco, "umbral_advertencia": 10.0, "direccion_critica": "baja"}
 
-        for i in range(1, 6):
+        # Bucle extendido hasta 9 para incluir dinámicamente los servicios del 1 al 8
+        for i in range(1, 9):
             id_servicio = int(info_servidor.get(f'id_sensor_servicio_{i}') or 0)
             if id_servicio > 0:
                 dict_sensores_activos[f"Sensor Servicio {i}"] = {"tipo": f"servicio_{i}", "campo": f"estado_servicio_{i}", "unidad": "Estado", "id": id_servicio}
@@ -146,7 +148,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         if not registro_reciente:
             st.warning("⚠️ Conexión establecida pero no se hallaron muestras telemetráles recientes.")
         else:
-            # AUDITORÍA DETALLADA DE SENSORES EN ALERTA (Eliminación de ambigüedad)
+            # AUDITORÍA DETALLADA DE SENSORES EN ALERTA
             lista_alertas_detectadas = []
             
             for nombre_s, metadatos_s in dict_sensores_activos.items():
@@ -165,7 +167,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     elif metadatos_s["direccion_critica"] == "baja" and val_calc <= umb:
                         lista_alertas_detectadas.append(f"⚠️ **{nombre_s}** presenta almacenamiento/recurso escaso ({val_calc}{metadatos_s['unidad']} <= {umb}{metadatos_s['unidad']}).")
 
-            # Despliegue inteligente de diagnósticos
             if lista_alertas_detectadas:
                 st.error("🚨 **Incidencias Activas Detectadas en los Siguientes Componentes:**")
                 for alerta in lista_alertas_detectadas:
@@ -187,14 +188,15 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         delta_v = None
                         if len(datos_historicos) > 1:
                             try:
-                                diff = round(float(val_actual_kpi) - float(datos_historicos[1][metadatos["campo"]]), 2)
-                                delta_v = f"+{diff} {metadatos['unidad']}" if diff > 0 else f"{diff} {metadatos['unidad']}"
+                                if val_actual_kpi is not None and datos_historicos[1][metadatos["campo"]] is not None:
+                                    diff = round(float(val_actual_kpi) - float(datos_historicos[1][metadatos["campo"]]), 2)
+                                    delta_v = f"+{diff} {metadatos['unidad']}" if diff > 0 else f"{diff} {metadatos['unidad']}"
                             except (ValueError, TypeError):
                                 pass
                         
                         st.metric(
                             label=nombre_sensor,
-                            value=f"{val_actual_kpi} {metadatos['unidad']}",
+                            value=f"{val_actual_kpi} {metadatos['unidad']}" if val_actual_kpi is not None else "N/D",
                             delta=delta_v,
                             delta_color="inverse" if metadatos["tipo"] in ["cpu", "red", "latencia"] else "normal",
                             help=f"ID PRTG: {metadatos['id']}"
@@ -228,24 +230,24 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             return
 
         meta_sensor = dict_sensores_activos[st.session_state.filtro_monitoreo_sensor]
-        
-        valor_individual_actual = registro_reciente.get(meta_sensor["campo"])
+        valor_individual_actual = registro_reciente.get(meta_sensor["campo"]) if registro_reciente else None
         
         color_estado_prtg = "#77ab13"
         icono_estado_prtg = "🟢"
         
-        if "umbral_advertencia" in meta_sensor:
-            umb = meta_sensor["umbral_advertencia"]
-            val_f = float(valor_individual_actual or 0.0)
-            if meta_sensor["direccion_critica"] == "alta" and val_f >= umb:
-                color_estado_prtg = "#ff9900"
-                icono_estado_prtg = "🟡"
-            elif meta_sensor["direccion_critica"] == "baja" and val_f <= umb:
-                color_estado_prtg = "#ff9900"
-                icono_estado_prtg = "🟡"
-        elif meta_sensor["unidad"] == "Estado" and int(valor_individual_actual or 0) != 1:
-            color_estado_prtg = "#d32f2f"
-            icono_estado_prtg = "🔴"
+        if valor_individual_actual is not None:
+            if "umbral_advertencia" in meta_sensor:
+                umb = meta_sensor["umbral_advertencia"]
+                val_f = float(valor_individual_actual or 0.0)
+                if meta_sensor["direccion_critica"] == "alta" and val_f >= umb:
+                    color_estado_prtg = "#ff9900"
+                    icono_estado_prtg = "🟡"
+                elif meta_sensor["direccion_critica"] == "baja" and val_f <= umb:
+                    color_estado_prtg = "#ff9900"
+                    icono_estado_prtg = "🟡"
+            elif meta_sensor["unidad"] == "Estado" and int(valor_individual_actual or 0) != 1:
+                color_estado_prtg = "#d32f2f"
+                icono_estado_prtg = "🔴"
 
         col_individual_kpi, col_individual_status = st.columns([1, 2])
         with col_individual_kpi:
@@ -255,23 +257,25 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 delta_individual = None
                 if len(datos_historicos) > 1:
                     try:
-                        diferencia = round(float(valor_individual_actual) - float(datos_historicos[1][meta_sensor["campo"]]), 2)
-                        delta_individual = f"+{diferencia} {meta_sensor['unidad']}" if diferencia > 0 else f"{diferencia} {meta_sensor['unidad']}"
+                        if valor_individual_actual is not None and datos_historicos[1][meta_sensor["campo"]] is not None:
+                            diferencia = round(float(valor_individual_actual) - float(datos_historicos[1][meta_sensor["campo"]]), 2)
+                            delta_individual = f"+{diferencia} {meta_sensor['unidad']}" if diferencia > 0 else f"{diferencia} {meta_sensor['unidad']}"
                     except (ValueError, TypeError):
                         pass
 
                 st.metric(
                     label=f"Último Escaneo ({meta_sensor['unidad']})",
-                    value=f"{valor_individual_actual} {meta_sensor['unidad']}",
+                    value=f"{valor_individual_actual} {meta_sensor['unidad']}" if valor_individual_actual is not None else "N/D",
                     delta=delta_individual,
                     delta_color="inverse" if meta_sensor["tipo"] in ["cpu", "red", "latencia"] else "normal"
                 )
 
         with col_individual_status:
+            fecha_sync = registro_reciente.get("fecha_registro") if registro_reciente else "N/D"
             st.markdown(
                 f'<div style="background-color: #ffffff; border: 1px solid #dee2e6; border-left: 5px solid {color_estado_prtg}; padding: 14px; border-radius: 4px; margin-top:5px; font-family:Arial;">'
                 f'<span style="color:#444444; font-weight:bold; font-size:15px;">{icono_estado_prtg} Canal: {st.session_state.filtro_monitoreo_sensor}</span><br>'
-                f'<span style="font-size:12px; color:#666;">• <b>Sensor ID:</b> {meta_sensor["id"]} | <b>Sincronización:</b> {registro_reciente.get("fecha_registro")}</span><br>'
+                f'<span style="font-size:12px; color:#666;">• <b>Sensor ID:</b> {meta_sensor["id"]} | <b>Sincronización:</b> {fecha_sync}</span><br>'
                 f'<span style="font-size:12px; color:#666;">• <b>Intervalo de Escaneo:</b> 60s (Tiempo Real Activo)</span>'
                 f'</div>', 
                 unsafe_allow_html=True
@@ -282,7 +286,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         
         for reg in reversed(datos_historicos):
             try:
-                val = float(reg[meta_sensor["campo"]] or 0.0)
+                val = float(reg[meta_sensor["campo"]] if reg[meta_sensor["campo"]] is not None else 0.0)
                 valores_linea.append(val)
                 f_reg = reg.get('fecha_registro')
                 str_f = f_reg.strftime("%H:%M") if hasattr(f_reg, 'strftime') else str(f_reg)
@@ -301,8 +305,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             padding_top = 40
             padding_bottom = 50
             
-            max_val = max(valores_linea)
-            min_val = min(valores_linea)
+            max_val = max(valores_linea) if valores_linea else 0
             
             if meta_sensor["unidad"] == "%":
                 max_escala = 100.0
@@ -409,15 +412,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 # LÓGICA DE LIMPIEZA AUTOMÁTICA (GARANTÍA AL SALIR DEL MÓDULO)
 # ==========================================================================
 def limpiar_filtros_monitoreo():
-    """
-    Evalúa si el analista cambió de sección/módulo en la barra lateral para 
-    destruir la persistencia de las cajas de selección de forma inmediata.
-    """
     if "modulo_actual_monitoreo" in st.session_state:
-        # Si la bandera existía pero ya no estamos renderizando activamente esta función
         del st.session_state["modulo_actual_monitoreo"]
     else:
-        # El analista abandonó la sección: Reset total
         if "filtro_monitoreo_nombre" in st.session_state:
             st.session_state.filtro_monitoreo_nombre = "-- Seleccione un Servidor --"
         if "filtro_monitoreo_sensor" in st.session_state:
@@ -425,5 +422,4 @@ def limpiar_filtros_monitoreo():
         if "servidor_seleccionado" in st.session_state:
             st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
 
-# Ejecución pasiva de recolección de memoria
 limpiar_filtros_monitoreo()

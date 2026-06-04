@@ -150,12 +150,14 @@ def obtener_telemetria_total(config_servidor):
     ram_l = round(float(psutil.virtual_memory().available) / 1073741824, 2)
     pct_ram_l = round((float(psutil.virtual_memory().available) / float(psutil.virtual_memory().total)) * 100, 1)
     
+    # Se extendió la estructura data para inicializar servicio_6, servicio_7 y servicio_8
     data = {
         "cpu": cpu_l, "ram": ram_l, "pct_ram": pct_ram_l,
         "red": 0.0, "latencia": 0.0, 
         "disco_1": 0.0, "disco_2": 0.0, "disco_3": 0.0, "disco_4": 0.0, "disco_5": 0.0, "disco_6": 0.0,
         "pct_disco_1": None, "pct_disco_2": None, "pct_disco_3": None, "pct_disco_4": None, "pct_disco_5": None, "pct_disco_6": None,
         "servicio_1": 0, "servicio_2": 0, "servicio_3": 0, "servicio_4": 0, "servicio_5": 0,
+        "servicio_6": 0, "servicio_7": 0, "servicio_8": 0,
         "msg": "💻 (MODO LOCAL)"
     }
 
@@ -171,8 +173,9 @@ def obtener_telemetria_total(config_servidor):
         discos_res[f'p_{i}'] = p_disc
         discos_res[f'ok_{i}'] = ok_disc if (ok_disc and v_disc > 0) else False
 
+    # Se amplió el rango del bucle de 1 a 9 para capturar los sensores del 1 al 8 de forma limpia
     servicios_res = {}
-    for i in range(1, 6):
+    for i in range(1, 9):
         v_serv, _, ok_serv = obtener_valor_prtg(config_servidor.get(f'id_sensor_servicio_{i}', 0), "servicio")
         servicios_res[f's_{i}'] = v_serv if ok_serv else 0
 
@@ -196,7 +199,8 @@ def obtener_telemetria_total(config_servidor):
                 data[f"disco_{i}"] = 0.0
                 data[f"pct_disco_{i}"] = None
 
-        for i in range(1, 6):
+        # Se amplió el mapeo final de los resultados al payload data del 1 al 8
+        for i in range(1, 9):
             data[f"servicio_{i}"] = servicios_res[f"s_{i}"]
             
         data["msg"] = "🛰️ (PRTG ONLINE)"

@@ -2,6 +2,26 @@ import streamlit as st
 from database import conectar_bd, registrar_auditoria_usuario
 
 def mostrar_pantalla(user_actual, user_id):
+    # ==========================================================================
+    # CONTROL DE SAlIDA AUTOMÁTICA DEL MÓDULO
+    # ==========================================================================
+    # Registramos que el módulo actual en ejecución es "gestion_personal"
+    # Si la última vez estuvimos en otro módulo, o si venimos llegando, aseguramos consistencia
+    if "modulo_actual" not in st.session_state:
+        st.session_state.modulo_actual = "gestion_personal"
+    
+    # Inicializar estados de sesión para el filtro de analistas y acciones si no existen
+    if "filtro_analista" not in st.session_state:
+        st.session_state.filtro_analista = "-- Seleccione un Analista --"
+    if "accion_personal" not in st.session_state:
+        st.session_state.accion_personal = None
+
+    # Si el script detecta que el módulo guardado cambió o se renderiza por primera vez tras salir
+    if st.session_state.modulo_actual != "gestion_personal":
+        st.session_state.filtro_analista = "-- Seleccione un Analista --"
+        st.session_state.accion_personal = None
+        st.session_state.modulo_actual = "gestion_personal"
+
     # 1. SEGURIDAD DE ROL
     rol_sanitizado = str(st.session_state.get("rol")).strip().upper() if st.session_state.get("rol") else ""
     es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
@@ -69,11 +89,8 @@ def mostrar_pantalla(user_actual, user_id):
     st.markdown('<div class="modulo-banco">', unsafe_allow_html=True)
     st.markdown(f'<p class="analista-sesion-tag">Analista en sesión: <b>{user_actual}</b></p>', unsafe_allow_html=True)
 
-    # Inicializar estados de sesión para el filtro de analistas y acciones
-    if "filtro_analista" not in st.session_state:
-        st.session_state.filtro_analista = "-- Seleccione un Analista --"
-    if "accion_personal" not in st.session_state:
-        st.session_state.accion_personal = None
+    conn = None
+    cursor = None
 
     try:
         conn = conectar_bd()
@@ -212,18 +229,16 @@ def mostrar_pantalla(user_actual, user_id):
         # INTERFAZ DE OPERACIONES CONDICIONAL
         # ==========================================================================
         if not hay_filtro:
-            # Caso 1: Sin selección -> Solo se permite "Registrar Usuario"
             if st.button("➕ Registrar Usuario", use_container_width=True):
                 st.session_state.accion_personal = "registrar"
         else:
-            # Caso 2: Analista seleccionado -> Habilitar "Modificar" y "Alterar Estatus"
             col_b1, col_b2 = st.columns(2)
             if col_b1.button("📝 Modificar Cargo Filtrado", use_container_width=True):
                 st.session_state.accion_personal = "editar"
             if col_b2.button("⚙️ Alterar Estatus Lógico", use_container_width=True):
                 st.session_state.accion_personal = "estatus"
 
-        # --- FORMULARIO DE REGISTRO (Solo si no hay filtro) ---
+        # --- FORMULARIO DE REGISTRO ---
         if st.session_state.accion_personal == "registrar" and not hay_filtro:
             st.markdown("### 📥 Nuevo Integrante")
             with st.form("form_alta_usr"):
@@ -233,7 +248,6 @@ def mostrar_pantalla(user_actual, user_id):
                 f_cargo = c1.text_input("Cargo:")
                 f_rol = c2.selectbox("Rol institucional:", ["operador", "seguridad", "admin"])
                 
-                # Fila balanceada de Botones de Confirmación y Cancelación
                 c_btn1, c_btn2 = st.columns(2)
                 guardar_click = c_btn1.form_submit_button("Guardar Credenciales", use_container_width=True)
                 cancelar_click = c_btn2.form_submit_button("❌ Cancelar", use_container_width=True)
@@ -251,6 +265,7 @@ def mostrar_pantalla(user_actual, user_id):
                             conn.commit()
                             registrar_auditoria_usuario(f_user.strip(), "REGISTRO", "N/A", f"ROL:{f_rol}", user_id, "Alta institucional en SIMPOL")
                             st.success("Analista registrado exitosamente en el sistema.")
+                            st.session_state.filtro_analista = "-- Seleccione un Analista --"
                             st.session_state.accion_personal = None
                             st.rerun()
                         except Exception as ex:
@@ -259,10 +274,10 @@ def mostrar_pantalla(user_actual, user_id):
                             else:
                                 st.error(f"Error de persistencia: {ex}")
 
-        # --- FORMULARIO DE MODIFICACIÓN (Solo sobre nodo filtrado) ---
+        # --- FORMULARIO DE MODIFICACIÓN ---
         elif st.session_state.accion_personal == "editar" and hay_filtro:
             st.markdown("### 📝 Modificación de Credenciales Nominales")
-            id_edit = lista_ids[0] # Auto-asigna el ID del único analista en el visor estricto
+            id_edit = lista_ids[0]
             usr_sel = mapeo_usuarios[id_edit]
             
             with st.form("form_edicion_usr"):
@@ -270,7 +285,6 @@ def mostrar_pantalla(user_actual, user_id):
                 nuevo_cargo = st.text_input("Cargo:", value=usr_sel['cargo'])
                 justificacion = st.text_input("Justificación de Auditoría:")
                 
-                # Fila balanceada de Botones de Confirmación y Cancelación
                 c_btn1, c_btn2 = st.columns(2)
                 aplicar_click = c_btn1.form_submit_button("Aplicar Modificación", use_container_width=True)
                 cancelar_click = c_btn2.form_submit_button("❌ Cancelar", use_container_width=True)
@@ -288,12 +302,13 @@ def mostrar_pantalla(user_actual, user_id):
                             conn.commit()
                             registrar_auditoria_usuario(usr_sel['usuario'], "MOD_CARGO", usr_sel['cargo'], nuevo_cargo.strip(), user_id, justificacion.strip())
                             st.success("Cargo institucional actualizado correctamente.")
+                            st.session_state.filtro_analista = "-- Seleccione un Analista --"
                             st.session_state.accion_personal = None
                             st.rerun()
                         except Exception as ex:
                             st.error(f"Error al actualizar: {ex}")
 
-        # --- FORMULARIO DE CAMBIO DE ESTADO (Solo sobre nodo filtrado) ---
+        # --- FORMULARIO DE CAMBIO DE ESTADO ---
         elif st.session_state.accion_personal == "estatus" and hay_filtro:
             st.markdown("### ⚙️ Alteración de Estatus Operativo")
             id_est = lista_ids[0]
@@ -305,7 +320,6 @@ def mostrar_pantalla(user_actual, user_id):
                 nuevo_est_str = st.selectbox("Seleccione Nuevo Estatus Lógico", ["Activar Acceso", "Suspender Acceso"])
                 justificacion_est = st.text_input("Justificación de Auditoría obligatoria:")
                 
-                # Fila balanceada de Botones de Confirmación y Cancelación
                 c_btn1, c_btn2 = st.columns(2)
                 confirmar_click = c_btn1.form_submit_button("Confirmar Estatus Lógico", use_container_width=True)
                 cancelar_click = c_btn2.form_submit_button("❌ Cancelar", use_container_width=True)
@@ -327,22 +341,33 @@ def mostrar_pantalla(user_actual, user_id):
                             conn.commit()
                             registrar_auditoria_usuario(usr_sel['usuario'], "MOD_ESTADO", v_v, v_n, user_id, justificacion_est.strip())
                             st.success(f"Estatus del analista {usr_sel['usuario']} actualizado con éxito.")
+                            st.session_state.filtro_analista = "-- Seleccione un Analista --"
                             st.session_state.accion_personal = None
                             st.rerun()
                         except Exception as ex:
                             st.error(f"Error: {ex}")
 
-        cursor.close()
-        conn.close()
-        
     except Exception as e:
         st.error(f"Fallo técnico al procesar el módulo de personal: {e}")
+        
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
-    # Cierre del contenedor maestro seguro
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- FUNCIONES DE BACKEND AUTOMATIZADAS (Mantenidas por compatibilidad de arquitectura) ---
+# --- RECOMENDACIÓN EXTRA PARA TU ARCHIVO PRINCIPAL (app.py) ---
+# En tu archivo principal donde manejas el menú lateral/pestañas, debes asegurar que
+# cuando cambies a OTRA pantalla, actualices el "modulo_actual" para disparar la limpieza.
+# Ejemplo en app.py:
+# if pestaña_seleccionada != "Gestión de Personal":
+#     st.session_state.modulo_actual = "otra_pantalla"
+
+
+# --- FUNCIONES DE BACKEND AUTOMATIZADAS ---
 def crear_nuevo_usuario(u, c, cargo_val, r, ejecutor_id):
     try:
         conn = conectar_bd(); cursor = conn.cursor()

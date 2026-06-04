@@ -28,13 +28,14 @@ def get_resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
-# === 4. MOTOR DEL AGENTE (INTEGRADO COMO HILO) ===
+# === 4. MOTOR DEL AGENTE (INTEGRADO COMO HILO CORREGIDO) ===
 def ejecutar_agente_motor():
     """Ejecuta la lógica de monitoreo sin bloquear la interfaz"""
     try:
         logging.info("Intentando importar e iniciar el motor del agente...")
-        from agente import iniciar_agente
-        iniciar_agente()
+        # CORRECCIÓN: Se importa ejecutar_motor_agente que es el nombre real en agente.py
+        from agente import ejecutar_motor_agente
+        ejecutar_motor_agente()
     except Exception as e:
         logging.error(f"Error crítico en el hilo del agente: {e}")
 
@@ -68,6 +69,74 @@ if os.path.exists(css_path):
 import auth
 from menu import generar_menu
 
+def gestionar_limpieza_filtros(seccion_destino):
+    """
+    Controla los estados de los filtros de monitoreo, usuarios, servidores,
+    reportes, capacity planning y alertas.
+    Si el usuario cambia de sección y el destino NO es el módulo correspondiente,
+    destruye la persistencia para evitar datos fantasma o errores de instanciación.
+    """
+    # 1. Limpieza de filtros del módulo de Monitoreo en vivo
+    if seccion_destino != "🖥️ Monitoreo en vivo":
+        if "filtro_monitoreo_nombre" in st.session_state:
+            st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor--"
+        if "filtro_monitoreo_sensor" in st.session_state:
+            st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
+        if "servidor_seleccionado" in st.session_state:
+            st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
+        
+        if "srv" in st.query_params:
+            try:
+                del st.query_params["srv"]
+            except KeyError:
+                pass
+
+    # 2. Réplica para Gestión de usuarios
+    if seccion_destino != "👥 Gestión de usuarios":
+        if "filtro_analista" in st.session_state:
+            st.session_state["filtro_analista"] = "-- Seleccione un Analista --"
+        if "accion_personal" in st.session_state:
+            st.session_state["accion_personal"] = None
+
+    # 3. Réplica para Servidores
+    if seccion_destino != "🖥️ Servidores":
+        if "filtro_servidor_nombre" in st.session_state:
+            st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
+        if "accion_infra" in st.session_state:
+            st.session_state["accion_infra"] = None
+
+    # 4. Réplica para Reportes (Limpia descargas, estado basal y fuerza regeneración de clave)
+    if seccion_destino != "📄 Reportes":
+        st.session_state["rep_listo"] = False
+        st.session_state["rep_csv"] = None
+        st.session_state["rep_pdf"] = None
+        st.session_state["rep_name_csv"] = ""
+        st.session_state["rep_name_pdf"] = ""
+        st.session_state["servidor_seleccionado_reporte"] = "-- Seleccione un Servidor --"
+        if "key_semilla_selectbox" in st.session_state:
+            st.session_state["key_semilla_selectbox"] += 1
+
+    # 5. Réplica para Capacity planning
+    if seccion_destino != "📈 Capacity planning":
+        if "servidor_seleccionado_capacity" in st.session_state:
+            st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
+        if "metrica_seleccionada_capacity" in st.session_state:
+            st.session_state["metrica_seleccionada_capacity"] = "CPU"
+        if "dias_prediccion_capacity" in st.session_state:
+            st.session_state["dias_prediccion_capacity"] = 30
+
+    # 6. CORREGIDO: Réplica para Alertas (Limpia el estado exacto del módulo y altera su semilla visual)
+    if seccion_destino != "🔔 Alertas":
+        st.session_state["servidor_seleccionado_alertas"] = "-- Seleccione un Servidor --"
+        if "key_semilla_alertas" in st.session_state:
+            st.session_state["key_semilla_alertas"] += 1
+        
+        # Filtros secundarios preventivos en caso de ser requeridos
+        if "filtro_alerta_criticidad" in st.session_state:
+            st.session_state["filtro_alerta_criticidad"] = "-- Todas --"
+        if "filtro_alerta_estado" in st.session_state:
+            st.session_state["filtro_alerta_estado"] = "No Resueltas"
+
 def main():
     params = st.query_params
     
@@ -94,7 +163,7 @@ def main():
         # =====================================================================
         url_pestaña = params.get("p")
         
-        # Primero, sincronizamos si se forzó un cambio directo desde servidores.py usando 'navegacion_principal'
+        # Primero, sincronizamos si se forzó un cambio directo desde sub-módulos usando 'navegacion_principal'
         if "navegacion_principal" in st.session_state:
             st.session_state["seccion_actual"] = st.session_state["navegacion_principal"]
             # Limpiamos para evitar loops
@@ -108,6 +177,11 @@ def main():
         elif url_pestaña and url_pestaña != st.session_state["seccion_actual"]:
             if st.session_state.get("nav_radio") != st.session_state["seccion_actual"]:
                 st.session_state["seccion_actual"] = url_pestaña
+        
+        # =====================================================================
+        # EJECUCIÓN COERCITIVA DE LA LIMPIEZA ANTES DE RENDERIZAR
+        # =====================================================================
+        gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         
         # =====================================================================
         # PERSISTENCIA DE PARÁMETROS EN URL (POST-EVALUACIÓN DE ESTADO)
@@ -136,7 +210,11 @@ def main():
                     servidores.mostrar_tabla_servidores(rol_usuario=st.session_state.get("rol"))
                 elif seleccion == "🖥️ Monitoreo en vivo":
                     from modulos import monitoreo
-                    monitoreo.mostrar_pantalla()
+                    monitoreo.mostrar_pantalla(
+                        nombre_analista=st.session_state.get("cargo", "Analista"),
+                        usuario_id=st.session_state.get("user_id", 1),
+                        usuario_login=st.session_state.get("user_actual", "Sistema")
+                    )
                 elif seleccion == "📈 Capacity planning":
                     from modulos import capacity
                     capacity.mostrar_pantalla(

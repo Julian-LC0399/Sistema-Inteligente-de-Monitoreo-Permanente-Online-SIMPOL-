@@ -39,15 +39,12 @@ def conectar_bd():
 @st.cache_data(ttl=3) # Sincronizado con el Fragment de telemetría de monitoreo.py
 def obtener_lista_servidores():
     """
-    Obtiene el catálogo de servidores activos adaptado estructuralmente a 5 sensores de disco.
-    SOLUCIÓN ARQUITECTÓNICA: Agrega las columnas letra_disco_X para desacoplar las vistas de Streamlit.
+    Obtiene el catálogo de servidores activos adaptado estructuralmente a 6 sensores de disco y 8 de servicios.
     """
     conn = conectar_bd()
     if conn:
         try:
-            # SOLUCIÓN CRÍTICA: Rompe el aislamiento REPEATABLE READ de MySQL
             conn.commit()
-            
             cursor = conn.cursor(dictionary=True)
             query = """
                 SELECT ip, nombre_alias, sistema_operativo, 
@@ -57,6 +54,10 @@ def obtener_lista_servidores():
                        id_sensor_disco_3, letra_disco_3, 
                        id_sensor_disco_4, letra_disco_4, 
                        id_sensor_disco_5, letra_disco_5, 
+                       id_sensor_disco_6, letra_disco_6,
+                       id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, 
+                       id_sensor_servicio_4, id_sensor_servicio_5, id_sensor_servicio_6,
+                       id_sensor_servicio_7, id_sensor_servicio_8,
                        id_sensor_red, id_sensor_latencia 
                 FROM servidores 
                 WHERE estado_monitoreo = 1
@@ -67,15 +68,14 @@ def obtener_lista_servidores():
             conn.close()
             return resultado
         except Exception as e:
-            logging.error(f"Error al obtener catálogo multidisco (5 Volúmenes): {e}")
+            logging.error(f"Error al obtener catálogo multidisco y multiservicios: {e}")
             if conn: conn.close()
     return []
 
 @st.cache_data(ttl=2) # Evita el solapamiento de ejecuciones del fragment
 def obtener_datos_historicos(ip_objetivo):
     """
-    Trae la telemetría completa filtrada por IP mapeando los 5 volúmenes de almacenamiento.
-    Aplica limpieza estricta de cadenas en la IP para asegurar coincidencia en el WHERE.
+    Trae la telemetría completa filtrada por IP mapeando los 6 volúmenes y los 8 servicios activos.
     """
     if not ip_objetivo:
         return []
@@ -84,13 +84,15 @@ def obtener_datos_historicos(ip_objetivo):
     conn = conectar_bd()
     if conn:
         try:
-            # SOLUCIÓN DE BLINDAJE: Fuerza la actualización del hilo para ver telemetría viva
             conn.commit()
             cursor = conn.cursor(dictionary=True)
             
             query = """
                 SELECT fecha_registro, val_cpu, val_ram, 
-                       val_disco_1, val_disco_2, val_disco_3, val_disco_4, val_disco_5, 
+                       val_disco_1, val_disco_2, val_disco_3, val_disco_4, val_disco_5, val_disco_6,
+                       estado_servicio_1, estado_servicio_2, estado_servicio_3, 
+                       estado_servicio_4, estado_servicio_5, estado_servicio_6,
+                       estado_servicio_7, estado_servicio_8,
                        val_red, val_latencia, estado_sistema 
                 FROM monitoreo 
                 WHERE TRIM(ip_servidor) = %s 
@@ -102,28 +104,25 @@ def obtener_datos_historicos(ip_objetivo):
             conn.close()
             return datos
         except Exception as e:
-            logging.error(f"Error al traer históricos multidisco de {ip_limpia}: {e}")
+            logging.error(f"Error al traer históricos multidisco y multiservicios de {ip_limpia}: {e}")
             if conn: conn.close()
     return []
 
-# --- CONSULTA DE CONFIGURACIÓN Y AUDITORÍA DE UMBRALES (Límites Quirúrgicos en GB Libres V3.3) ---
+# --- CONSULTA DE CONFIGURACIÓN Y AUDITORÍA DE UMBRALES ---
 
 def obtener_umbrales_actuales(ip):
     """
-    Consulta la matriz de límites activos (Buen Estado, Advertencia y Crítico) para una IP específica.
-    Mapea de manera quirúrgica los 5 volúmenes de almacenamiento y la RAM expresados en GB Libres.
+    Consulta la matriz de límites activos para 6 discos y los parámetros de salud del sistema.
     """
     umbrales = {
         "cpu_buen_estado": 69, "cpu_advertencia": 70, "cpu_critico": 85,
-        "ram_buen_estado": 12, "ram_advertencia": 8, "ram_critico": 4,           
-        "disco_1_buen_estado": 35, "disco_1_advertencia": 20, "disco_1_critico": 10,   
-        "disco_2_buen_estado": 60, "disco_2_advertencia": 40, "disco_2_critico": 15,
-        "disco_3_buen_estado": 60, "disco_3_advertencia": 40, "disco_3_critico": 15,
-        "disco_4_buen_estado": 60, "disco_4_advertencia": 40, "disco_4_critico": 15,
-        "disco_5_buen_estado": 60, "disco_5_advertencia": 40, "disco_5_critico": 15
+        "ram_buen_estado": 12, "ram_advertencia": 8, "ram_critico": 4
     }
-    if not ip:
-        return umbrales
+    # Inicializar umbrales de 6 discos
+    for i in range(1, 7):
+        umbrales.update({f"disco_{i}_buen_estado": 60, f"disco_{i}_advertencia": 40, f"disco_{i}_critico": 15})
+    
+    if not ip: return umbrales
         
     ip_limpia = str(ip).strip()
     conn = conectar_bd()
@@ -132,35 +131,25 @@ def obtener_umbrales_actuales(ip):
             conn.commit()
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT cpu_buen_estado, cpu_advertencia, cpu_critico, 
-                       ram_buen_estado, ram_advertencia, ram_critico, 
-                       disco_1_buen_estado, disco_1_advertencia, disco_1_critico,
-                       disco_2_buen_estado, disco_2_advertencia, disco_2_critico,
-                       disco_3_buen_estado, disco_3_advertencia, disco_3_critico,
-                       disco_4_buen_estado, disco_4_advertencia, disco_4_critico,
-                       disco_5_buen_estado, disco_5_advertencia, disco_5_critico
-                FROM historico_umbrales 
+                SELECT * FROM historico_umbrales 
                 WHERE TRIM(ip_servidor) = %s 
                 ORDER BY id_historico DESC LIMIT 1
             """
             cursor.execute(query, (ip_limpia,))
             res = cursor.fetchone()
-            if res:
-                umbrales = res
+            if res: umbrales = res
             cursor.close()
             conn.close()
         except Exception as e:
-            logging.error(f"Error al obtener matriz de umbrales multidisco para {ip_limpia}: {e}")
+            logging.error(f"Error al obtener matriz de umbrales para {ip_limpia}: {e}")
             if conn: conn.close()
     return umbrales
 
-# --- CARGAR MATRIZ DE PERMISOS (Soporte M:N Corregido en Español) ---
+# --- CARGAR MATRIZ DE PERMISOS ---
 
 def obtener_permisos_usuario(usuario_id):
-    """Consulta la matriz Muchos a Muchos (M:N) utilizando estrictamente la columna 'permiso_id'."""
     permisos = []
-    if not usuario_id:
-        return permisos
+    if not usuario_id: return permisos
         
     conn = conectar_bd()
     if conn:
@@ -186,7 +175,6 @@ def obtener_permisos_usuario(usuario_id):
 # --- CONTROL DE ACCESOS ---
 
 def verificar_usuario(usuario, clave):
-    """Valida credenciales y devuelve el registro del usuario (Asegurando el ID y Cargo)."""
     conn = conectar_bd()
     if conn:
         try:
@@ -206,7 +194,6 @@ def verificar_usuario(usuario, clave):
 # --- FUNCIONES DE ESCRITURA, CAPACIDAD Y AUDITORÍA ---
 
 def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, veredicto):
-    """Registra análisis de Capacity Planning (Análisis basados en GB)."""
     conn = conectar_bd()
     if conn:
         try:
@@ -227,7 +214,6 @@ def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, v
     return False
 
 def registrar_log_acceso(usuario, cargo, rol, resultado="EXITOSO", usuario_id=None):
-    """Registra auditoría de accesos mapeando el ID de la cuenta e inyectando el Cargo del analista."""
     conn = conectar_bd()
     if conn:
         try:
@@ -245,13 +231,10 @@ def registrar_log_acceso(usuario, cargo, rol, resultado="EXITOSO", usuario_id=No
             if conn: conn.close()
 
 def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, comentario):
-    """Registra cambios sobre cuentas de usuario protegiendo contra IDs nulos."""
     conn = conectar_bd()
     if conn:
         try:
-            # Blindaje preventivo: si no hay ejecutor, se guarda como nulo en vez de romper la app
             id_limpio = int(ejecutor_id) if ejecutor_id is not None else None
-            
             cursor = conn.cursor()
             query = """
                 INSERT INTO historico_usuarios 
