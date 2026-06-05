@@ -31,9 +31,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
     Filtra mediante un menú desplegable ágil asistido por caché de datos.
     Oculta dinámicamente las columnas cuyos sensores no estén asignados (valor 0).
     Redirecciona limpiamente mediante un botón corporativo externo exclusivo.
-    Soporta estructuralmente hasta 6 discos y 8 sensores de servicios.
+    Soporta estructuralmente hasta 6 discos (con Disco 6 mapeado a Y:), 8 sensores de servicios y la columna tipo V3.6.
     """
     # INYECCIÓN DE ESTILOS PARA AMPLIAR FORMULARIOS, AJUSTAR ESPACIADOS Y MEJORAR BOTONES
+    # CORRECCIÓN: Se cambió 'unsafe_allowed_html' por el parámetro nativo correcto 'unsafe_allow_html'
     st.markdown("""
         <style>
             /* ==========================================
@@ -147,7 +148,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             conn = conectar_bd()
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT ip, nombre_alias, sistema_operativo, estado_monitoreo, fecha_alta, 
+                SELECT ip, nombre_alias, sistema_operativo, tipo, estado_monitoreo, fecha_alta, 
                        id_sensor_cpu, id_sensor_ram, 
                        id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
                        id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
@@ -173,13 +174,13 @@ def mostrar_tabla_servidores(rol_usuario=None):
             tiene_red = any(s['id_sensor_red'] != 0 for s in servidores_filtrados)
             tiene_latencia = any(s['id_sensor_latencia'] != 0 for s in servidores_filtrados)
             
-            # Mapear e identificar slots de discos individuales activos
+            # Mapear e identificar slots de discos individuales activos (Disco 6 asignado a Y:)
             discos_activos = {}
-            letras_unidades = {1: "C:", 2: "F:", 3: "E:", 4: "D:", 5: "G:", 6: "H:"}
+            letras_unidades = {1: "C:", 2: "F:", 3: "E:", 4: "D:", 5: "G:", 6: "Y:"}
             for i in range(1, 7):
                 discos_activos[i] = any(s[f'id_sensor_disco_{i}'] != 0 for s in servidores_filtrados)
             
-            # Mapear e identificar slots de servicios individuales activos (Ampliado a 8)
+            # Mapear e identificar slots de servicios individuales activos
             servicios_activos = {}
             for i in range(1, 9):
                 servicios_activos[i] = any(s.get(f'id_sensor_servicio_{i}', 0) != 0 for s in servidores_filtrados)
@@ -225,6 +226,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             html_lineas.append('<th>DIRECCIÓN IP</th>')
             html_lineas.append('<th>NOMBRE</th>')
             html_lineas.append('<th>SISTEMA OPERATIVO</th>')
+            html_lineas.append('<th>TIPO</th>')
             
             if tiene_cpu: html_lineas.append('<th>ID CPU</th>')
             if tiene_ram: html_lineas.append('<th>ID RAM</th>')
@@ -234,7 +236,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 if discos_activos[i]:
                     html_lineas.append(f'<th>DISCO {letras_unidades[i]}</th>')
                     
-            # Columnas individuales de servicios detectados (Hasta 8 sensores)
+            # Columnas individuales de servicios detectados
             for i in range(1, 9):
                 if servicios_activos[i]:
                     html_lineas.append(f'<th>SERVICIO {i}</th>')
@@ -261,6 +263,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 html_lineas.append(f'<td><b>{s["ip"]}</b></td>')
                 html_lineas.append(f'<td>{s["nombre_alias"]}</td>')
                 html_lineas.append(f'<td>{s["sistema_operativo"]}</td>')
+                html_lineas.append(f'<td>{s.get("tipo", "No definido")}</td>')
                 
                 if tiene_cpu: html_lineas.append(f'<td>{s["id_sensor_cpu"]}</td>')
                 if tiene_ram: html_lineas.append(f'<td>{s["id_sensor_ram"]}</td>')
@@ -270,7 +273,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     if discos_activos[i]:
                         html_lineas.append(f'<td>ID {s[f"id_sensor_disco_{i}"]}</td>')
                         
-                # Celdas dinámicas para cada servicio asignado (Hasta 8)
+                # Celdas dinámicas para cada servicio asignado
                 for i in range(1, 9):
                     if servicios_activos[i]:
                         html_lineas.append(f'<td>ID {s.get(f"id_sensor_servicio_{i}", 0)}</td>')
@@ -357,7 +360,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 reg_ip = col_reg_p1.text_input("Dirección IP (Campo Requerido)", placeholder="Ej: 10.0.4.50")
                 reg_alias = col_reg_p2.text_input("Nombre / Alias del Servidor (Requerido)", placeholder="Ej: SRV-PROD-BD")
                 
-                reg_so = st.selectbox("Sistema Operativo Base Instalado", ["Windows", "Linux"])
+                col_reg_p3, col_reg_p4 = st.columns(2)
+                reg_so = col_reg_p3.selectbox("Sistema Operativo Base Instalado", ["Windows", "Linux"])
+                reg_tipo = col_reg_p4.selectbox("Tipo de Infraestructura V3.6", ["Físico", "Virtual", "Host"])
                 
                 st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                 col_reg_e1, col_reg_e2 = st.columns(2)
@@ -377,7 +382,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 col_reg_d4, col_reg_d5, col_reg_d6 = st.columns(3)
                 reg_d4 = col_reg_d4.number_input("Disco 4 (Unidad D:)", value=0, step=1)
                 reg_d5 = col_reg_d5.number_input("Disco 5 (Unidad G:)", value=0, step=1)
-                reg_d6 = col_reg_d6.number_input("Disco 6 (Unidad H:)", value=0, step=1)
+                reg_d6 = col_reg_d6.number_input("Disco 6 (Unidad Y:)", value=0, step=1)
 
                 st.markdown("<div class='subtitulo-formulario'>⚙️ Monitoreo de Servicios del Sistema (8 Slots Activos)</div>", unsafe_allow_html=True)
                 col_reg_s1, col_reg_s2 = st.columns(2)
@@ -409,16 +414,16 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             conn_write = conectar_bd()
                             cursor_write = conn_write.cursor()
                             ins_query = """
-                                INSERT INTO servidores (ip, nombre_alias, sistema_operativo, 
+                                INSERT INTO servidores (ip, nombre_alias, sistema_operativo, tipo,
                                                         id_sensor_cpu, id_sensor_ram, 
                                                         id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
                                                         id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
                                                         id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
                                                         id_sensor_red, id_sensor_latencia, estado_monitoreo)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
                             """
                             cursor_write.execute(ins_query, (
-                                reg_ip.strip(), reg_alias.strip(), reg_so,
+                                reg_ip.strip(), reg_alias.strip(), reg_so, reg_tipo,
                                 int(reg_cpu), int(reg_ram),
                                 int(reg_d1), int(reg_d2), int(reg_d3), int(reg_d4), int(reg_d5), int(reg_d6),
                                 int(reg_s1), int(reg_s2), int(reg_s3), int(reg_s4), int(reg_s5),
@@ -461,7 +466,13 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     col_lock2.text_input("Sistema Operativo Asignado", value=srv_actual['sistema_operativo'], disabled=True)
                     
                     st.markdown("<div class='subtitulo-formulario'>📋 Identificación Comercial</div>", unsafe_allow_html=True)
-                    edit_alias = st.text_input("Alias / Nombre Comercial del Servidor", value=srv_actual['nombre_alias'])
+                    col_edi_p1, col_edi_p2 = st.columns(2)
+                    edit_alias = col_edi_p1.text_input("Alias / Nombre Comercial del Servidor", value=srv_actual['nombre_alias'])
+                    
+                    grid_tipos = ["Físico", "Virtual", "Host"]
+                    tipo_actual = srv_actual.get('tipo', 'Físico')
+                    idx_tipo = grid_tipos.index(tipo_actual) if tipo_actual in grid_tipos else 0
+                    edit_tipo = col_edi_p2.selectbox("Tipo de Infraestructura V3.6", grid_tipos, index=idx_tipo)
                     
                     st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                     col_e1, col_e2 = st.columns(2)
@@ -481,7 +492,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     col_d4, col_d5, col_d6 = st.columns(3)
                     edit_d4 = col_d4.number_input("Disco 4 (Unidad D:)", value=int(srv_actual['id_sensor_disco_4']), step=1)
                     edit_d5 = col_d5.number_input("Disco 5 (Unidad G:)", value=int(srv_actual['id_sensor_disco_5']), step=1)
-                    edit_d6 = col_d6.number_input("Disco 6 (Unidad H:)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=1)
+                    edit_d6 = col_d6.number_input("Disco 6 (Unidad Y:)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=1)
 
                     st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (8 Slots Ampliados)</div>", unsafe_allow_html=True)
                     col_s1, col_s2 = st.columns(2)
@@ -509,7 +520,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             cursor_edit = conn_edit.cursor()
                             upd_query = """
                                 UPDATE servidores 
-                                SET nombre_alias=%s, id_sensor_cpu=%s, id_sensor_ram=%s, 
+                                SET nombre_alias=%s, tipo=%s, id_sensor_cpu=%s, id_sensor_ram=%s, 
                                     id_sensor_disco_1=%s, id_sensor_disco_2=%s, id_sensor_disco_3=%s, id_sensor_disco_4=%s, id_sensor_disco_5=%s, id_sensor_disco_6=%s,
                                     id_sensor_servicio_1=%s, id_sensor_servicio_2=%s, id_sensor_servicio_3=%s, id_sensor_servicio_4=%s, id_sensor_servicio_5=%s,
                                     id_sensor_servicio_6=%s, id_sensor_servicio_7=%s, id_sensor_servicio_8=%s,
@@ -517,7 +528,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 WHERE ip=%s
                             """
                             cursor_edit.execute(upd_query, (
-                                edit_alias.strip(), int(edit_cpu), int(edit_ram), 
+                                edit_alias.strip(), edit_tipo, int(edit_cpu), int(edit_ram), 
                                 int(edit_d1), int(edit_d2), int(edit_d3), int(edit_d4), int(edit_d5), int(edit_d6),
                                 int(edit_s1), int(edit_s2), int(edit_s3), int(edit_s4), int(edit_s5),
                                 int(edit_s6), int(edit_s7), int(edit_s8),
@@ -525,7 +536,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             ))
                             conn_edit.commit()
                             
-                            st.success("Estructura multidisco y servicios modificada con éxito.")
+                            st.success("Estructura multidisco, tipo y servicios modificada con éxito.")
                             st.session_state.accion_infra = None
                             st.cache_data.clear()
                             st.rerun()

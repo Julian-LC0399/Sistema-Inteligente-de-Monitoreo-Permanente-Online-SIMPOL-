@@ -159,11 +159,11 @@ def main():
         lanzar_hilo_monitoreo()
         
         # =====================================================================
-        # MEJORADO: DETECCIÓN Y PRIORIZACIÓN DE RE-DIRECCIÓN EXTERNA (URL -> STATE)
+        # DETECCIÓN Y PRIORIZACIÓN DE RE-DIRECCIÓN EXTERNA (URL -> STATE)
         # =====================================================================
         url_pestaña = params.get("p")
         
-        # Primero, sincronizamos si se forzó un cambio directo desde sub-módulos usando 'navegacion_principal'
+        # Sincronizamos si se forzó un cambio directo desde sub-módulos usando 'navegacion_principal'
         if "navegacion_principal" in st.session_state:
             st.session_state["seccion_actual"] = st.session_state["navegacion_principal"]
             # Limpiamos para evitar loops

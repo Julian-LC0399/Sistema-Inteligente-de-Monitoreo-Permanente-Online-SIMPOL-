@@ -1,8 +1,98 @@
 import streamlit as st
 import traceback
+import logging
 from datetime import datetime
-from database import obtener_lista_servidores, conectar_bd
+from database import conectar_bd, obtener_lista_servidores
 from utils import obtener_telemetria_total
+
+# Configuración básica de logs integrada para auditoría del módulo
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# =====================================================================
+# CORE LOGIC: MOTOR DE PROCESAMIENTO DE ALERTAS (FUSIONADO EN ALERTAS.PY)
+# =====================================================================
+
+def _procesar_evento_alerta_interno(ip, componente, tipo_alerta, valor_actual):
+    """
+    Gestiona el ciclo de vida, escalamiento y cierre de alertas en caliente
+    directamente en la tabla corporativa 'alertas'.
+    """
+    ip_limpia = str(ip).strip()
+    conn = conectar_bd()
+    if not conn:
+        logging.error(f"No se pudo conectar a la BD para procesar alerta de {ip_limpia} [{componente}]")
+        return False
+    try:
+        cursor = conn.cursor(dictionary=True)
+        
+        # 1. Verificar si ya existe una incidencia abierta para este sensor en este servidor
+        query_verificar = """
+            SELECT id, tipo_alerta FROM alertas 
+            WHERE ip_servidor = %s AND componente = %s AND estado_alerta = 'ACTIVA' LIMIT 1
+        """
+        cursor.execute(query_verificar, (ip_limpia, componente))
+        alerta_activa = cursor.fetchone()
+
+        # Caso A: El estado actual es anómalo (PRECAUCIÓN o CRÍTICO)
+        if tipo_alerta in ['PRECAUCIÓN', 'CRÍTICO']:
+            if not alerta_activa:
+                # No existe alerta previa: Se inserta una nueva fila con precisión de milisegundos
+                query_insert = """
+                    INSERT INTO alertas (ip_servidor, componente, tipo_alerta, valor_registrado, fecha_inicio, estado_alerta)
+                    VALUES (%s, %s, %s, %s, NOW(3), 'ACTIVA')
+                """
+                cursor.execute(query_insert, (ip_limpia, componente, tipo_alerta, valor_actual))
+                conn.commit()
+                logging.info(f"🚨 NUEVA ALERTA GENERADA: {ip_limpia} - {componente} - {tipo_alerta} (Valor: {valor_actual})")
+            else:
+                # Ya existe una alerta activa: Verificamos si cambió de nivel (ej. de PRECAUCIÓN a CRÍTICO)
+                if alerta_activa['tipo_alerta'] != tipo_alerta:
+                    query_update_nivel = """
+                        UPDATE alertas SET tipo_alerta = %s, valor_registrado = %s WHERE id = %s
+                    """
+                    cursor.execute(query_update_nivel, (tipo_alerta, valor_actual, alerta_activa['id']))
+                    conn.commit()
+                    logging.info(f"⚡ ESCALAMIENTO DE ALERTA: {ip_limpia} - {componente} mutó a {tipo_alerta}")
+                    
+        # Caso B: El estado actual es OK (Estabilización del servicio/métrica)
+        else:
+            if alerta_activa:
+                # Si había una alerta abierta, la cerramos estampando la fecha_fin exacta
+                query_close = """
+                    UPDATE alertas SET fecha_fin = NOW(3), estado_alerta = 'RESUELTA' WHERE id = %s
+                """
+                cursor.execute(query_close, (alerta_activa['id'],))
+                conn.commit()
+                logging.info(f"✅ ALERTA RESUELTA: {ip_limpia} - {componente} ha vuelto a la normalidad.")
+                
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        logging.error(f"Error crítico en el motor interno de alertas.py: {e}")
+        if conn: 
+            conn.close()
+        return False
+
+def _mapear_y_evaluar_alerta_global(ip, componente, texto_status, valor_actual):
+    """
+    Traduce los strings de estado visual de PRTG a los ENUM nativos de la base de datos
+    y dispara el analizador de eventos.
+    """
+    tipo_enum = "OK"  # Por defecto inicializamos en OK para evitar vacíos imprevistos
+    if texto_status == "PRTG WARNING":
+        tipo_enum = "PRECAUCIÓN"
+    elif texto_status == "PRTG CRITICAL":
+        tipo_enum = "CRÍTICO"
+    elif texto_status == "PRTG OK":
+        tipo_enum = "OK"
+        
+    _procesar_evento_alerta_interno(ip, componente, tipo_enum, valor_actual)
+
+
+# =====================================================================
+# PERSISTENCIA Y CONSULTA DE UMBRALES
+# =====================================================================
 
 def obtener_ultimo_monitoreo(ip):
     conn = conectar_bd()
@@ -19,8 +109,8 @@ def obtener_ultimo_monitoreo(ip):
             registro = cursor.fetchone()
             cursor.close()
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Error obteniendo último monitoreo para {ip}: {e}")
     return registro
 
 def obtener_umbrales_actuales(ip):
@@ -53,8 +143,8 @@ def obtener_umbrales_actuales(ip):
                             umbrales[k] = v
             cursor.close()
             conn.close()
-        except Exception:
-            pass 
+        except Exception as e:
+            logging.error(f"Error consultando histórico de umbrales para {ip}: {e}")
     return umbrales
 
 def guardar_nuevos_umbrales(ip, datos_umbrales, usuario_id):
@@ -97,12 +187,12 @@ def guardar_nuevos_umbrales(ip, datos_umbrales, usuario_id):
                 f.write(f"[{datetime.now()}] Error guardando umbrales porcentuales para {ip}: {e}\n")
     return False
 
+
+# =====================================================================
+# LÓGICA DE RENDERIZADO Y CONTROL VISUAL
+# =====================================================================
+
 def evaluar_color_por_umbrales(pct_actual, adv, crit, es_inverso=False):
-    """
-    Evaluación matemática basada estrictamente en Porcentajes (%).
-    Para RAM y Discos Libres: Menos porcentaje disponible es peor (es_inverso=False)
-    Para CPU Carga: Mayor porcentaje consumido es peor (es_inverso=True)
-    """
     PRTG_GREEN = "#2ecc71"   
     PRTG_YELLOW = "#f1c40f"  
     PRTG_RED = "#e74c3c"     
@@ -122,21 +212,32 @@ def evaluar_color_por_umbrales(pct_actual, adv, crit, es_inverso=False):
 
 def renderizar_semaforo_dinamico(valor_abs, unidad_abs, pct_mostrar, color, texto):
     color_texto = '#000000' if color == "#f1c40f" else '#ffffff'
+    if pct_mostrar == "":
+        segmento_metrica = f"{valor_abs} {unidad_abs}".strip()
+    else:
+        segmento_metrica = f"{valor_abs} {unidad_abs} -> {pct_mostrar}%"
+        
     return f"""
     <div style="background-color: {color}; padding: 9px; border-radius: 6px; text-align: center; color: {color_texto}; font-weight: bold; font-size: 13px; border: 1px solid rgba(0,0,0,0.1);">
-        {texto} ({valor_abs} {unidad_abs} -> {pct_mostrar}%)
+        {texto} ({segmento_metrica})
     </div>
     """
 
-def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
+def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
+    if "usuario" in st.session_state:
+        permisos_activos = st.session_state.get("permisos", [])
+        if "VER_SISTEMA" not in permisos_activos:
+            st.error("🚫 Acceso Denegado: Su cuenta no cuenta con el privilegio [VER_SISTEMA].")
+            return
+
     if "servidor_seleccionado_alertas" not in st.session_state:
         st.session_state["servidor_seleccionado_alertas"] = "-- Seleccione un Servidor --"
 
     if "key_semilla_alertas" not in st.session_state:
         st.session_state["key_semilla_alertas"] = 0
 
-    st.markdown('<h2 style="color:#003366;">🔔 Panel de Control de Semáforos y Alertas (Métricas %)</h2>', unsafe_allow_html=True)
-    st.markdown(f"👤 **Cargo Responsable:** {nombre_analista} (`usuario: {usuario_login}`)", unsafe_allow_html=True)
+    st.markdown('<h2 style="color:#003366; margin-bottom:0px;">🔔 Panel de Control de Semáforos y Alertas (Métricas %)</h2>', unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#555; font-size:14px; margin-top:5px;'>Gestión de Telemetría Operativa | <b>Analista:</b> {nombre_analista} ({usuario_login})</p>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
     servidores = obtener_lista_servidores()
@@ -179,7 +280,12 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         if sel_global == "-- Seleccione un Servidor --":
             st.info("💡 Por favor, seleccione un servidor en el control superior para desplegar el estado de alertas de sus sensores indexados.")
         else:
-            serv_alr_info = next(s for s in servidores if f"{s['nombre_alias']} ({s['ip']})" == sel_global)
+            try:
+                serv_alr_info = next(s for s in servidores if f"{s['nombre_alias']} ({s['ip']})" == sel_global)
+            except StopIteration:
+                st.error("El servidor seleccionado ya no se encuentra disponible.")
+                return
+                
             ip_alr_sel = serv_alr_info['ip']
 
             telemetria_viva = obtener_telemetria_total(serv_alr_info)
@@ -188,38 +294,39 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
             st.markdown("---")
             st.markdown("#### 🚥 Estado Real de los Sensores en PRTG")
 
-            # VALIDACIÓN ESTRICTA DE REGISTRO EN LA CONFIGURACIÓN DEL SERVIDOR
             tiene_cpu = int(serv_alr_info.get('id_sensor_cpu', 0)) > 0
             tiene_ram = int(serv_alr_info.get('id_sensor_ram', 0)) > 0
 
             val_cpu = float(telemetria_viva.get('cpu', 0.0))
             val_ram = float(telemetria_viva.get('ram', 0.0))
 
-            # Ambos sensores están explícitamente registrados
             if tiene_cpu and tiene_ram:
                 c_cpu, c_ram = st.columns(2)
                 with c_cpu:
                     st.markdown("**Procesador (CPU)**")
                     hex_c, txt_c = evaluar_color_por_umbrales(val_cpu, umbrales_vivos["cpu_advertencia"], umbrales_vivos["cpu_critico"], es_inverso=True)
                     st.markdown(renderizar_semaforo_dinamico(val_cpu, "%", val_cpu, hex_c, txt_c), unsafe_allow_html=True)
+                    _mapear_y_evaluar_alerta_global(ip_alr_sel, "CPU", txt_c, val_cpu)
+                    
                 with c_ram:
                     st.markdown("**Memoria Volátil Libre (RAM)**")
                     pct_ram_libre = float(telemetria_viva.get('pct_ram', 0.0))
                     hex_r, txt_r = evaluar_color_por_umbrales(pct_ram_libre, umbrales_vivos["ram_advertencia"], umbrales_vivos["ram_critico"], es_inverso=False)
                     st.markdown(renderizar_semaforo_dinamico(val_ram, "GB", pct_ram_libre, hex_r, txt_r), unsafe_allow_html=True)
+                    _mapear_y_evaluar_alerta_global(ip_alr_sel, "RAM", txt_r, pct_ram_libre)
             
-            # Solo la CPU está registrada
             elif tiene_cpu:
                 st.markdown("**Procesador (CPU)**")
                 hex_c, txt_c = evaluar_color_por_umbrales(val_cpu, umbrales_vivos["cpu_advertencia"], umbrales_vivos["cpu_critico"], es_inverso=True)
                 st.markdown(renderizar_semaforo_dinamico(val_cpu, "%", val_cpu, hex_c, txt_c), unsafe_allow_html=True)
+                _mapear_y_evaluar_alerta_global(ip_alr_sel, "CPU", txt_c, val_cpu)
             
-            # Solo la RAM está registrada (Caso UAP Compensación - Se alinea a la izquierda de forma limpia)
             elif tiene_ram:
                 st.markdown("**Memoria Volátil Libre (RAM)**")
                 pct_ram_libre = float(telemetria_viva.get('pct_ram', 0.0))
                 hex_r, txt_r = evaluar_color_por_umbrales(pct_ram_libre, umbrales_vivos["ram_advertencia"], umbrales_vivos["ram_critico"], es_inverso=False)
                 st.markdown(renderizar_semaforo_dinamico(val_ram, "GB", pct_ram_libre, hex_r, txt_r), unsafe_allow_html=True)
+                _mapear_y_evaluar_alerta_global(ip_alr_sel, "RAM", txt_r, pct_ram_libre)
 
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### 💾 Unidades de Almacenamiento Estático (Libre)")
@@ -228,17 +335,17 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
             col_idx_actual = 0
             
             for i in range(1, 7):
-                if serv_alr_info.get(f'id_sensor_disco_{i}', 0) > 0:
+                if int(serv_alr_info.get(f'id_sensor_disco_{i}', 0)) > 0:
                     val_disco = float(telemetria_viva.get(f'disco_{i}', 0.0))
-                    if val_disco == 0.0:
+                    if val_disco == 0.0 and float(telemetria_viva.get(f'pct_disco_{i}', 0.0)) == 0.0:
                         continue
                     
                     pct_disco_libre = float(telemetria_viva.get(f'pct_disco_{i}', 0.0))
-                    
                     adv_d = umbrales_vivos.get(f"disco_{i}_advertencia", 25.0)
                     crit_d = umbrales_vivos.get(f"disco_{i}_critico", 5.0)
                     
                     hex_d, txt_d = evaluar_color_por_umbrales(pct_disco_libre, adv_d, crit_d, es_inverso=False)
+                    _mapear_y_evaluar_alerta_global(ip_alr_sel, f"DISCO_{i}", txt_d, pct_disco_libre)
                     
                     idx_col = col_idx_actual % 3
                     with columnas_discos[idx_col]:
@@ -247,6 +354,9 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                         st.markdown("### ")
                     col_idx_actual += 1
 
+            if col_idx_actual == 0:
+                st.caption("ℹ️ No se encuentran sensores de almacenamiento asociados a este nodo.")
+
             st.markdown("---")
             st.markdown("##### ⚙️ Estado de Servicios del Sistema (Monitoreo Activo PRTG)")
             
@@ -254,10 +364,13 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
             srv_idx_actual = 0
             
             for s in range(1, 9):
-                if serv_alr_info.get(f'id_sensor_servicio_{s}', 0) > 0:
+                if int(serv_alr_info.get(f'id_sensor_servicio_{s}', 0)) > 0:
                     raw_srv = telemetria_viva.get(f'servicio_{s}', 'OFF')
                     estado_srv = "ON" if (raw_srv == 1 or raw_srv in ["ON", "OK", "UP"]) else "OFF"
                     color_srv = "#2ecc71" if estado_srv == "ON" else "#e74c3c"
+                    
+                    txt_srv_status = "PRTG OK" if estado_srv == "ON" else "PRTG CRITICAL"
+                    _mapear_y_evaluar_alerta_global(ip_alr_sel, f"SERVICIO_{s}", txt_srv_status, 0.0 if estado_srv == "OFF" else 1.0)
                     
                     idx_srv_col = srv_idx_actual % 4
                     with columnas_servicios[idx_srv_col]:
@@ -276,7 +389,12 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         if sel_global == "-- Seleccione un Servidor --":
             st.warning("💡 Por favor, elija un servidor válido en el control superior para parametrizar sus umbrales.")
         else:
-            serv_conf_info = next(s for s in servidores if f"{s['nombre_alias']} ({s['ip']})" == sel_global)
+            try:
+                serv_conf_info = next(s for s in servidores if f"{s['nombre_alias']} ({s['ip']})" == sel_global)
+            except StopIteration:
+                st.error("El servidor seleccionado ya no se encuentra disponible.")
+                return
+                
             ip_conf_sel = serv_conf_info['ip']
             umbrales_vivos = obtener_umbrales_actuales(ip_conf_sel)
             
@@ -353,8 +471,8 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                         st.error("❌ Error interno de persistencia. Revise el archivo 'simpol_debug.log'.")
 
 if __name__ == "__main__":
-    cargo_usuario = st.session_state.get("nombre_completo", "Nombre Completo")
+    cargo_usuario = st.session_state.get("nombre_completo", "Analista de Infraestructura")
     id_usuario = st.session_state.get("id", 1)
-    login_usuario = st.session_state.get("usuario", "Usuario")
+    login_usuario = st.session_state.get("usuario", "Sistema")
     
     mostrar_pantalla(cargo_usuario, id_usuario, login_usuario)
