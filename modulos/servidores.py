@@ -33,49 +33,52 @@ def mostrar_tabla_servidores(rol_usuario=None):
     Redirecciona limpiamente mediante un botón corporativo externo exclusivo.
     Soporta estructuralmente hasta 6 discos (con Disco 6 mapeado a Y:), 8 sensores de servicios y la columna tipo V3.6.
     """
-    # INYECCIÓN DE ESTILOS PARA AMPLIAR FORMULARIOS, AJUSTAR ESPACIADOS Y MEJORAR BOTONES
-    # CORRECCIÓN: Se cambió 'unsafe_allowed_html' por el parámetro nativo correcto 'unsafe_allow_html'
+    # INYECCIÓN DE ESTILOS PERFECCIONADA PARA EVITAR ELEMENTOS RECORTADOS O PEGADOS
     st.markdown("""
         <style>
-            /* ==========================================
-               ESTILOS PARA LOS FORMULARIOS GRANDES 
-               ========================================== */
+            /* Ajustes de etiquetas dentro de formularios */
             div[data-testid="stForm"] label p {
-                font-size: 15px !important;
+                font-size: 14px !important;
                 font-weight: 600 !important;
                 color: #333333 !important;
+                margin-bottom: 2px !important;
             }
-            /* Espaciado uniforme inferior en cada contenedor de elemento/input */
-            div[data-testid="stForm"] div[data-testid="element-container"] {
-                margin-bottom: 12px !important;
-            }
+            
+            /* Inputs estilizados con padding interno seguro para que no se corte el texto */
             div[data-testid="stForm"] input {
-                padding: 10px 14px !important;
+                padding: 8px 12px !important;
                 font-size: 14px !important;
                 border-radius: 6px !important;
+                height: 42px !important;
             }
-            /* Separadores de sección internos del formulario */
+            
+            /* Separadores de sección internos del formulario claramente distanciados */
             .subtitulo-formulario {
                 color: #003366;
-                margin-top: 30px;
-                margin-bottom: 18px;
+                margin-top: 25px;
+                margin-bottom: 15px;
                 border-bottom: 2px solid #ECEFF1;
                 padding-bottom: 6px;
-                font-size: 17px;
+                font-size: 16px;
                 font-weight: bold;
             }
-            /* Ajuste estructural para la fila de botones finales dentro del formulario */
-            div[data-testid="stForm"] div.stColumns {
-                margin-top: 25px !important;
-                gap: 15px !important;
-            }
-            /* Estilización unificada y pulida para botones de envío/acción dentro de formularios */
-            div[data-testid="stForm"] button {
+            
+            /* Captura global y homogénea para TODOS los botones internos del formulario (Normales y Submit) */
+            div[data-testid="stForm"] button, 
+            div[data-testid="stForm"] data-testid="stFormSubmitButton"] button,
+            .stFormSubmitButton > button {
                 height: 44px !important;
                 font-weight: bold !important;
                 border-radius: 6px !important;
                 font-size: 14px !important;
-                transition: all 0.3s ease;
+                margin-top: 10px !important;
+                transition: all 0.3s ease !important;
+            }
+            
+            /* Espaciado extra para mitigar colisiones en rejillas densas (Discos y Servicios) */
+            div[data-testid="stForm"] .stHorizontalBlock {
+                padding: 6px 0px !important;
+                gap: 12px !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -128,7 +131,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             st.session_state.accion_infra = None
             st.rerun()
 
-        col_f2.markdown('<div style="margin-top: 36px;"></div>', unsafe_allow_html=True)
+        col_f2.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
         
         # AL DAR CLIC A LIMPIAR FILTRO MANUALMENTE:
         if col_f2.button("🧹 Limpiar Filtro", use_container_width=True, key="btn_limpiar_filtro_srv"):
@@ -399,7 +402,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 reg_s7 = col_reg_s7.number_input("ID Sensor - Servicio 7", value=0, step=1)
                 reg_s8 = col_reg_s8.number_input("ID Sensor - Servicio 8", value=0, step=1)
                 
-                st.markdown("<br>", unsafe_allow_html=True)
+                # Respiro visual antes del bloque de procesamiento final
+                st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
                 col_btn_reg1, col_btn_reg2 = st.columns(2)
                 
                 if col_btn_reg1.form_submit_button("💾 Guardar Servidor", use_container_width=True):
@@ -509,10 +513,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     edit_s7 = col_s7.number_input("ID Sensor - Servicio 7", value=int(srv_actual.get('id_sensor_servicio_7', 0)), step=1)
                     edit_s8 = col_s8.number_input("ID Sensor - Servicio 8", value=int(srv_actual.get('id_sensor_servicio_8', 0)), step=1)
                     
-                    st.markdown("<br>", unsafe_allow_html=True)
+                    # Respiro visual antes del bloque de procesamiento final
+                    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
                     col_btn_edi1, col_btn_edi2 = st.columns(2)
                     
-                    if col_btn_edi1.form_submit_button("📝 Aplicar Cambios Técnicos", use_container_width=True):
+                    if col_btn_edi1.form_submit_button("📝 Aplicar Cambios", use_container_width=True):
                         conn_edit = None
                         cursor_edit = None
                         try:
@@ -561,7 +566,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 st.info(f"Estado de monitoreo actual en la granja: **{estado_actual_str}**")
                 nuevo_est_bit = st.selectbox("Seleccione Nuevo Estado Lógico", ["Desactivar Monitoreo", "Activar Monitoreo"])
                 
-                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
                 col_btn_des1, col_btn_des2 = st.columns(2)
                 
                 if col_btn_des1.form_submit_button("Confirmar Estado", use_container_width=True):
