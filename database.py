@@ -358,3 +358,70 @@ def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, valor_registra
         logging.error(f"Error critico gestionando transicion de estados en alertas para {ip_limpia}: {e}")
         if conn: conn.close()
         return False
+
+# --- NUEVAS FUNCIONES ARQUITECTÓNICAS V3.7: GUARDADO DE REPORTES VINCULADOS A ALERTAS ---
+
+def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb):
+    """
+    Registra en la base de datos un reporte consolidado vinculándolo opcionalmente 
+    a un evento/alerta específico y heredando el estado transaccional (V3.7).
+    """
+    conn = conectar_bd()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO reportes_archivados 
+            (nombre_archivo, format, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        # Asegurar tipado correcto para MySQL
+        ip_limpia = str(ip_servidor).strip() if ip_servidor else None
+        id_alerta_limpio = int(alerta_id) if alerta_id is not None else None
+        id_usuario_limpio = int(usuario_id) if usuario_id is not None else None
+        
+        valores = (nombre_archivo, formato, ip_limpia, contenido_blob, id_usuario_limpio, id_alerta_limpio, tipo_alerta, tamanio_kb)
+        
+        cursor.execute(query, valores)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        logging.error(f"Error crítico al archivar reporte estándar en la BD V3.7: {e}")
+        if conn: conn.close()
+        return False
+
+
+def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb):
+    """
+    Registra en la base de datos un reporte analítico de Capacity Planning vinculándolo 
+    a un evento/alerta específico y heredando el estado transaccional (V3.7).
+    """
+    conn = conectar_bd()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO reportes_capacity_archivados 
+            (nombre_archivo, formato, metrica_analizada, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        # Asegurar tipado correcto para MySQL
+        ip_limpia = str(ip_servidor).strip()
+        id_alerta_limpio = int(alerta_id) if alerta_id is not None else None
+        id_usuario_limpio = int(usuario_id) if usuario_id is not None else None
+        
+        valores = (nombre_archivo, formato, metrica, ip_limpia, contenido_blob, id_usuario_limpio, id_alerta_limpio, tipo_alerta, tamanio_kb)
+        
+        cursor.execute(query, valores)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        logging.error(f"Error crítico al archivar reporte de Capacity en la BD V3.7: {e}")
+        if conn: conn.close()
+        return False
