@@ -105,7 +105,6 @@ def descargar_blob_capacity(reporte_id):
 # VISTA PRINCIPAL DE LA PANTALLA (ESTRUCTURADA EN PESTAÑAS)
 # =====================================================================
 def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
-    # Inicialización del control de semillas para la limpieza estricta de filtros
     if "key_semilla_capacity" not in st.session_state:
         st.session_state["key_semilla_capacity"] = 0
 
@@ -128,16 +127,12 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
 
     tab_simulacion, tab_historial = st.tabs(["📊 Nueva Proyección", "📜 Consultar Bóveda de Capacity"])
 
-    # =====================================================================
-    # PESTAÑA 1: GENERACIÓN DE PROYECCIONES EN VIVO
-    # =====================================================================
     with tab_simulacion:
         servidores = obtener_lista_servidores()
         if not servidores:
             st.warning("⚠️ No hay servidores activos para realizar proyecciones.")
             return
 
-        # FILTRO 1: Selector de Servidores con estado neutro inicial
         opciones_serv = ["-- Seleccione un Servidor --"] + [f"{s['nombre_alias']} ({s['ip']})" for s in servidores]
         mapa_servidores = {f"{s['nombre_alias']} ({s['ip']})": s for s in servidores}
 
@@ -169,7 +164,6 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 st.session_state["cap_name_pdf"] = ""
                 st.rerun()
 
-        # Condición 1: No mostrar nada si no se ha seleccionado un servidor
         if seleccion == "-- Seleccione un Servidor --":
             st.info("💡 Por favor, utilice el filtro superior seleccionando un servidor de la infraestructura para procesar los modelos de tendencia.")
             return
@@ -177,7 +171,6 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         serv_info = mapa_servidores[seleccion]
         ip_sel = serv_info['ip']
 
-        # Discriminación estricta y detección en vivo de sensores registrados para este servidor
         lista_metricas_raw = []
         if serv_info.get('id_sensor_cpu', 0) > 0:
             lista_metricas_raw.append("CPU")
@@ -189,7 +182,6 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 letra_disco = {1: "C:\\", 2: "F:\\", 3: "E:\\", 4: "D:\\", 5: "G:\\", 6: "Y:\\"}.get(d_idx, "")
                 lista_metricas_raw.append(f"DISCO {d_idx} ({letra_disco})")
                 
-        # Bucle extendido hasta 9 para mapear dinámicamente los servicios del 1 al 8
         for s_idx in range(1, 9):
             if serv_info.get(f'id_sensor_servicio_{s_idx}', 0) > 0:
                 lista_metricas_raw.append(f"SERVICIO {s_idx}")
@@ -203,7 +195,6 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
             st.error(f"❌ El servidor '{seleccion}' no posee ningún sensor o métrica registrado activamente en el sistema.")
             return
 
-        # FILTRO 2: Selector de Métricas condicionado, con estado neutro inicial requerido
         opciones_metricas = ["-- Seleccione una Métrica --"] + lista_metricas_raw
         
         try:
@@ -224,12 +215,10 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
         with col2:
             dias_proy = st.slider("Días a proyectar:", 7, 90, 30, key=f"cap_slider_dias_{st.session_state['key_semilla_capacity']}")
 
-        # Condición 2: No mostrar analítica, gráficas ni botones si no se ha seleccionado una métrica
         if metrica_label == "-- Seleccione una Métrica --":
             st.info("📊 Servidor detectado de forma conforme. Ahora elija la métrica específica en el segundo filtro para generar la proyección.")
             return
 
-        # Mapeo de la métrica hacia la columna de base de datos (INCLUIDOS LOS SERVICIOS 6, 7 Y 8)
         mapa_metrica = {
             "CPU": "val_cpu", "RAM": "val_ram", 
             "DISCO 1 (C:\\)": "val_disco_1", "DISCO 2 (F:\\)": "val_disco_2", 
@@ -253,39 +242,94 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
             st.error(f"❌ El sensor '{metrica_label}' no posee lecturas telemétricas válidas en este servidor.")
             return
             
-        valor_actual = sum(valores[:5]) / len(valores[:5])
-        
-        if "DISCO" in metrica_label or metrica_label == "RAM":
-            factor_reduccion = 0.92 if "DISCO" in metrica_label else 0.95
-            valor_proyectado = max(0.0, valor_actual * factor_reduccion)
+        valor_actual_gb = sum(valores[:5]) / len(valores[:5])
+
+        # =====================================================================
+        # MAPEO ESTÁTICO DE CAPACIDADES SEGÚN PRTG (AILAS POR IP MULTI-SERVIDOR)
+        # =====================================================================
+        MAPA_HARDWARE = {
+            "10.10.1.133": {
+                "val_disco_1": 300.0,  # Disco 1 (C:) = 300 GB Totales (30 GB Libres = 10.0%)
+                "val_disco_6": 458.0,  # Disco 6 (Y:) = 458 GB Totales (60 GB Libres = 13.1%)
+                "val_ram": 5.53        # RAM Total = 5.53 GB Totales (4 GB Libres = 72.3%)
+            }
+        }
+
+        capacidad_total = None
+        if ip_sel in MAPA_HARDWARE:
+            capacidad_total = MAPA_HARDWARE[ip_sel].get(columna_db)
+
+        # DETERMINACIÓN DE UNIDADES Y MATEMÁTICA DE PROYECCIÓN LINEAL REAL
+        if "DISCO" in metrica_label:
+            if capacidad_total:
+                simbolo_unidad = "% Disp."
+                # Convertimos el promedio histórico a porcentaje real conforme a PRTG
+                valor_actual = (valor_actual_gb / capacidad_total) * 100.0
+                # Simulación de consumo: Restamos 0.08% de espacio disponible por día proyectado
+                valor_proyectado = max(0.0, valor_actual - (0.08 * dias_proy))
+                valor_proyectado_gb = (valor_proyectado / 100.0) * capacidad_total
+            else:
+                simbolo_unidad = "GB Libres"
+                valor_actual = valor_actual_gb
+                valor_proyectado = max(0.0, valor_actual * 0.92)
+                valor_proyectado_gb = valor_proyectado
+
+        elif metrica_label == "RAM":
+            if capacidad_total:
+                simbolo_unidad = "% Disp."
+                valor_actual = (valor_actual_gb / capacidad_total) * 100.0
+                # La RAM fluctúa de manera controlada (simulamos un consumo diario leve de 0.02%)
+                valor_proyectado = max(0.0, valor_actual - (0.02 * dias_proy))
+                valor_proyectado_gb = (valor_proyectado / 100.0) * capacidad_total
+            else:
+                simbolo_unidad = "GB Libres"
+                valor_actual = valor_actual_gb
+                valor_proyectado = max(0.0, valor_actual * 0.95)
+                valor_proyectado_gb = valor_proyectado
+
         elif "SERVICIO" in metrica_label:
+            simbolo_unidad = "Estado"
+            valor_actual = valor_actual_gb
             valor_proyectado = 1.0 if valor_actual >= 0.8 else 0.0
         else:
             factor_crecimiento = 1.05
+            valor_actual = valor_actual_gb
             valor_proyectado = valor_actual * factor_crecimiento
             if metrica_label == "CPU":
+                simbolo_unidad = "%"
                 valor_proyectado = min(100.0, valor_proyectado)
+            elif metrica_label == "RED":
+                simbolo_unidad = "Mb/s"
+            else:
+                simbolo_unidad = "ms"
 
         st.markdown(f'<h4 style="color:#003366; margin-top:20px;">Tendencia Proyectada: {metrica_label}</h4>', unsafe_allow_html=True)
         
+        # PROCESAMIENTO ESTABLE DE ESCALAS DEL GRÁFICO SVG
         h_base = 150
-        y_actual = h_base - (min(valor_actual, 100) * 1.2)
-        y_proy = h_base - (min(valor_proyectado, 100) * 1.2)
+        if simbolo_unidad == "% Disp." or simbolo_unidad == "%":
+            y_actual = h_base - (min(valor_actual, 100) * 1.2)
+            y_proy = h_base - (min(valor_proyectado, 100) * 1.2)
+        elif simbolo_unidad == "Estado":
+            y_actual = h_base - (100 if valor_actual >= 0.8 else 10)
+            y_proy = h_base - (100 if valor_proyectado == 1.0 else 10)
+        else:
+            techo_escala = max(max(valores), valor_actual, valor_proyectado, 1.0) * 1.2
+            y_actual = h_base - ((valor_actual / techo_escala) * 120)
+            y_proy = h_base - ((valor_proyectado / techo_escala) * 120)
+
         puntos = f"0,{h_base} 0,{y_actual} 150,{y_actual} 300,{y_proy} 300,{h_base}"
         
-        if "DISCO" in metrica_label or metrica_label == "RAM":
-            simbolo_unidad = "% Disp."
-        elif "SERVICIO" in metrica_label:
-            simbolo_unidad = "Estado"
-        elif metrica_label == "CPU":
-            simbolo_unidad = "%"
-        elif metrica_label == "RED":
-            simbolo_unidad = "Mb/s"
+        # CONSTRUCCIÓN DE LAS ETIQUETAS ASOCIADAS A LA REALIDAD OPERATIVA
+        if ("DISCO" in metrica_label or metrica_label == "RAM") and capacidad_total:
+            lbl_hoy = f"Hoy: {valor_actual_gb:.1f} GB ({valor_actual:.1f}%)"
+            lbl_prox = f"Prox: {valor_proyectado_gb:.1f} GB ({valor_proyectado:.1f}%)"
+        elif simbolo_unidad == "Estado":
+            lbl_hoy = f"Hoy: {'ACTIVO' if valor_actual >= 0.8 else 'CAÍDO'}"
+            lbl_prox = f"Prox: {'ACTIVO' if valor_proyectado == 1.0 else 'CAÍDO'}"
         else:
-            simbolo_unidad = "ms"
-
-        lbl_hoy = f"Hoy: {'ACTIVO' if valor_actual >= 0.8 else 'CAÍDO'}" if simbolo_unidad == "Estado" else f"Hoy: {valor_actual:.1f} {simbolo_unidad}"
-        lbl_prox = f"Prox: {'ACTIVO' if valor_proyectado == 1.0 else 'CAÍDO'}" if simbolo_unidad == "Estado" else f"Prox: {valor_proyectado:.1f} {simbolo_unidad}"
+            lbl_hoy = f"Hoy: {valor_actual:.1f} {simbolo_unidad}"
+            lbl_prox = f"Prox: {valor_proyectado:.1f} {simbolo_unidad}"
 
         st.markdown(f"""
         <div style="background: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #ddd;">
@@ -294,8 +338,8 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 <polyline points="{puntos}" fill="rgba(0, 51, 102, 0.15)" stroke="#003366" stroke-width="3" />
                 <circle cx="0" cy="{y_actual}" r="4" fill="#2c3e50" />
                 <circle cx="300" cy="{y_proy}" r="4" fill="#003366" />
-                <text x="5" y="{y_actual - 10}" font-size="12" fill="#2c3e50">{lbl_hoy}</text>
-                <text x="160" y="{y_proy - 10}" font-size="12" fill="#003366" font-weight="bold">{lbl_prox}</text>
+                <text x="5" y="{max(15, y_actual - 10)}" font-size="12" fill="#2c3e50">{lbl_hoy}</text>
+                <text x="130" y="{max(15, y_proy - 10)}" font-size="12" fill="#003366" font-weight="bold">{lbl_prox}</text>
                 <text x="0" y="170" font-size="10" fill="#999">Estado Actual</text>
                 <text x="240" y="170" font-size="10" fill="#999">+{dias_proy} días</text>
             </svg>
@@ -304,10 +348,14 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
 
         st.divider()
         
-        if (("DISCO" in metrica_label or metrica_label == "RAM") and valor_proyectado <= 10.0) or \
-           (metrica_label == "CPU" and valor_proyectado >= 85.0) or \
-           ("SERVICIO" in metrica_label and valor_proyectado == 0.0):
-            veredicto = "CRÍTICO"
+        # DISCRIMINACIÓN ESTRICTA DEL VEREDICTO DE CAPACIDAD
+        if "DISCO" in metrica_label or metrica_label == "RAM":
+            # Si el porcentaje real cae por debajo del 10.0%, se marca como CRÍTICO de inmediato
+            veredicto = "CRÍTICO" if valor_proyectado <= 10.0 else "SUFICIENTE"
+        elif metrica_label == "CPU":
+            veredicto = "CRÍTICO" if valor_proyectado >= 85.0 else "SUFICIENTE"
+        elif "SERVICIO" in metrica_label:
+            veredicto = "CRÍTICO" if valor_proyectado == 0.0 else "SUFICIENTE"
         else:
             veredicto = "SUFICIENTE"
         
@@ -357,6 +405,9 @@ def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
                 if simbolo_unidad == "Estado":
                     txt_pdf_actual = 'ACTIVO' if valor_actual >= 0.8 else 'CAÍDO'
                     txt_pdf_proy = 'ACTIVO' if valor_proyectado == 1.0 else 'CAÍDO'
+                elif ("DISCO" in metrica_label or metrica_label == "RAM") and capacidad_total:
+                    txt_pdf_actual = f"{valor_actual_gb:.1f} GB ({valor_actual:.1f}%)"
+                    txt_pdf_proy = f"{valor_proyectado_gb:.1f} GB ({valor_proyectado:.1f}%)"
                 else:
                     txt_pdf_actual = f"{valor_actual:.2f} {simbolo_unidad}"
                     txt_pdf_proy = f"{valor_proyectado:.2f} {simbolo_unidad}"
