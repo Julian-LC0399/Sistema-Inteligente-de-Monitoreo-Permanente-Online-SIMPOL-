@@ -231,7 +231,11 @@ def main():
                     )
                 elif seleccion == "📄 Reportes":
                     from modulos import reportes
-                    reportes.mostrar_pantalla(st.session_state.get("cargo", "Analista"), st.session_state.get("user_id", 1))
+                    reportes.mostrar_pantalla(
+                        nombre_analista=st.session_state.get("cargo", "Analista"),
+                        usuario_id=st.session_state.get("user_id", 1),
+                        usuario_login=st.session_state.get("user_actual", "Sistema")
+                    )
                 elif seleccion == "👥 Gestión de usuarios":
                     from modulos import gestion
                     gestion.mostrar_pantalla(st.session_state.get("user_actual", "Sistema"), st.session_state.get("user_id", 1))

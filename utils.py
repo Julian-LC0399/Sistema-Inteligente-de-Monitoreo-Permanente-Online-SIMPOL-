@@ -8,7 +8,7 @@ import psutil
 # Desactivar advertencias de seguridad para la red interna del banco (SSL auto-firmado)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configuración de Logs del Agente de Telemetría
+# Configuración de Logs del Agente de Telemetría compartidos
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -33,7 +33,7 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def safe_float(valor):
-    """Convierte de forma segura un valor a float, manejando vacíos, caracteres o text Null."""
+    """Convierte de forma segura un valor a float, manejando vacíos o nulos."""
     if valor is None:
         return 0.0
     val_str = str(valor).strip()
@@ -46,8 +46,8 @@ def safe_float(valor):
 
 def obtener_valor_prtg(id_sensor, tipo_metrica):
     """
-    Extrae métricas y PORCENTAJES de PRTG usando la API JSON de Canales Extendidos.
-    Filtra de forma ultra-flexible para capturar el porcentaje libre exacto.
+    Extrae métricas desde PRTG retornando una tupla triple optimizada:
+    (Valor_Crudo/Principal, Porcentaje_o_Secundario, Estado_Lectura)
     """
     if not id_sensor or int(id_sensor) == 0:
         return 0.0, None, False
@@ -60,7 +60,7 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
             "apitoken": PRTG_API_TOKEN
         }
         
-        r = requests.get(PRTG_BASE_URL, params=params, timeout=3.5, verify=False)
+        r = requests.get(PRTG_BASE_URL, params=params, timeout=4.0, verify=False)
         
         if r.status_code == 200:
             json_data = r.json()
@@ -71,69 +71,49 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                 pct_libre_detectado = None
                 primer_canal_valido = None
                 
-                # REVISIÓN: Recorremos los canales devueltos por PRTG
                 for channel in channels:
                     name = str(channel.get("name", "")).lower()
                     raw_val = safe_float(channel.get("lastvalue_raw", 0))
                     
-                    # Guardamos el primer valor numérico que aparezca como respaldo (Fallback)
                     if primer_canal_valido is None and raw_val > 0:
                         primer_canal_valido = raw_val
                     
-                    # 1. BÚSQUEDA DEL CANAL DE PORCENTAJE (Ultra flexible)
-                    if "%" in name or "pct" in name or "percent" in name or "porc" in name or "libre (%)" in name or "free (%)" in name:
+                    # Detección de canales de porcentaje libre
+                    if any(k in name for k in ["%", "pct", "percent", "porc"]):
                         if any(k in name for k in ["libre", "free", "disp", "avail"]):
                             pct_libre_detectado = raw_val
                         elif pct_libre_detectado is None and not any(k in name for k in ["usado", "used"]):
                             pct_libre_detectado = raw_val
-                    
-                    # 2. BÚSQUEDA DEL CANAL DE ESPACIO EN BYTES / GB (VALOR PRINCIPAL)
                     else:
-                        if any(k in name for k in ["libre", "free", "disp", "avail", "space", "volátil", "total", "bytes", "gb", "disk", "disco"]):
+                        if any(k in name for k in ["libre", "free", "disp", "avail", "space", "bytes", "gb"]):
                             val_crudo_principal = raw_val
 
-                # --- VALIDACIÓN DE RESPALDO EN CASO DE MATCHES NULOS ---
                 if val_crudo_principal is None:
-                    if primer_canal_valido is not None and primer_canal_valido > 100.0:
-                        val_crudo_principal = primer_canal_valido
-                    else:
-                        val_crudo_principal = 0.0
+                    val_crudo_principal = primer_canal_valido if primer_canal_valido is not None else 0.0
                 
-                # Fallback agresivo para el Porcentaje
                 if pct_libre_detectado is None and tipo_metrica in ["ram", "disco"]:
+                    # Fallback analítico de porcentaje si no viene explícito
                     for channel in channels:
                         raw_val = safe_float(channel.get("lastvalue_raw", 0))
                         if 0.1 <= raw_val <= 100.0 and raw_val != val_crudo_principal:
                             pct_libre_detectado = raw_val
                             break
 
-                # Normalización estricta de escalas de porcentaje (PRTG corre el decimal a veces)
+                # Forzar escalado correcto de porcentajes de PRTG
                 if pct_libre_detectado is not None:
-                    if pct_libre_detectado > 100:
-                        pct_libre_detectado = pct_libre_detectado / 10.0
-                    if pct_libre_detectado > 100:
-                        pct_libre_detectado = pct_libre_detectado / 10.0
+                    while pct_libre_detectado > 100.0:
+                        pct_libre_detectado /= 10.0
 
-                # === APLICAR CONVERSIONES SEGÚN EL TIPO DE MÉTRICA ===
                 if tipo_metrica == "red":
-                    val_final = round(val_crudo_principal / 1024 / 1024, 2) if val_crudo_principal > 0 else 0.0
-                    return val_final, None, True
+                    # Convertir Traffic a MB/s
+                    return round(val_crudo_principal / 1024 / 1024, 2) if val_crudo_principal > 0 else 0.0, None, True
                 
                 elif tipo_metrica == "latencia":
                     return round(val_crudo_principal, 2), None, True
                 
                 elif tipo_metrica in ["ram", "disco"]:
-                    if 1.0 <= val_crudo_principal <= 50000.0:
-                        val_gb = round(val_crudo_principal, 2)
-                    elif val_crudo_principal > 1073741824:
-                        val_gb = round(val_crudo_principal / 1073741824, 2)
-                    elif val_crudo_principal > 1048576: 
-                        val_gb = round(val_crudo_principal / 1048576, 2)
-                    else:
-                        val_gb = round(val_crudo_principal, 2)
-                    
-                    p_final = round(pct_libre_detectado, 1) if pct_libre_detectado is not None else 0.0
-                    return val_gb, p_final, True
+                    # Retorna el valor crudo en bytes, el porcentaje libre y True
+                    return val_crudo_principal, pct_libre_detectado, True
                 
                 elif tipo_metrica == "servicio":
                     return int(val_crudo_principal), None, True
@@ -142,85 +122,97 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                     return round(float(val_crudo_principal), 2), None, True
                     
     except Exception as e:
-        logging.error(f"[utils.py] ❌ Error general procesando canales en sensor {id_sensor}: {str(e)}")
+        logging.error(f"[utils.py] ❌ Error en consulta PRTG (Sensor {id_sensor}): {str(e)}")
             
-    return 0.0, 0.0 if tipo_metrica in ["ram", "disco"] else None, False
+    return 0.0, None, False
 
 def obtener_telemetria_total(config_servidor):
-    """
-    Calcula telemetría manejando estrictamente solo los sensores registrados
-    para el servidor actual. Soporta de forma dinámica hasta 6 Discos y 8 Servicios.
-    """
-    # 1. Muestreo Local (Fallback de Contingencia Estricta)
+    """Muestrea y calcula el diccionario integral V3.9 acoplado a la BD."""
+    # 1. Captura de Fallback Local por si el sensor PRTG no responde o está en 0
+    mem_local = psutil.virtual_memory()
     cpu_l = float(psutil.cpu_percent(interval=None))
-    ram_l = round(float(psutil.virtual_memory().available) / 1073741824, 2)
-    pct_ram_l = round((float(psutil.virtual_memory().available) / float(psutil.virtual_memory().total)) * 100, 1)
     
-    # Payload estructurado base (Los sensores van en None por defecto si no están registrados)
+    # Valores por defecto basados en máquina local
     data = {
-        "cpu": cpu_l, "ram": ram_l, "pct_ram": pct_ram_l,
-        "red": 0.0, "latencia": 0.0, 
-        "disco_1": None, "disco_2": None, "disco_3": None, "disco_4": None, "disco_5": None, "disco_6": None,
-        "pct_disco_1": None, "pct_disco_2": None, "pct_disco_3": None, "pct_disco_4": None, "pct_disco_5": None, "pct_disco_6": None,
-        "servicio_1": None, "servicio_2": None, "servicio_3": None, "servicio_4": None, "servicio_5": None,
-        "servicio_6": None, "servicio_7": None, "servicio_8": None,
+        "cpu": cpu_l,
+        "ram_bytes": int(mem_local.available),
+        "ram_gb": round(float(mem_local.available) / 1073741824, 2),
+        "ram_pct": round(mem_local.percent, 1),
+        "ram_total_gb": round(float(mem_local.total) / 1073741824, 2),
+        "red": 0.0,
+        "latencia": 0.0,
         "msg": "💻 (MODO LOCAL)"
     }
 
-    # 2. Consultas individuales a la API de PRTG solo si los sensores base están registrados (> 0)
+    # Inicializar los 6 bloques de discos en 0 de forma estructurada
+    for i in range(1, 7):
+        data[f"disco_{i}_bytes"] = int(0)
+        data[f"disco_{i}_gb"] = float(0.0)
+        data[f"disco_{i}_pct"] = float(0.0)
+        data[f"disco_{i}_total_gb"] = float(0.0)
+
+    # Inicializar los 8 bloques de servicios corporativos
+    for i in range(1, 9):
+        data[f"servicio_{i}_estado"] = "INACTIVO"
+        data[f"servicio_{i}_val"] = float(0.0)
+
+    # 2. Extracción y Conversión desde PRTG si los IDs existen
     id_cpu = int(config_servidor.get('id_sensor_cpu', 0) or 0)
     id_ram = int(config_servidor.get('id_sensor_ram', 0) or 0)
     id_red = int(config_servidor.get('id_sensor_red', 0) or 0)
     id_lat = int(config_servidor.get('id_sensor_latencia', 0) or 0)
 
     v_cpu, _, ok_cpu = obtener_valor_prtg(id_cpu, "cpu") if id_cpu > 0 else (0.0, None, False)
-    v_ram, p_ram, ok_ram = obtener_valor_prtg(id_ram, "ram") if id_ram > 0 else (0.0, None, False)
+    v_ram_bytes, p_ram_libre, ok_ram = obtener_valor_prtg(id_ram, "ram") if id_ram > 0 else (0.0, None, False)
     v_red, _, ok_red = obtener_valor_prtg(id_red, "red") if id_red > 0 else (0.0, None, False)
     v_lat, _, ok_lat = obtener_valor_prtg(id_lat, "latencia") if id_lat > 0 else (0.0, None, False)
     
-    # Bucle optimizado para los 6 Discos (Solo consulta si el ID es válido)
-    discos_res = {}
+    # Procesamiento de Discos Remotos (PRTG)
+    discos_ok = []
     for i in range(1, 7):
         id_disco = int(config_servidor.get(f'id_sensor_disco_{i}', 0) or 0)
         if id_disco > 0:
-            v_disc, p_disc, ok_disc = obtener_valor_prtg(id_disco, "disco")
-            discos_res[f'd_{i}'] = v_disc
-            discos_res[f'p_{i}'] = p_disc if p_disc is not None else 0.0
-            discos_res[f'ok_{i}'] = ok_disc
-        else:
-            discos_res[f'd_{i}'] = None
-            discos_res[f'p_{i}'] = None
-            discos_res[f'ok_{i}'] = False
+            v_disc_bytes, p_disc_libre, ok_disc = obtener_valor_prtg(id_disco, "disco")
+            if ok_disc and v_disc_bytes > 0:
+                # Estructurar bytes (Garantía BIGINT)
+                data[f"disco_{i}_bytes"] = int(v_disc_bytes)
+                data[f"disco_{i}_gb"] = round(float(v_disc_bytes) / 1073741824, 2)
+                
+                # Calcular el porcentaje de USO real (Invertir si PRTG da el espacio libre)
+                pct_real_uso = 100.0 - p_disc_libre if p_disc_libre is not None else 0.0
+                data[f"disco_{i}_pct"] = round(max(0.0, min(100.0, pct_real_uso)), i)
+                
+                # Estimar el almacenamiento total del volumen remitiéndose al espacio absoluto
+                data[f"disco_{i}_total_gb"] = round((float(v_disc_bytes) / (p_disc_libre / 100.0)) / 1073741824, 2) if (p_disc_libre and p_disc_libre > 0) else 100.0
+                discos_ok.append(True)
+                continue
+        discos_ok.append(False)
 
-    # Bucle ampliado completo (1 a 8) para la captura limpia de Servicios de Core Bancario
-    servicios_res = {}
+    # Procesamiento de Servicios Remotos (PRTG)
     for i in range(1, 9):
         id_servicio = int(config_servidor.get(f'id_sensor_servicio_{i}', 0) or 0)
         if id_servicio > 0:
             v_serv, _, ok_serv = obtener_valor_prtg(id_servicio, "servicio")
-            servicios_res[f's_{i}'] = "ON" if (ok_serv and v_serv == 1) else "OFF"
-        else:
-            servicios_res[f's_{i}'] = None  # Indica que el sensor no está registrado en este servidor
+            # Si el sensor responde y el canal principal es 1, el servicio está operando
+            if ok_serv and v_serv == 1:
+                data[f"servicio_{i}_estado"] = "ACTIVO"
+                data[f"servicio_{i}_val"] = float(1.0)
+            elif ok_serv and v_serv == 0:
+                data[f"servicio_{i}_estado"] = "OFF"
+                data[f"servicio_{i}_val"] = float(0.0)
+            else:
+                data[f"servicio_{i}_estado"] = "INACTIVO"
+                data[f"servicio_{i}_val"] = float(0.0)
 
-    # 3. Consolidación inteligente de datos
-    any_prtg_ok = any([ok_cpu, ok_ram, ok_red, ok_lat]) or any(discos_res[f'ok_{i}'] for i in range(1, 7))
-
-    if any_prtg_ok:
-        data["cpu"] = v_cpu if ok_cpu else cpu_l
-        data["ram"] = v_ram if ok_ram else ram_l
-        data["pct_ram"] = p_ram if (ok_ram and p_ram > 0.0) else pct_ram_l
-        data["red"] = v_red if ok_red else 0.0
-        data["latencia"] = v_lat if ok_lat else 0.0
-        
-        # Inyección de Telemetría de Almacenamiento Dinámico
-        for i in range(1, 7):
-            data[f"disco_{i}"] = discos_res[f"d_{i}"]
-            data[f"pct_disco_{i}"] = discos_res[f"p_{i}"]
-
-        # Inyección Completa de los 8 Canales de Servicios
-        for i in range(1, 9):
-            data[f"servicio_{i}"] = servicios_res[f"s_{i}"]
-            
-        data["msg"] = "🛰️ (PRTG ONLINE)"
+    # Consolidación final del origen de datos
+    if any([ok_cpu, ok_ram, ok_red, ok_lat]) or any(discos_ok):
+        if ok_cpu: data["cpu"] = float(v_cpu)
+        if ok_ram and v_ram_bytes > 0:
+            data["ram_bytes"] = int(v_ram_bytes)
+            data["ram_gb"] = round(float(v_ram_bytes) / 1073741824, 2)
+            data["ram_pct"] = round(100.0 - p_ram_libre, 1) if p_ram_libre is not None else data["ram_pct"]
+        if ok_red: data["red"] = float(v_red)
+        if ok_lat: data["latencia"] = float(v_lat)
+        data["msg"] = "🛰️ (PRTG ONLINE V3.9)"
 
     return data

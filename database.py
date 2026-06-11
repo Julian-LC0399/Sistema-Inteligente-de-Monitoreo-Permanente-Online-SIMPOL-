@@ -3,10 +3,8 @@ import streamlit as st
 import logging
 from datetime import datetime
 
-# Configuración básica de logs internos de base de datos
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- CONFIGURACIÓN DE CONEXIÓN (Optimizado para el Banco) ---
 def conectar_bd():
     """Establece conexión con parámetros de compatibilidad forzada para evitar error 2059."""
     config = {
@@ -21,27 +19,21 @@ def conectar_bd():
     try:
         return mysql.connector.connect(**config)
     except mysql.connector.Error:
-        # Intento de reconexión por nombre de host local alternativo
         try:
             config["host"] = "localhost"
             return mysql.connector.connect(**config)
         except Exception:
             return None
 
-# --- CONSULTAS CON CACHÉ (Lectura e Historial Pura Nativa en GB) ---
-
-@st.cache_data(ttl=3) # Sincronizado con el Fragment de telemetría de monitoreo.py
+@st.cache_data(ttl=3)
 def obtener_lista_servidores():
-    """
-    Obtiene el catálogo de servidores activos incluyendo el campo 'tipo' (Físico/Virtual/Host).
-    """
     conn = conectar_bd()
     if conn:
         try:
             conn.commit()
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT ip, nombre_alias, sistema_operativo, tipo, -- Campo 'tipo' V3.6 integrado
+                SELECT ip, nombre_alias, sistema_operativo, tipo,
                        id_sensor_cpu, id_sensor_ram, 
                        id_sensor_disco_1, letra_disco_1,
                        id_sensor_disco_2, letra_disco_2, 
@@ -62,38 +54,33 @@ def obtener_lista_servidores():
             conn.close()
             return resultado
         except Exception as e:
-            logging.error(f"Error al obtener catálogo multidisco, tipo y multiservicios: {e}")
+            logging.error(f"Error al obtener catálogo multidisco: {e}")
             if conn: conn.close()
     return []
 
-@st.cache_data(ttl=2) # Evita el solapamiento de ejecuciones del fragment
+@st.cache_data(ttl=2)
 def obtener_datos_historicos(ip_objetivo):
-    """
-    Trae la telemetría completa filtrada por IP mapeando tanto el estado (texto) 
-    como el valor numérico (FLOAT) de los 8 servicios corporativos.
-    """
     if not ip_objetivo:
         return []
-        
     ip_limpia = str(ip_objetivo).strip()
     conn = conectar_bd()
     if conn:
         try:
             conn.commit()
             cursor = conn.cursor(dictionary=True)
-            
-            # Ajustado para mapear el par simétrico (estado_servicio_X, val_servicio_X) de la V3.6
             query = """
-                SELECT fecha_registro, val_cpu, val_ram, 
-                       val_disco_1, val_disco_2, val_disco_3, val_disco_4, val_disco_5, val_disco_6,
-                       estado_servicio_1, val_servicio_1,
-                       estado_servicio_2, val_servicio_2,
-                       estado_servicio_3, val_servicio_3,
-                       estado_servicio_4, val_servicio_4,
-                       estado_servicio_5, val_servicio_5,
-                       estado_servicio_6, val_servicio_6,
-                       estado_servicio_7, val_servicio_7,
-                       estado_servicio_8, val_servicio_8,
+                SELECT fecha_registro, val_cpu, 
+                       val_ram_bytes, val_ram_gb, val_ram_pct, val_ram_total_gb,
+                       val_disco_1_bytes, val_disco_1_gb, val_disco_1_pct, val_disco_1_total_gb,
+                       val_disco_2_bytes, val_disco_2_gb, val_disco_2_pct, val_disco_2_total_gb,
+                       val_disco_3_bytes, val_disco_3_gb, val_disco_3_pct, val_disco_3_total_gb,
+                       val_disco_4_bytes, val_disco_4_gb, val_disco_4_pct, val_disco_4_total_gb,
+                       val_disco_5_bytes, val_disco_5_gb, val_disco_5_pct, val_disco_5_total_gb,
+                       val_disco_6_bytes, val_disco_6_gb, val_disco_6_pct, val_disco_6_total_gb,
+                       estado_servicio_1, val_servicio_1, estado_servicio_2, val_servicio_2,
+                       estado_servicio_3, val_servicio_3, estado_servicio_4, val_servicio_4,
+                       estado_servicio_5, val_servicio_5, estado_servicio_6, val_servicio_6,
+                       estado_servicio_7, val_servicio_7, estado_servicio_8, val_servicio_8,
                        val_red, val_latencia, estado_sistema 
                 FROM monitoreo 
                 WHERE TRIM(ip_servidor) = %s 
@@ -109,37 +96,25 @@ def obtener_datos_historicos(ip_objetivo):
             if conn: conn.close()
     return []
 
-# --- CONSULTA DE CONFIGURACIÓN Y AUDITORÍA DE UMBRALES ---
-
 def obtener_umbrales_actuales(ip):
-    """
-    Consulta la matriz de límites activos para los 6 discos y parámetros de salud.
-    """
     umbrales = {
         "cpu_buen_estado": 69, "cpu_advertencia": 70, "cpu_critico": 85,
-        "ram_buen_estado": 12, "ram_advertencia": 8, "ram_critico": 4
+        "ram_buen_estado": 15, "ram_advertencia": 15, "ram_critico": 10
     }
-    # Inicializar umbrales por defecto para el bucle analítico de 6 discos
     for i in range(1, 7):
-        umbrales.update({f"disco_{i}_buen_estado": 60, f"disco_{i}_advertencia": 40, f"disco_{i}_critico": 15})
+        umbrales.update({f"disco_{i}_buen_estado": 60, f"disco_{i}_advertencia": 25, f"disco_{i}_critico": 5})
     
     if not ip: return umbrales
-        
     ip_limpia = str(ip).strip()
     conn = conectar_bd()
     if conn:
         try:
             conn.commit()
             cursor = conn.cursor(dictionary=True)
-            query = """
-                SELECT * FROM historico_umbrales 
-                WHERE TRIM(ip_servidor) = %s 
-                ORDER BY id_historico DESC LIMIT 1
-            """
+            query = "SELECT * FROM historico_umbrales WHERE TRIM(ip_servidor) = %s ORDER BY id_historico DESC LIMIT 1"
             cursor.execute(query, (ip_limpia,))
             res = cursor.fetchone()
-            if res: 
-                umbrales = res
+            if res: umbrales = res
             cursor.close()
             conn.close()
         except Exception as e:
@@ -147,12 +122,9 @@ def obtener_umbrales_actuales(ip):
             if conn: conn.close()
     return umbrales
 
-# --- CARGAR MATRIZ DE PERMISOS ---
-
 def obtener_permisos_usuario(usuario_id):
     permisos = []
     if not usuario_id: return permisos
-        
     conn = conectar_bd()
     if conn:
         try:
@@ -174,8 +146,6 @@ def obtener_permisos_usuario(usuario_id):
             if conn: conn.close()
     return permisos
 
-# --- CONTROL DE ACCESOS ---
-
 def verificar_usuario(usuario, clave):
     conn = conectar_bd()
     if conn:
@@ -193,19 +163,20 @@ def verificar_usuario(usuario, clave):
             if conn: conn.close()
     return None
 
-# --- FUNCIONES DE ESCRITURA, CAPACIDAD Y AUDITORÍA ---
-
-def registrar_proyeccion(usuario_id, ip_servidor, metrica, actual, proyectado, veredicto):
+def registrar_proyeccion(usuario_id, ip_servidor, metrica, act_b, act_gb, act_pct, pro_b, pro_gb, pro_pct, veredicto):
+    """Actualizado para soportar las columnas extendidas de Capacity Planning de la V3.9."""
     conn = conectar_bd()
     if conn:
         try:
             cursor = conn.cursor()
             query = """
                 INSERT INTO proyecciones 
-                (usuario_id, ip_servidor, metrica_analizada, valor_actual, valor_proyectado, veredicto)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                (usuario_id, ip_servidor, metrica_analizada, 
+                 valor_actual_bytes, valor_actual_gb, valor_actual_pct, 
+                 valor_proyectado_bytes, valor_proyectado_gb, valor_proyectado_pct, veredicto)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (usuario_id, str(ip_servidor).strip(), metrica, actual, proyectado, veredicto))
+            cursor.execute(query, (usuario_id, str(ip_servidor).strip(), metrica, act_b, act_gb, act_pct, pro_b, pro_gb, pro_pct, veredicto))
             conn.commit()
             cursor.close()
             conn.close()
@@ -220,10 +191,7 @@ def registrar_log_acceso(usuario, cargo, rol, resultado="EXITOSO", usuario_id=No
     if conn:
         try:
             cursor = conn.cursor()
-            query = """
-                INSERT INTO log_accesos (usuario_id, usuario, cargo, rol, resultado) 
-                VALUES (%s, %s, %s, %s, %s)
-            """
+            query = "INSERT INTO log_accesos (usuario_id, usuario, cargo, rol, resultado) VALUES (%s, %s, %s, %s, %s)"
             cursor.execute(query, (usuario_id, usuario, cargo, rol, resultado))
             conn.commit()
             cursor.close()
@@ -253,22 +221,21 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, 
             if conn: conn.close()
     return False
 
-# --- COMPONENTE INTEGRADO V3.6: CONSULTA EXCLUSIVA DE ALERTAS PARA REPORTES ---
 @st.cache_data(ttl=5)
 def obtener_reporte_alertas(estado=None, ip=None):
-    """
-    Trae el histórico limpio de incidentes basado en eventos para la sección analítica de reportes.
-    Filtrará dinámicamente por estado ('ACTIVA'/'RESUELTA') o IP si se solicita.
-    """
     conn = conectar_bd()
     resultado = []
     if conn:
         try:
             conn.commit()
             cursor = conn.cursor(dictionary=True)
-            query = "SELECT id, ip_servidor, componente, tipo_alerta, valor_registrado, fecha_inicio, fecha_fin, estado_alerta FROM alertas WHERE 1=1"
+            query = """
+                SELECT id, ip_servidor, componente, tipo_alerta, 
+                       valor_registrado_bytes, valor_registrado_gb, valor_registrado_pct, 
+                       estado_servicio_momento, fecha_inicio, fecha_fin, estado_alerta 
+                FROM alertas WHERE 1=1
+            """
             parametros = []
-            
             if estado:
                 query += " AND estado_alerta = %s"
                 parametros.append(estado)
@@ -286,142 +253,95 @@ def obtener_reporte_alertas(estado=None, ip=None):
             if conn: conn.close()
     return resultado
 
-# --- NUEVA FUNCIÓN ARQUITECTÓNICA: ESCRITURA Y CONTROL TRANSICIONAL DE ESTADOS ---
-def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, valor_registrado, comentario=None):
-    """
-    Escribe de forma transicional el estado en la tabla de alertas (Única fuente de verdad).
-    Cierra alertas previas activas si cambia el estado o si el componente regresa a 'ESTABLE'.
-    """
+def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_b, val_gb, val_pct, est_srv=None, comentario=None):
+    """Actualizado: Máquina de estados transicional alineada con métricas triples en alertas."""
     ip_limpia = str(ip_servidor).strip()
     conn = conectar_bd()
-    if not conn:
-        return False
+    if not conn: return False
     try:
         cursor = conn.cursor(dictionary=True)
-        
-        # 1. Buscar si existe una alerta activa para este componente en este servidor
-        query_buscar = """
-            SELECT id, tipo_alerta FROM alertas 
-            WHERE ip_servidor = %s AND componente = %s AND estado_alerta = 'ACTIVA' 
-            LIMIT 1
-        """
+        query_buscar = "SELECT id, tipo_alerta FROM alertas WHERE ip_servidor = %s AND componente = %s AND estado_alerta = 'ACTIVA' LIMIT 1"
         cursor.execute(query_buscar, (ip_limpia, componente))
         alerta_activa = cursor.fetchone()
         
-        # Caso A: El componente está sano ('ESTABLE')
         if tipo_alerta == 'ESTABLE':
             if alerta_activa:
-                # Conmutar y cerrar la alerta de riesgo existente (fecha_fin toma el milisegundo exacto actual)
-                query_cerrar = """
-                    UPDATE alertas 
-                    SET fecha_fin = NOW(3), estado_alerta = 'RESUELTA', comentario = %s
-                    WHERE id = %s
-                """
-                comentario_cierre = comentario or "El componente retorno a niveles operativos normales."
-                cursor.execute(query_cerrar, (comentario_cierre, alerta_activa['id']))
+                query_cerrar = "UPDATE alertas SET fecha_fin = NOW(3), estado_alerta = 'RESUELTA', comentario = %s WHERE id = %s"
+                cursor.execute(query_cerrar, (comentario or "El componente retorno a niveles operativos normales.", alerta_activa['id']))
             
-            # Insertar registro histórico de estabilidad con estado RESUELTA nativo
             query_estable = """
-                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, valor_registrado, fecha_fin, estado_alerta, comentario)
-                VALUES (%s, %s, 'ESTABLE', %s, NOW(3), 'RESUELTA', %s)
+                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, valor_registrado_bytes, valor_registrado_gb, valor_registrado_pct, estado_servicio_momento, fecha_fin, estado_alerta, comentario)
+                VALUES (%s, %s, 'ESTABLE', %s, %s, %s, %s, NOW(3), 'RESUELTA', 'Estado estable monitoreado.')
             """
-            cursor.execute(query_estable, (ip_limpia, componente, valor_registrado, "Estado estable monitoreado."))
-            
-        # Caso B: El componente presenta una anomalía ('PRECAUCIÓN' o 'CRÍTICO')
+            cursor.execute(query_estable, (ip_limpia, componente, val_b, val_gb, val_pct, est_srv))
         else:
             if alerta_activa:
-                # Si el estado de riesgo cambió (ej. de PRECAUCIÓN pasó a CRÍTICO), cerramos la anterior para abrir la nueva
                 if alerta_activa['tipo_alerta'] != tipo_alerta:
-                    query_cerrar_mutacion = """
-                        UPDATE alertas SET fecha_fin = NOW(3), estado_alerta = 'RESUELTA', comentario = %s WHERE id = %s
-                    """
-                    msg_mutacion = f"Transicion de estado operacional hacia {tipo_alerta}."
-                    cursor.execute(query_cerrar_mutacion, (msg_mutacion, alerta_activa['id']))
+                    query_cerrar_mutacion = "UPDATE alertas SET fecha_fin = NOW(3), estado_alerta = 'RESUELTA', comentario = %s WHERE id = %s"
+                    cursor.execute(query_cerrar_mutacion, (f"Transicion de estado operacional hacia {tipo_alerta}.", alerta_activa['id']))
                 else:
-                    # Si es la misma alerta activa del mismo tipo, no duplicamos registros, se mantiene abierta
                     cursor.close()
                     conn.close()
                     return True
             
-            # Crear la nueva alerta de anomalía en estado ACTIVA
             query_insertar = """
-                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, valor_registrado, estado_alerta, comentario)
-                VALUES (%s, %s, %s, %s, 'ACTIVA', %s)
+                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, valor_registrado_bytes, valor_registrado_gb, valor_registrado_pct, estado_servicio_momento, estado_alerta, comentario)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'ACTIVA', %s)
             """
-            cursor.execute(query_insertar, (ip_limpia, componente, tipo_alerta, valor_registrado, comentario))
+            cursor.execute(query_insertar, (ip_limpia, componente, tipo_alerta, val_b, val_gb, val_pct, est_srv, comentario))
             
         conn.commit()
         cursor.close()
         conn.close()
         return True
     except Exception as e:
-        logging.error(f"Error critico gestionando transicion de estados en alertas para {ip_limpia}: {e}")
+        logging.error(f"Error critico gestionando alertas: {e}")
         if conn: conn.close()
         return False
 
-# --- NUEVAS FUNCIONES ARQUITECTÓNICAS V3.7: GUARDADO DE REPORTES VINCULADOS A ALERTAS ---
-
-def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb):
-    """
-    Registra en la base de datos un reporte consolidado vinculándolo opcionalmente 
-    a un evento/alerta específico y heredando el estado transaccional (V3.7).
-    """
+def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, snap_ram_b=0, snap_disc_b=0, snap_srv=None):
+    """Archiva reportes inyectando opcionalmente snapshots de bytes de contingencia en fallos."""
     conn = conectar_bd()
-    if not conn:
-        return False
+    if not conn: return False
     try:
         cursor = conn.cursor()
         query = """
             INSERT INTO reportes_archivados 
-            (nombre_archivo, format, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            (nombre_archivo, format, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb, snapshot_bytes_ram, snapshot_bytes_disco_critico, snapshot_servicio_estado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        # Asegurar tipado correcto para MySQL
-        ip_limpia = str(ip_servidor).strip() if ip_servidor else None
-        id_alerta_limpio = int(alerta_id) if alerta_id is not None else None
-        id_usuario_limpio = int(usuario_id) if usuario_id is not None else None
-        
-        valores = (nombre_archivo, formato, ip_limpia, contenido_blob, id_usuario_limpio, id_alerta_limpio, tipo_alerta, tamanio_kb)
-        
+        valores = (nombre_archivo, formato, str(ip_servidor).strip() if ip_servidor else None, contenido_blob, 
+                   int(usuario_id) if usuario_id is not None else None, int(alerta_id) if alerta_id is not None else None, 
+                   tipo_alerta, tamanio_kb, snap_ram_b, snap_disc_b, snap_srv)
         cursor.execute(query, valores)
         conn.commit()
         cursor.close()
         conn.close()
         return True
     except Exception as e:
-        logging.error(f"Error crítico al archivar reporte estándar en la BD V3.7: {e}")
+        logging.error(f"Error crítico al archivar reporte V3.9: {e}")
         if conn: conn.close()
         return False
 
-
-def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb):
-    """
-    Registra en la base de datos un reporte analítico de Capacity Planning vinculándolo 
-    a un evento/alerta específico y heredando el estado transaccional (V3.7).
-    """
+def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, act_b=0, pro_b=0):
     conn = conectar_bd()
-    if not conn:
-        return False
+    if not conn: return False
     try:
         cursor = conn.cursor()
         query = """
             INSERT INTO reportes_capacity_archivados 
-            (nombre_archivo, formato, metrica_analizada, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (nombre_archivo, formato, metrica_analizada, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb, analisis_bytes_actuales, analisis_bytes_proyectados)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        # Asegurar tipado correcto para MySQL
-        ip_limpia = str(ip_servidor).strip()
-        id_alerta_limpio = int(alerta_id) if alerta_id is not None else None
-        id_usuario_limpio = int(usuario_id) if usuario_id is not None else None
-        
-        valores = (nombre_archivo, formato, metrica, ip_limpia, contenido_blob, id_usuario_limpio, id_alerta_limpio, tipo_alerta, tamanio_kb)
-        
+        valores = (nombre_archivo, formato, metrica, str(ip_servidor).strip(), contenido_blob, 
+                   int(usuario_id) if usuario_id is not None else None, int(alerta_id) if alerta_id is not None else None, 
+                   tipo_alerta, tamanio_kb, act_b, pro_b)
         cursor.execute(query, valores)
         conn.commit()
         cursor.close()
         conn.close()
         return True
     except Exception as e:
-        logging.error(f"Error crítico al archivar reporte de Capacity en la BD V3.7: {e}")
+        logging.error(f"Error crítico al archivar reporte de Capacity V3.9: {e}")
         if conn: conn.close()
         return False

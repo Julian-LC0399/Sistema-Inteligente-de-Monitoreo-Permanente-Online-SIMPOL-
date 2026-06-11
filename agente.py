@@ -4,11 +4,10 @@ from datetime import datetime
 import sys
 import os
 import logging
+import socket  # <-- Incorporado para el candado de exclusión mutua
 from utils import get_resource_path, obtener_telemetria_total
 
-# =========================================================
-# CONFIGURACIÓN GENERAL Y BASE DE DATOS
-# =========================================================
+# Configuración de base de datos nativa conector puro
 DB_CONFIG = {
     "host": "127.0.0.1", 
     "user": "root", 
@@ -20,8 +19,8 @@ DB_CONFIG = {
 }
 
 AGENTE_EN_EJECUCION = False
+_SOCKET_LOCK = None  # Instancia global para retener el puerto firmemente en memoria
 
-# Configuración de Logging centralizado compatible con simpol_agente.log
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -32,53 +31,53 @@ logging.basicConfig(
 )
 
 def log_agente(mensaje, nivel="info"):
-    """Registra eventos en el log y la consola de manera segura y sincronizada."""
-    if not AGENTE_EN_EJECUCION:
-        return
-    if nivel == "error":
-        logging.error(mensaje)
-    elif nivel == "warning":
-        logging.warning(mensaje)
-    else:
-        logging.info(mensaje)
+    if not AGENTE_EN_EJECUCION: return
+    if nivel == "error": logging.error(mensaje)
+    elif nivel == "warning": logging.warning(mensaje)
+    else: logging.info(mensaje)
 
 def conectar_bd_con_reintentos(max_intentos=3, delay=2):
-    """Establece conexión de forma segura con la base de datos mitigando microcortes en la red."""
     intentos = 0
     while intentos < max_intentos:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
-            if conn.is_connected():
-                return conn
+            if conn.is_connected(): return conn
         except mysql.connector.Error as err:
             intentos += 1
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Reintento de conexión BD {intentos}/{max_intentos} falló: {err}", flush=True)
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Intento de conexión {intentos}/{max_intentos} falló: {err}", flush=True)
             time.sleep(delay)
     return None
 
 def ejecutar_motor_agente():
-    """
-    Demonio principal de telemetría SIMPOL.
-    Recorre los nodos activos, extrae datos en vivo (PRTG/Local) e inserta en la BD de forma dinámica.
-    """
-    global AGENTE_EN_EJECUCION
-    AGENTE_EN_EJECUCION = True
+    global AGENTE_EN_EJECUCION, _SOCKET_LOCK
     
-    log_agente("🚀 INICIANDO DEMONIO DE TELEMETRÍA SIMPOL (FILTRO DINÁMICO DE SENSORES REGISTRADOS)")
+    # -------------------------------------------------------------------------
+    # 🛡️ BLINDAJE ANTI-DUPLICADOS (Socket Lock)
+    # -------------------------------------------------------------------------
+    try:
+        _SOCKET_LOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Enlazamos a localhost en un puerto de control exclusivo para el Agente Core
+        _SOCKET_LOCK.bind(("127.0.0.1", 9999))
+    except socket.error:
+        print(f"\n[🛑 ALERTA SIMPOL] El demonio 'agente.py' ya se encuentra en ejecución activa en otra terminal o hilo.", flush=True)
+        print("Abortando inicialización duplicada de forma segura para proteger la integridad de la Base de Datos.\n", flush=True)
+        sys.exit(0)
+        
+    AGENTE_EN_EJECUCION = True
+    log_agente("🚀 INICIANDO DEMONIO DE MONITOREO SIMPOL CORE - BANCO CARONÍ V3.9")
 
     try:
         while AGENTE_EN_EJECUCION:
-            # Reutilizamos una única conexión por ciclo para lecturas y escrituras (Optimización de Sockets)
             conn = conectar_bd_con_reintentos()
             if not conn:
-                log_agente("❌ ERROR CRÍTICO: Imposible conectar a MySQL tras múltiples reintentos. Saltando ciclo.", "error")
+                log_agente("❌ ERROR DE RED: Imposible conectar al motor MySQL.", "error")
                 time.sleep(15)
                 continue
 
             try:
+                # 1. Leer servidores configurados para telemetría activa
                 cursor_ins = conn.cursor(dictionary=True)
-                query_servidores = "SELECT * FROM servidores WHERE estado_monitoreo = 1"
-                cursor_ins.execute(query_servidores)
+                cursor_ins.execute("SELECT * FROM servidores WHERE estado_monitoreo = 1")
                 servidores = cursor_ins.fetchall()
                 cursor_ins.close()
 
@@ -87,7 +86,6 @@ def ejecutar_motor_agente():
                         ip = srv["ip"]
                         nombre = srv["nombre_alias"] or ip
                         
-                        # 1. Extracción e indexación de IDs de sensores desde la configuración de la BD
                         id_cpu = int(srv.get("id_sensor_cpu") or 0)
                         id_ram = int(srv.get("id_sensor_ram") or 0)
                         id_red = int(srv.get("id_sensor_red") or 0)
@@ -96,119 +94,118 @@ def ejecutar_motor_agente():
                         ids_discos = [int(srv.get(f"id_sensor_disco_{i}") or 0) for i in range(1, 7)]
                         ids_servicios = [int(srv.get(f"id_sensor_servicio_{i}") or 0) for i in range(1, 9)]
                         
-                        # Validación de existencia mínima de sensores configurados
-                        total_sensores = id_ram + id_cpu + id_red + id_latencia + sum(ids_discos) + sum(ids_servicios)
-                        if total_sensores == 0:
-                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏭️ Servidor '{nombre}' ({ip}) saltado: Sin sensores asignados en BD.", flush=True)
+                        total_sensores = id_cpu + id_ram + id_red + id_latencia + sum(ids_discos) + sum(ids_servicios)
+                        if total_sensores == 0: 
                             continue
 
-                        # Obtener telemetría total consolidada en vivo desde utils.py
+                        # 2. Invocar muestreo integral de la API extendida
                         telemetria = obtener_telemetria_total(srv)
                         origen_msg = telemetria.get("msg", "💻 (MODO LOCAL)")
                         
-                        # =====================================================================
-                        # 2. PROCESAMIENTO INTELIGENTE: PRESERVAR 'NONE' SI NO EXISTE EL SENSOR
-                        # =====================================================================
-                        v_cpu = float(telemetria.get("cpu") if telemetria.get("cpu") is not None else 0.0) if id_cpu > 0 else 0.0
-                        v_ram = float(telemetria.get("ram") if telemetria.get("ram") is not None else 0.0) if id_ram > 0 else 0.0
-                        v_red = float(telemetria.get("red") if telemetria.get("red") is not None else 0.0) if id_red > 0 else 0.0
-                        v_lat = float(telemetria.get("latencia") if telemetria.get("latencia") is not None else 0.0) if id_latencia > 0 else 0.0
-                        
-                        # Si el ID del disco es mayor a 0, se guarda el valor o porcentaje obtenido (o 0.0 por defecto); si no existe, se guarda None (NULL en BD)
-                        v_d1 = float(telemetria.get("disco_1") if telemetria.get("disco_1") is not None else 0.0) if ids_discos[0] > 0 else None
-                        v_d2 = float(telemetria.get("disco_2") if telemetria.get("disco_2") is not None else 0.0) if ids_discos[1] > 0 else None
-                        v_d3 = float(telemetria.get("disco_3") if telemetria.get("disco_3") is not None else 0.0) if ids_discos[2] > 0 else None
-                        v_d4 = float(telemetria.get("disco_4") if telemetria.get("disco_4") is not None else 0.0) if ids_discos[3] > 0 else None
-                        v_d5 = float(telemetria.get("disco_5") if telemetria.get("disco_5") is not None else 0.0) if ids_discos[4] > 0 else None
-                        v_d6 = float(telemetria.get("disco_6") if telemetria.get("disco_6") is not None else 0.0) if ids_discos[5] > 0 else None
-                        
-                        # Los estados de los servicios se extraen ya procesados ("ON", "OFF", None) desde utils.py
-                        v_s1 = telemetria.get("servicio_1") if ids_servicios[0] > 0 else None
-                        v_s2 = telemetria.get("servicio_2") if ids_servicios[1] > 0 else None
-                        v_s3 = telemetria.get("servicio_3") if ids_servicios[2] > 0 else None
-                        v_s4 = telemetria.get("servicio_4") if ids_servicios[3] > 0 else None
-                        v_s5 = telemetria.get("servicio_5") if ids_servicios[4] > 0 else None
-                        v_s6 = telemetria.get("servicio_6") if ids_servicios[5] > 0 else None
-                        v_s7 = telemetria.get("servicio_7") if ids_servicios[6] > 0 else None
-                        v_s8 = telemetria.get("servicio_8") if ids_servicios[7] > 0 else None
+                        # 3. Máquina de Estados / Cálculo de Semáforo (estado_sistema)
+                        estado_sistema_code = "3"
 
-                        # =====================================================================
-                        # 3. EVALUACIÓN DEL SEMÁFORO OPERATIVO (ESTÁNDAR PRTG: '3'=OK, '4'=CRIT, '5'=WARN)
-                        # =====================================================================
-                        u_ram_adv, u_ram_crit = 3.5, 1.5
-                        u_disco_limites = {i: {"adv": 40.0, "crit": 15.0} for i in range(1, 7)}
-                        
-                        if ip == "10.10.1.133":
-                            u_disco_limites[1]["adv"] = 35.0  
-                            u_disco_limites[2]["adv"] = 65.0  
-
-                        estado_sistema_code = "3" # Por defecto '3' (OK / Up)
-
+                        # Regla RAM para Servidores Corporativos
+                        v_ram_pct = telemetria.get("ram_pct", 0.0) if id_ram > 0 else 0.0
                         if id_ram > 0:
-                            if v_ram <= u_ram_crit: estado_sistema_code = "4"
-                            elif v_ram <= u_ram_adv: estado_sistema_code = "5"
+                            if v_ram_pct >= 90.0: estado_sistema_code = "4"
+                            elif v_ram_pct >= 75.0: estado_sistema_code = "5"
 
-                        # Solo evaluamos alertas de espacio en discos registrados que NO tengan un valor nulo (None)
-                        valores_discos = [v_d1, v_d2, v_d3, v_d4, v_d5, v_d6]
-                        for idx in range(6):
-                            num_d = idx + 1
-                            if ids_discos[idx] > 0 and valores_discos[idx] is not None:
-                                v_disc = valores_discos[idx]
-                                if v_disc <= u_disco_limites[num_d]["crit"]: 
+                        # Regla Discos Dinámicos
+                        for i in range(1, 7):
+                            if ids_discos[i-1] > 0:
+                                d_pct = telemetria.get(f"disco_{i}_pct", 0.0)
+                                if d_pct >= 95.0: 
                                     estado_sistema_code = "4"
-                                elif v_disc <= u_disco_limites[num_d]["adv"] and estado_sistema_code != "4": 
+                                elif d_pct >= 85.0 and estado_sistema_code != "4": 
                                     estado_sistema_code = "5"
 
-                        # Si un servicio crítico activo está caído (OFF), el semáforo del sistema pasa a Crítico
-                        valores_servicios = [v_s1, v_s2, v_s3, v_s4, v_s5, v_s6, v_s7, v_s8]
-                        for idx in range(8):
-                            if ids_servicios[idx] > 0 and valores_servicios[idx] == "OFF":
-                                estado_sistema_code = "4"
+                        # Regla Servicios Core Bancarios
+                        for i in range(1, 9):
+                            if ids_servicios[i-1] > 0:
+                                if telemetria.get(f"servicio_{i}_estado") == "OFF":
+                                    estado_sistema_code = "4"
 
                         ahora_local = datetime.now()
 
-                        # =====================================================================
-                        # 4. INSERCIÓN DE MÉTRICAS EN HISTÓRICO MONITOREO
-                        # =====================================================================
+                        # 4. QUERY ESTRUCTURADA ASIGNANDO LAS 50 COLUMNAS DE LA TABLA V3.9
                         query = """
-                            INSERT INTO monitoreo 
-                            (ip_servidor, val_cpu, val_ram, 
-                             val_disco_1, val_disco_2, val_disco_3, val_disco_4, val_disco_5, val_disco_6,
-                             estado_servicio_1, estado_servicio_2, estado_servicio_3, estado_servicio_4, estado_servicio_5,
-                             estado_servicio_6, estado_servicio_7, estado_servicio_8,
-                             val_red, val_latencia, estado_sistema, fecha_registro) 
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            INSERT INTO monitoreo (
+                                ip_servidor, val_cpu, val_ram_bytes, val_ram_gb, val_ram_pct, val_ram_total_gb,
+                                val_disco_1_bytes, val_disco_1_gb, val_disco_1_pct, val_disco_1_total_gb,
+                                val_disco_2_bytes, val_disco_2_gb, val_disco_2_pct, val_disco_2_total_gb,
+                                val_disco_3_bytes, val_disco_3_gb, val_disco_3_pct, val_disco_3_total_gb,
+                                val_disco_4_bytes, val_disco_4_gb, val_disco_4_pct, val_disco_4_total_gb,
+                                val_disco_5_bytes, val_disco_5_gb, val_disco_5_pct, val_disco_5_total_gb,
+                                val_disco_6_bytes, val_disco_6_gb, val_disco_6_pct, val_disco_6_total_gb,
+                                estado_servicio_1, val_servicio_1, estado_servicio_2, val_servicio_2,
+                                estado_servicio_3, val_servicio_3, estado_servicio_4, val_servicio_4,
+                                estado_servicio_5, val_servicio_5, estado_servicio_6, val_servicio_6,
+                                estado_servicio_7, val_servicio_7, estado_servicio_8, val_servicio_8,
+                                val_red, val_latencia, estado_sistema, fecha_registro
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s
+                            )
                         """
                         
-                        valores = (
-                            ip, v_cpu, v_ram, 
-                            v_d1, v_d2, v_d3, v_d4, v_d5, v_d6,
-                            v_s1, v_s2, v_s3, v_s4, v_s5, v_s6, v_s7, v_s8, 
-                            v_red, v_lat, estado_sistema_code, ahora_local
-                        )
+                        parametros_sql = [
+                            str(ip),
+                            float(telemetria.get("cpu", 0.0)) if id_cpu > 0 else 0.0,
+                            int(telemetria.get("ram_bytes", 0)) if id_ram > 0 else 0,
+                            float(telemetria.get("ram_gb", 0.0)) if id_ram > 0 else 0.0,
+                            float(telemetria.get("ram_pct", 0.0)) if id_ram > 0 else 0.0,
+                            float(telemetria.get("ram_total_gb", 0.0)) if id_ram > 0 else 0.0
+                        ]
+                        
+                        for i in range(1, 7):
+                            if ids_discos[i-1] > 0:
+                                parametros_sql.append(int(telemetria.get(f"disco_{i}_bytes", 0)))
+                                parametros_sql.append(float(telemetria.get(f"disco_{i}_gb", 0.0)))
+                                parametros_sql.append(float(telemetria.get(f"disco_{i}_pct", 0.0)))
+                                parametros_sql.append(float(telemetria.get(f"disco_{i}_total_gb", 0.0)))
+                            else:
+                                parametros_sql.extend([0, 0.0, 0.0, 0.0])
+                        
+                        for i in range(1, 9):
+                            if ids_servicios[i-1] > 0:
+                                parametros_sql.append(str(telemetria.get(f"servicio_{i}_estado", "OFF")))
+                                parametros_sql.append(float(telemetria.get(f"servicio_{i}_val", 0.0)))
+                            else:
+                                parametros_sql.extend(["INACTIVO", 0.0])
+                        
+                        parametros_sql.extend([
+                            float(telemetria.get("red", 0.0)) if id_red > 0 else 0.0,
+                            float(telemetria.get("latencia", 0.0)) if id_latencia > 0 else 0.0,
+                            str(estado_sistema_code),
+                            ahora_local
+                        ])
 
                         cursor_write = conn.cursor()
-                        cursor_write.execute(query, valores)
+                        cursor_write.execute(query, parametros_sql)
                         conn.commit()
                         cursor_write.close()
 
-                        # Notificación limpia en consola por cada ciclo
-                        print(f"[{ahora_local.strftime('%Y-%m-%d %H:%M:%S')}] ✅ Servidor '{nombre}' ({ip}) monitoreado con éxito. Origen: {origen_msg} | Estado: {estado_sistema_code}", flush=True)
+                        print(f"[{ahora_local.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] ✅ '{nombre}' ({ip}) guardado con éxito. Source: {origen_msg} | Semáforo: {estado_sistema_code}", flush=True)
 
                     except Exception as e_srv:
                         log_agente(f"❌ Excepción procesando servidor {srv.get('nombre_alias', ip)}: {str(e_srv)}", "error")
 
             except Exception as e_ciclo:
-                log_agente(f"❌ Fallo general en el ciclo de procesamiento: {str(e_ciclo)}", "error")
+                log_agente(f"❌ Fallo crítico en el ciclo transaccional: {str(e_ciclo)}", "error")
             finally:
-                if conn and conn.is_connected():
+                if conn and conn.is_connected(): 
                     conn.close()
 
             time.sleep(15)
             
     except KeyboardInterrupt:
         AGENTE_EN_EJECUCION = False
-        log_agente("🛑 Demonio de telemetría detenido de forma segura por el operador.", "warning")
+        if _SOCKET_LOCK:
+            _SOCKET_LOCK.close()
+        print("\n🛑 Demonio SIMPOL detenido de manera controlada por el operador.", flush=True)
 
 if __name__ == "__main__":
     ejecutar_motor_agente()
