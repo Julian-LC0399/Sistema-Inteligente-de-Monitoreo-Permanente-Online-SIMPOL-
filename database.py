@@ -70,13 +70,13 @@ def obtener_datos_historicos(ip_objetivo):
             cursor = conn.cursor(dictionary=True)
             query = """
                 SELECT fecha_registro, val_cpu, 
-                       val_ram_bytes, val_ram_gb, val_ram_pct, val_ram_total_gb,
-                       val_disco_1_bytes, val_disco_1_gb, val_disco_1_pct, val_disco_1_total_gb,
-                       val_disco_2_bytes, val_disco_2_gb, val_disco_2_pct, val_disco_2_total_gb,
-                       val_disco_3_bytes, val_disco_3_gb, val_disco_3_pct, val_disco_3_total_gb,
-                       val_disco_4_bytes, val_disco_4_gb, val_disco_4_pct, val_disco_4_total_gb,
-                       val_disco_5_bytes, val_disco_5_gb, val_disco_5_pct, val_disco_5_total_gb,
-                       val_disco_6_bytes, val_disco_6_gb, val_disco_6_pct, val_disco_6_total_gb,
+                       val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb,
+                       val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb,
+                       val_disco_2_total_gb, val_disco_2_pct_libre, val_disco_2_libres_gb,
+                       val_disco_3_total_gb, val_disco_3_pct_libre, val_disco_3_libres_gb,
+                       val_disco_4_total_gb, val_disco_4_pct_libre, val_disco_4_libres_gb,
+                       val_disco_5_total_gb, val_disco_5_pct_libre, val_disco_5_libres_gb,
+                       val_disco_6_total_gb, val_disco_6_pct_libre, val_disco_6_libres_gb,
                        estado_servicio_1, val_servicio_1, estado_servicio_2, val_servicio_2,
                        estado_servicio_3, val_servicio_3, estado_servicio_4, val_servicio_4,
                        estado_servicio_5, val_servicio_5, estado_servicio_6, val_servicio_6,
@@ -99,10 +99,10 @@ def obtener_datos_historicos(ip_objetivo):
 def obtener_umbrales_actuales(ip):
     umbrales = {
         "cpu_buen_estado": 69, "cpu_advertencia": 70, "cpu_critico": 85,
-        "ram_buen_estado": 15, "ram_advertencia": 15, "ram_critico": 10
+        "ram_buen_estado": 20, "ram_advertencia": 15, "ram_critico": 10
     }
     for i in range(1, 7):
-        umbrales.update({f"disco_{i}_buen_estado": 60, f"disco_{i}_advertencia": 25, f"disco_{i}_critico": 5})
+        umbrales.update({f"disco_{i}_buen_estado": 25, f"disco_{i}_advertencia": 15, f"disco_{i}_critico": 5})
     
     if not ip: return umbrales
     ip_limpia = str(ip).strip()
@@ -163,8 +163,8 @@ def verificar_usuario(usuario, clave):
             if conn: conn.close()
     return None
 
-def registrar_proyeccion(usuario_id, ip_servidor, metrica, act_b, act_gb, act_pct, pro_b, pro_gb, pro_pct, veredicto):
-    """Actualizado para soportar las columnas extendidas de Capacity Planning de la V3.9."""
+def registrar_proyeccion(usuario_id, ip_servidor, metrica, act_total, act_gb, act_pct, pro_total, pro_gb, pro_pct, veredicto):
+    """Sincronizado con la tabla proyecciones mapeando los 3 campos de disponibilidad."""
     conn = conectar_bd()
     if conn:
         try:
@@ -172,11 +172,11 @@ def registrar_proyeccion(usuario_id, ip_servidor, metrica, act_b, act_gb, act_pc
             query = """
                 INSERT INTO proyecciones 
                 (usuario_id, ip_servidor, metrica_analizada, 
-                 valor_actual_bytes, valor_actual_gb, valor_actual_pct, 
-                 valor_proyectado_bytes, valor_proyectado_gb, valor_proyectado_pct, veredicto)
+                 val_total_gb, val_actual_disponible_gb, val_actual_disponible_pct, 
+                 val_proyectado_total_gb, val_proyectado_disponible_gb, val_proyectado_disponible_pct, veredicto)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (usuario_id, str(ip_servidor).strip(), metrica, act_b, act_gb, act_pct, pro_b, pro_gb, pro_pct, veredicto))
+            cursor.execute(query, (usuario_id, str(ip_servidor).strip(), metrica, act_total, act_gb, act_pct, pro_total, pro_gb, pro_pct, veredicto))
             conn.commit()
             cursor.close()
             conn.close()
@@ -231,7 +231,7 @@ def obtener_reporte_alertas(estado=None, ip=None):
             cursor = conn.cursor(dictionary=True)
             query = """
                 SELECT id, ip_servidor, componente, tipo_alerta, 
-                       valor_registrado_bytes, valor_registrado_gb, valor_registrado_pct, 
+                       val_total_gb_momento, val_disponible_gb_momento, val_disponible_pct_momento, 
                        estado_servicio_momento, fecha_inicio, fecha_fin, estado_alerta 
                 FROM alertas WHERE 1=1
             """
@@ -253,8 +253,8 @@ def obtener_reporte_alertas(estado=None, ip=None):
             if conn: conn.close()
     return resultado
 
-def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_b, val_gb, val_pct, est_srv=None, comentario=None):
-    """Actualizado: Máquina de estados transicional alineada con métricas triples en alertas."""
+def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_total, val_disp_gb, val_disp_pct, est_srv=None, comentario=None):
+    """Actualizado: Gestión unificada de alertas bajo el modelo de Disponibilidad (GB libres y %)."""
     ip_limpia = str(ip_servidor).strip()
     conn = conectar_bd()
     if not conn: return False
@@ -270,10 +270,10 @@ def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_b, val_gb,
                 cursor.execute(query_cerrar, (comentario or "El componente retorno a niveles operativos normales.", alerta_activa['id']))
             
             query_estable = """
-                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, valor_registrado_bytes, valor_registrado_gb, valor_registrado_pct, estado_servicio_momento, fecha_fin, estado_alerta, comentario)
+                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, val_total_gb_momento, val_disponible_gb_momento, val_disponible_pct_momento, estado_servicio_momento, fecha_fin, estado_alerta, comentario)
                 VALUES (%s, %s, 'ESTABLE', %s, %s, %s, %s, NOW(3), 'RESUELTA', 'Estado estable monitoreado.')
             """
-            cursor.execute(query_estable, (ip_limpia, componente, val_b, val_gb, val_pct, est_srv))
+            cursor.execute(query_estable, (ip_limpia, componente, val_total, val_disp_gb, val_disp_pct, est_srv))
         else:
             if alerta_activa:
                 if alerta_activa['tipo_alerta'] != tipo_alerta:
@@ -285,10 +285,10 @@ def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_b, val_gb,
                     return True
             
             query_insertar = """
-                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, valor_registrado_bytes, valor_registrado_gb, valor_registrado_pct, estado_servicio_momento, estado_alerta, comentario)
+                INSERT INTO alertas (ip_servidor, componente, tipo_alerta, val_total_gb_momento, val_disponible_gb_momento, val_disponible_pct_momento, estado_servicio_momento, estado_alerta, comentario)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, 'ACTIVA', %s)
             """
-            cursor.execute(query_insertar, (ip_limpia, componente, tipo_alerta, val_b, val_gb, val_pct, est_srv, comentario))
+            cursor.execute(query_insertar, (ip_limpia, componente, tipo_alerta, val_total, val_disp_gb, val_disp_pct, est_srv, comentario))
             
         conn.commit()
         cursor.close()
@@ -299,20 +299,20 @@ def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_b, val_gb,
         if conn: conn.close()
         return False
 
-def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, snap_ram_b=0, snap_disc_b=0, snap_srv=None):
-    """Archiva reportes inyectando opcionalmente snapshots de bytes de contingencia en fallos."""
+def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, snap_tot=0, snap_disp=0, snap_pct=0, snap_srv=None):
+    """Archiva reportes inyectando la métrica triple de disponibilidad."""
     conn = conectar_bd()
     if not conn: return False
     try:
         cursor = conn.cursor()
         query = """
             INSERT INTO reportes_archivados 
-            (nombre_archivo, format, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb, snapshot_bytes_ram, snapshot_bytes_disco_critico, snapshot_servicio_estado)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (nombre_archivo, format, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb, snapshot_total_gb, snapshot_disponible_gb, snapshot_disponible_pct, snapshot_servicio_estado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         valores = (nombre_archivo, formato, str(ip_servidor).strip() if ip_servidor else None, contenido_blob, 
                    int(usuario_id) if usuario_id is not None else None, int(alerta_id) if alerta_id is not None else None, 
-                   tipo_alerta, tamanio_kb, snap_ram_b, snap_disc_b, snap_srv)
+                   tipo_alerta, tamanio_kb, snap_tot, snap_disp, snap_pct, snap_srv)
         cursor.execute(query, valores)
         conn.commit()
         cursor.close()
@@ -323,19 +323,20 @@ def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_
         if conn: conn.close()
         return False
 
-def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, act_b=0, pro_b=0):
+def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, act_tot=0, act_disp=0, pro_disp=0):
+    """Corregido para emparejarse exactamente con las columnas numéricas de la tabla reportes_capacity_archivados."""
     conn = conectar_bd()
     if not conn: return False
     try:
         cursor = conn.cursor()
         query = """
             INSERT INTO reportes_capacity_archivados 
-            (nombre_archivo, formato, metrica_analizada, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb, analisis_bytes_actuales, analisis_bytes_proyectados)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (nombre_archivo, formato, metrica_analizada, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta, tamanio_kb, analisis_total_gb, analisis_bytes_actuales, analisis_bytes_proyectados)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         valores = (nombre_archivo, formato, metrica, str(ip_servidor).strip(), contenido_blob, 
                    int(usuario_id) if usuario_id is not None else None, int(alerta_id) if alerta_id is not None else None, 
-                   tipo_alerta, tamanio_kb, act_b, pro_b)
+                   tipo_alerta, tamanio_kb, act_tot, act_disp, pro_disp)
         cursor.execute(query, valores)
         conn.commit()
         cursor.close()

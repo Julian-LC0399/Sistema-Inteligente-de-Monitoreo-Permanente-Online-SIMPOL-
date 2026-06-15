@@ -33,7 +33,6 @@ def ejecutar_agente_motor():
     """Ejecuta la lógica de monitoreo sin bloquear la interfaz"""
     try:
         logging.info("Intentando importar e iniciar el motor del agente...")
-        # CORRECCIÓN: Se importa ejecutar_motor_agente que es el nombre real en agente.py
         from agente import ejecutar_motor_agente
         ejecutar_motor_agente()
     except Exception as e:
@@ -73,8 +72,6 @@ def gestionar_limpieza_filtros(seccion_destino):
     """
     Controla los estados de los filtros de monitoreo, usuarios, servidores,
     reportes, capacity planning y alertas.
-    Si el usuario cambia de sección y el destino NO es el módulo correspondiente,
-    destruye la persistencia para evitar datos fantasma o errores de instanciación.
     """
     # 1. Limpieza de filtros del módulo de Monitoreo en vivo
     if seccion_destino != "🖥️ Monitoreo en vivo":
@@ -84,12 +81,9 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
         if "servidor_seleccionado" in st.session_state:
             st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
-        
         if "srv" in st.query_params:
-            try:
-                del st.query_params["srv"]
-            except KeyError:
-                pass
+            try: del st.query_params["srv"]
+            except KeyError: pass
 
     # 2. Réplica para Gestión de usuarios
     if seccion_destino != "👥 Gestión de usuarios":
@@ -98,14 +92,18 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "accion_personal" in st.session_state:
             st.session_state["accion_personal"] = None
 
-    # 3. Réplica para Servidores
+    # 3. Réplica para Servidores (Forzamos reset absoluto de variables de control)
     if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
         if "accion_infra" in st.session_state:
             st.session_state["accion_infra"] = None
+        if "filtro_adicional_nombre" in st.session_state:
+            st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+        if "accion_adicional" in st.session_state:
+            st.session_state["accion_adicional"] = None
 
-    # 4. Réplica para Reportes (Limpia descargas, estado basal y fuerza regeneración de clave)
+    # 4. Réplica para Reportes
     if seccion_destino != "📄 Reportes":
         st.session_state["rep_listo"] = False
         st.session_state["rep_csv"] = None
@@ -125,13 +123,20 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "dias_prediccion_capacity" in st.session_state:
             st.session_state["dias_prediccion_capacity"] = 30
 
-    # 6. CORREGIDO: Réplica para Alertas (Limpia el estado exacto del módulo y altera su semilla visual)
+    # 6. Alertas
     if seccion_destino != "🔔 Alertas":
-        st.session_state["servidor_seleccionado_alertas"] = "-- Seleccione un Servidor --"
-        if "key_semilla_alertas" in st.session_state:
-            st.session_state["key_semilla_alertas"] += 1
+        st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
+        st.session_state["sb_conf_umbrales"] = "-- Seleccione un Servidor --"
         
-        # Filtros secundarios preventivos en caso de ser requeridos
+        claves_a_purgar = [
+            "p2_cpu_ok", "p2_cpu_adv", "p2_cpu_crit",
+            "p2_ram_ok", "p2_ram_adv", "p2_ram_crit",
+            "p2_justificacion", "p2_btn_salvar"
+        ]
+        for c in claves_a_purgar:
+            if c in st.session_state:
+                del st.session_state[c]
+                
         if "filtro_alerta_criticidad" in st.session_state:
             st.session_state["filtro_alerta_criticidad"] = "-- Todas --"
         if "filtro_alerta_estado" in st.session_state:
@@ -159,46 +164,50 @@ def main():
         lanzar_hilo_monitoreo()
         
         # =====================================================================
-        # DETECCIÓN Y PRIORIZACIÓN DE RE-DIRECCIÓN EXTERNA (URL -> STATE)
+        # SOLUCIÓN CRÍTICA: INICIALIZACIÓN TEMPRANA DEL CONTENEDOR PRINCIPAL
         # =====================================================================
-        url_pestaña = params.get("p")
+        # Declaramos el contenedor arriba de todo para poder limpiarlo antes
+        # de procesar cambios del menú lateral.
+        placeholder_principal = st.empty()
         
-        # Sincronizamos si se forzó un cambio directo desde sub-módulos usando 'navegacion_principal'
+        # Detención de re-dirección externa
+        url_pestaña = params.get("p")
         if "navegacion_principal" in st.session_state:
             st.session_state["seccion_actual"] = st.session_state["navegacion_principal"]
-            # Limpiamos para evitar loops
             del st.session_state["navegacion_principal"] 
-        
-        # Inicialización base estándar
         elif "seccion_actual" not in st.session_state:
             st.session_state["seccion_actual"] = url_pestaña if url_pestaña else "🏠 Inicio"
-
-        # Interceptamos cambios por parámetros url ordinarios
         elif url_pestaña and url_pestaña != st.session_state["seccion_actual"]:
             if st.session_state.get("nav_radio") != st.session_state["seccion_actual"]:
                 st.session_state["seccion_actual"] = url_pestaña
         
-        # =====================================================================
-        # EJECUCIÓN COERCITIVA DE LA LIMPIEZA ANTES DE RENDERIZAR
-        # =====================================================================
+        # Ejecución preventiva de limpieza de filtros
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         
+        # Renderizamos el menú lateral (donde cambian las opciones en tiempo real)
+        generar_menu()
+        
         # =====================================================================
-        # PERSISTENCIA DE PARÁMETROS EN URL (POST-EVALUACIÓN DE ESTADO)
+        # INTERCEPTOR DE SEGURIDAD (ANTI-SOLAPAMIENTO MEJORADO)
         # =====================================================================
+        # Si el usuario cliqueó otra sección en el menú, destruimos visualmente 
+        # lo que había en la pantalla vieja ANTES del rerun.
+        if params.get("p") != st.session_state["seccion_actual"]:
+            placeholder_principal.empty()  # Blanqueo forzado del DOM de Streamlit
+            st.query_params["p"] = st.session_state["seccion_actual"]
+            st.rerun()  # Reinicio limpio instantáneo
+        
+        # Persistencia ordinaria de parámetros en URL
         st.query_params["s"] = "1"
-        st.query_params["p"] = st.session_state["seccion_actual"]
         st.query_params["rol"] = st.session_state.get("rol", "operador")
         st.query_params["uid"] = str(st.session_state.get("user_id", 1))
         st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
         st.query_params["c"] = st.session_state.get("cargo", "Analista")
         
-        # Construcción aislada del menú lateral
-        generar_menu()
-        
+        # =====================================================================
         # RENDERIZADO DEL MÓDULO CORRESPONDIENTE
+        # =====================================================================
         seleccion = st.session_state["seccion_actual"]
-        placeholder_principal = st.empty()
 
         with placeholder_principal.container():
             try:

@@ -15,9 +15,39 @@ def get_base64_image(image_path):
     return None
 
 def cambiar_pagina():
-    """Manejador seguro para la conmutación de secciones por parte del usuario"""
+    """Manejador seguro para la conmutación de secciones y purga del estado residual"""
     if "nav_radio" in st.session_state:
-        st.session_state["seccion_actual"] = st.session_state["nav_radio"]
+        nueva_seccion = st.session_state["nav_radio"]
+        seccion_anterior = st.session_state.get("seccion_actual", "🏠 Inicio")
+        
+        # Si el usuario realmente cambió de módulo, ejecutamos la purga en el State
+        if nueva_seccion != seccion_anterior:
+            
+            # 1. Purga de Alertas
+            if seccion_anterior == "🔔 Alertas":
+                claves_alertas = [
+                    "sb_alerta_srv", "sb_conf_umbrales", 
+                    "p2_cpu_ok", "p2_cpu_adv", "p2_cpu_crit",
+                    "p2_ram_ok", "p2_ram_adv", "p2_ram_crit",
+                    "p2_justificacion", "p2_btn_salvar"
+                ]
+                for clave in claves_alertas:
+                    if clave in st.session_state:
+                        del st.session_state[clave]
+            
+            # 2. Purga de Infraestructura / Monitoreo
+            if seccion_anterior in ["🖥️ Monitoreo en vivo", "🖥️ Servidores"]:
+                claves_infra = [
+                    "filtro_monitoreo_nombre", "filtro_monitoreo_sensor", 
+                    "servidor_seleccionado", "filtro_servidor_nombre", 
+                    "accion_infra"
+                ]
+                for clave in claves_infra:
+                    if clave in st.session_state:
+                        del st.session_state[clave]
+
+            # Actualizamos la sección actual en el estado maestro
+            st.session_state["seccion_actual"] = nueva_seccion
 
 def generar_menu():
     """Genera la estructura del menú lateral totalmente aislada de app.py"""
@@ -92,26 +122,23 @@ def generar_menu():
         
         # Obtenemos la sección activa requerida por el backend
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
-        try:
-            idx = opciones.index(seccion_persistente)
-        except (ValueError, KeyError):
-            idx = 0
+        if seccion_persistente not in opciones:
+            seccion_persistente = "🏠 Inicio"
 
-        # Sincronizamos de manera preventiva la clave del widget antes de dibujarlo
-        # Esto rompe de raíz el congelamiento al forzar al widget a adoptar la redirección externa
-        st.session_state["nav_radio"] = seccion_persistente
+        # Buscamos el índice correcto de la sección activa para dárselo de manera nativa al widget
+        indice_defecto = opciones.index(seccion_persistente)
 
         # Componente de navegación por Radio Nativo
         seleccion = st.radio(
             "Navegación del Sistema", 
             opciones, 
-            index=idx, 
+            index=indice_defecto,
             key="nav_radio", 
             label_visibility="collapsed",
             on_change=cambiar_pagina
         )
         
-        # Garantizamos el estado final
+        # Garantizamos el estado maestro alineado con la interfaz
         st.session_state["seccion_actual"] = seleccion
         st.divider()
 

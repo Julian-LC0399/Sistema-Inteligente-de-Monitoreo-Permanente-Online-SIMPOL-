@@ -3,543 +3,503 @@ import io
 import traceback
 from datetime import datetime
 from fpdf import FPDF
-from database import obtener_lista_servidores, obtener_datos_historicos, registrar_proyeccion
+from database import conectar_bd, obtener_lista_servidores, obtener_datos_historicos
 
 # =====================================================================
-# CLASE DE CONFIGURACIÓN GRÁFICA DEL REPORTE PDF (ESTILO BANCO CARONI)
+# CLASE DE CONFIGURACIÓN GRÁFICA DEL REPORTE PDF (ESTILO BANCO CARONÍ)
 # =====================================================================
 class PDF(FPDF):
     def header(self):
         self.set_font("Arial", "B", 14)
-        self.set_text_color(0, 51, 102) # Azul Corporativo
+        self.set_text_color(0, 51, 102) # Azul Corporativo Banco Caroní
         self.cell(0, 10, "BANCO CARONI - SISTEMA SIMPOL", 0, 1, "C")
         self.set_font("Arial", "I", 10)
-        self.cell(0, 5, "Informe Técnico de Planificación de Capacidad (Capacity Planning)", 0, 1, "C")
+        self.cell(0, 5, "Informe Tecnico de Planificacion de Capacidad (Capacity Planning V4.0.3)", 0, 1, "C")
         self.ln(10)
 
     def footer(self):
         self.set_y(-15)
         self.set_font("Arial", "I", 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Generado por SIMPOL | Pagina {self.page_no()} | Confidencial", 0, 0, "C")
+        self.cell(0, 10, f"Generado por SIMPOL | Página {self.page_no()} | Confidencial", 0, 0, "C")
 
 # =====================================================================
-# FUNCIONES DE PERSISTENCIA EN TABLA EXCLUSIVA (NUEVA ARQUITECTURA)
+# PERSISTENCIA EN TABLA DE PROYECCIONES
 # =====================================================================
-def archivar_reporte_capacity(bin_data, nombre, formato, metrica, ip, user_id):
-    """Guarda el archivo en la nueva tabla exclusiva 'reportes_capacity_archivados'."""
-    from database import conectar_bd
-    conn = None
+def registrar_proyeccion_v398(usuario_id, ip_servidor, metrica, t_gb, act_gb, act_pct, proy_gb, proy_pct, veredicto):
+    conn = conectar_bd()
+    if not conn:
+        return False
     try:
-        conn = conectar_bd()
-        if conn:
-            cursor = conn.cursor()
-            calc_kb = len(bin_data) / 1024.0
-            tamanio_sanitizado = f"{calc_kb:.2f} KB"
-            
-            id_limpio = None
-            if user_id:
-                try: id_limpio = int(float(str(user_id).strip()))
-                except: id_limpio = None
-            
-            query = """
-                INSERT INTO reportes_capacity_archivados 
-                (nombre_archivo, formato, metrica_analizada, ip_servidor, contenido, usuario_id, tamanio_kb) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(query, (nombre, formato, metrica, ip, bytes(bin_data), id_limpio, tamanio_sanitizado))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return True
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO proyecciones 
+            (usuario_id, ip_servidor, metrica_analizada, 
+             val_total_gb, val_actual_disponible_gb, val_actual_disponible_pct, 
+             val_proyectado_total_gb, val_proyectado_disponible_gb, val_proyectado_disponible_pct, veredicto)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (usuario_id, ip_servidor.strip(), metrica, t_gb, act_gb, act_pct, t_gb, proy_gb, proy_pct, veredicto))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
     except Exception as e:
-        with open("simpol_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.now()}] Error en Bóveda Dedicada Capacity ({formato}): {e}\n")
-    return False
+        st.error(f"Error registrando proyeccion en tabla nucleo: {e}")
+        if conn: conn.close()
+        return False
 
-def obtener_historico_capacity():
-    """Recupera metadatos optimizados desde la tabla exclusiva (Carga veloz sin BLOB)."""
-    from database import conectar_bd
-    conn = None
-    resultado = []
+# =====================================================================
+# FUNCIONES DE PERSISTENCIA EN LOGS DE ARCHIVOS ANALÍTICOS
+# =====================================================================
+def guardar_reporte_capacity_bd(nombre_archivo, formato, metrica, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, total_gb, act_gb, proy_gb):
+    conn = conectar_bd()
+    if not conn:
+        return False
     try:
-        conn = conectar_bd()
-        if conn:
+        cursor = conn.cursor()
+        bytes_actuales = float(act_gb) * 1024.0 * 1024.0 * 1024.0
+        bytes_proyectados = float(proy_gb) * 1024.0 * 1024.0 * 1024.0
+        
+        query = """
+            INSERT INTO reportes_capacity_archivados 
+            (nombre_archivo, formato, metrica_analizada, ip_servidor, contenido, usuario_id, 
+             alerta_id, tipo_alerta, analisis_total_gb, analisis_bytes_actuales, analisis_bytes_proyectados, tamanio_kb)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (nombre_archivo, formato, metrica, ip_servidor.strip(), contenido_blob, usuario_id, 
+                               alerta_id, tipo_alerta, total_gb, bytes_actuales, bytes_proyectados, tamanio_kb))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error registrando archivo analitico en BD: {e}")
+        if conn: conn.close()
+        return False
+
+def listar_reportes_capacity_bd(ip_servidor):
+    conn = conectar_bd()
+    resultados = []
+    if conn:
+        try:
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT id, nombre_archivo, formato, metrica_analizada, ip_servidor, tamanio_kb, fecha_generacion 
-                FROM reportes_capacity_archivados 
-                ORDER BY id DESC LIMIT 20
+                SELECT id, nombre_archivo, formato, metrica_analizada, ip_servidor, fecha_generacion, tamanio_kb
+                FROM reportes_capacity_archivados
+                WHERE TRIM(ip_servidor) = %s
+                ORDER BY fecha_generacion DESC
             """
-            cursor.execute(query)
-            resultado = cursor.fetchall()
+            cursor.execute(query, (ip_servidor.strip(),))
+            resultados = cursor.fetchall()
             cursor.close()
             conn.close()
-    except Exception as e:
-        with open("simpol_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.now()}] Error leyendo historial exclusivo Capacity: {e}\n")
-    return resultado
+        except Exception as e:
+            st.error(f"Error listando historico de capacity: {e}")
+    return resultados
 
-def descargar_blob_capacity(reporte_id):
-    """Carga perezosa (Lazy Loading) del contenido LONGBLOB desde la tabla dedicada."""
-    from database import conectar_bd
-    conn = None
+def descargar_blob_capacity(id_archivo):
+    conn = conectar_bd()
     blob_data = None
-    try:
-        conn = conectar_bd()
-        if conn:
+    if conn:
+        try:
             cursor = conn.cursor(dictionary=True)
-            query = "SELECT contenido FROM reportes_capacity_archivados WHERE id = %s"
-            cursor.execute(query, (int(reporte_id),))
-            fila = cursor.fetchone()
-            if fila:
-                blob_data = fila["contenido"]
+            query = """
+                SELECT contenido FROM reportes_capacity_archivados
+                WHERE id = %s
+            """
+            cursor.execute(query, (id_archivo,))
+            row = cursor.fetchone()
+            if row:
+                blob_data = row['contenido']
             cursor.close()
             conn.close()
-    except Exception as e:
-        with open("simpol_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.now()}] Error extrayendo BLOB Dedicado ID {reporte_id}: {e}\n")
+        except Exception as e:
+            st.error(f"Error descargando binario de base de datos: {e}")
     return blob_data
 
 # =====================================================================
-# VISTA PRINCIPAL DE LA PANTALLA (ESTRUCTURADA EN PESTAÑAS)
+# CALLBACKS PARA MANEJO DE ESTADOS REACTIVOS
 # =====================================================================
-def mostrar_pantalla(nombre_analista, usuario_id, usuario_login):
-    if "key_semilla_capacity" not in st.session_state:
-        st.session_state["key_semilla_capacity"] = 0
+def reset_reporte():
+    st.session_state.reporte_generado = False
 
-    if "servidor_seleccionado_capacity" not in st.session_state:
-        st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
+def disparar_reporte():
+    st.session_state.reporte_generado = True
 
-    if "metrica_seleccionada_capacity" not in st.session_state:
-        st.session_state["metrica_seleccionada_capacity"] = "-- Seleccione una Métrica --"
+# =====================================================================
+# VISTA Y CONTROLADOR PRINCIPAL DEL MÓDULO CAPACITY PLANNING
+# =====================================================================
+def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
+    st.markdown(
+        f'<h2 style="color:#003366; margin-bottom:0px;">📈 Planificacion de Capacidad (Capacity Planning)</h2>'
+        f'<p style="color:#555; font-size:14px; margin-top:5px;">'
+        f'Algoritmos de Tendencia Lineal e Infraestructura Virtual | <b>Analista:</b> {nombre_analista} ({usuario_login})</p>', 
+        unsafe_allow_html=True
+    )
+    st.markdown("---")
 
-    if "cap_listo" not in st.session_state:
-        st.session_state["cap_listo"] = False
-        st.session_state["cap_csv"] = None
-        st.session_state["cap_pdf"] = None
-        st.session_state["cap_name_csv"] = ""
-        st.session_state["cap_name_pdf"] = ""
+    if "sel_servidor" not in st.session_state:
+        st.session_state.sel_servidor = "-- Seleccione un Servidor --"
+    if "sel_metrica" not in st.session_state:
+        st.session_state.sel_metrica = ""
+    if "reporte_generado" not in st.session_state:
+        st.session_state.reporte_generado = False
 
-    st.markdown('<h2 style="color:#003366;">📈 Capacity Planning - Banco Caroní</h2>', unsafe_allow_html=True)
-    st.markdown(f"👤 **Cargo Responsable:** {nombre_analista} (`usuario: {usuario_login}`)", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
+    pestana_analisis, pestana_boveda = st.tabs(["📊 Simulación y Análisis Técnico", "🗄️ Bóveda de Reportes Archivados"])
 
-    tab_simulacion, tab_historial = st.tabs(["📊 Nueva Proyección", "📜 Consultar Bóveda de Capacity"])
-
-    with tab_simulacion:
-        servidores = obtener_lista_servidores()
-        if not servidores:
-            st.warning("⚠️ No hay servidores activos para realizar proyecciones.")
+    try:
+        servidores_activos = obtener_lista_servidores()
+        if not servidores_activos:
+            with pestana_analisis:
+                st.info("💡 No hay servidores virtuales mapeados para realizar modelos de proyeccion.")
             return
 
-        opciones_serv = ["-- Seleccione un Servidor --"] + [f"{s['nombre_alias']} ({s['ip']})" for s in servidores]
-        mapa_servidores = {f"{s['nombre_alias']} ({s['ip']})": s for s in servidores}
+        opciones_servidores = ["-- Seleccione un Servidor --"] + [s['nombre_alias'] for s in servidores_activos]
 
-        try:
-            idx_serv_defecto = opciones_serv.index(st.session_state["servidor_seleccionado_capacity"])
-        except ValueError:
-            idx_serv_defecto = 0
+        with pestana_analisis:
+            col_f1, col_f2 = st.columns([3, 1])
+            with col_f1:
+                servidor_sel = st.selectbox(
+                    "1. Seleccione el Nodo de Infraestructura Virtual", 
+                    options=opciones_servidores, 
+                    key="sel_servidor",
+                    on_change=reset_reporte
+                )
+            with col_f2:
+                st.markdown("<div style='padding-top:24px;'></div>", unsafe_allow_html=True)
+                if st.button("🧹 Limpiar Filtros", use_container_width=True):
+                    st.session_state.sel_servidor = "-- Seleccione un Servidor --"
+                    st.session_state.sel_metrica = ""
+                    st.session_state.reporte_generado = False
+                    st.rerun()
 
-        col_sel, col_limpiar = st.columns([3, 1])
-        with col_sel:
-            seleccion = st.selectbox(
-                "Seleccione Servidor para Análisis de Capacidad:", 
-                opciones_serv, 
-                index=idx_serv_defecto,
-                key=f"sb_servidor_dyn_{st.session_state['key_semilla_capacity']}"
+            if servidor_sel == "-- Seleccione un Servidor --":
+                st.info("💡 Por favor, elija un servidor de la infraestructura para desplegar sus métricas disponibles.")
+                return
+
+            info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_sel), None)
+            ip_objetivo = str(info_servidor['ip']).strip()
+
+            dict_metricas_config = {}
+            if int(info_servidor.get('id_sensor_cpu') or 0) > 0:
+                dict_metricas_config["Procesamiento (Uso % CPU)"] = {
+                    "col_pct": "val_cpu", "col_total": None, "col_gb": None, "tipo": "consumo"
+                }
+            if int(info_servidor.get('id_sensor_ram') or 0) > 0:
+                dict_metricas_config["Memoria Volatil (Disponible % RAM)"] = {
+                    "col_pct": "val_ram_disponible_pct", "col_total": "val_ram_total_gb", "col_gb": "val_ram_disponible_gb", "tipo": "disponibilidad"
+                }
+            for d in range(1, 7):
+                if int(info_servidor.get(f'id_sensor_disco_{d}') or 0) > 0:
+                    letra_bd = info_servidor.get(f'letra_disco_{d}')
+                    letra_limpia = str(letra_bd).replace('\\', '') if letra_bd else f"Disco {d}"
+                    dict_metricas_config[f"Almacenamiento Libre Unidad {letra_limpia} (% Libre)"] = {
+                        "col_pct": f"val_disco_{d}_pct_libre", "col_total": f"val_disco_{d}_total_gb", "col_gb": f"val_disco_{d}_libres_gb", "tipo": "disponibilidad"
+                    }
+
+            if not dict_metricas_config:
+                st.warning("⚠️ El servidor seleccionado no posee sensores de hardware mapeados en el catalogo.")
+                return
+
+            metrica_sel = st.selectbox(
+                "2. Seleccione la Metrica de Hardware a Modelar", 
+                options=list(dict_metricas_config.keys()), 
+                key="sel_metrica",
+                on_change=reset_reporte
             )
-            st.session_state["servidor_seleccionado_capacity"] = seleccion
+            meta_metrica = dict_metricas_config[metrica_sel]
 
-        with col_limpiar:
-            st.markdown("<div style='padding-top: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_clear_capacity_filters"):
-                st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
-                st.session_state["metrica_seleccionada_capacity"] = "-- Seleccione una Métrica --"
-                st.session_state["key_semilla_capacity"] += 1
-                st.session_state["cap_listo"] = False
-                st.session_state["cap_csv"] = None
-                st.session_state["cap_pdf"] = None
-                st.session_state["cap_name_csv"] = ""
-                st.session_state["cap_name_pdf"] = ""
+            st.markdown("#### ⚙️ Parametros del Escenario de Capacidad")
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                dias_proyeccion = st.slider("Horizonte de simulacion (Dias a proyectar):", min_value=7, max_value=180, value=30, step=7, on_change=reset_reporte)
+            with col_p2:
+                porcentaje_ajuste_analista = st.slider("Factor de Ajuste de Crecimiento Adicional (%):", min_value=0, max_value=50, value=0, step=5, on_change=reset_reporte)
+
+            conn_temp = conectar_bd()
+            datos_diarios = []
+            if conn_temp:
+                try:
+                    cursor_temp = conn_temp.cursor(dictionary=True)
+                    c_pct = meta_metrica["col_pct"]
+                    c_tot = meta_metrica["col_total"] if meta_metrica["col_total"] else "1"
+                    c_gb = meta_metrica["col_gb"] if meta_metrica["col_gb"] else "1"
+                    
+                    query_diaria = f"""
+                        SELECT DATE(fecha_registro) AS fecha_limpia, AVG({c_pct}) AS promedio_pct, MAX({c_tot}) AS max_total_gb, AVG({c_gb}) AS promedio_gb
+                        FROM monitoreo WHERE TRIM(ip_servidor) = %s GROUP BY DATE(fecha_registro) ORDER BY fecha_limpia ASC
+                    """
+                    cursor_temp.execute(query_diaria, (ip_objetivo,))
+                    datos_diarios = cursor_temp.fetchall()
+                    cursor_temp.close()
+                    conn_temp.close()
+                except Exception as e_sql:
+                    st.error(f"Fallo en la query analitica de agrupacion: {e_sql}")
+                    if conn_temp: conn_temp.close()
+
+            CON_DATOS_SUFICIENTES = True
+            modo_contingencia_txt = "Ninguno (Calculo Real Basado en Historial)"
+            
+            if not datos_diarios or len(datos_diarios) < 3:
+                CON_DATOS_SUFICIENTES = False
+                if datos_diarios and len(datos_diarios) > 0:
+                    valores_pct = [float(datos_diarios[-1]['promedio_pct'] or 0.0)]
+                    valores_total = [float(datos_diarios[-1]['max_total_gb'] or 0.0)]
+                    valores_gb = [float(datos_diarios[-1]['promedio_gb'] or 0.0)]
+                    fechas_filtradas = [datos_diarios[-1]['fecha_limpia']]
+                else:
+                    valores_pct = [80.0 if meta_metrica["tipo"] == "disponibilidad" else 20.0]
+                    valores_total = [float(info_servidor.get(meta_metrica["col_total"]) or 100.0) if meta_metrica["col_total"] else 0.0]
+                    valores_gb = [valores_total[0] * 0.8] if meta_metrica["tipo"] == "disponibilidad" else [0.0]
+                    fechas_filtradas = [datetime.now().date()]
+            else:
+                valores_pct = [float(d['promedio_pct'] or 0.0) for d in datos_diarios]
+                valores_total = [float(d['max_total_gb'] or 0.0) for d in datos_diarios]
+                valores_gb = [float(d['promedio_gb'] or 0.0) for d in datos_diarios]
+                fechas_filtradas = [d['fecha_limpia'] for d in datos_diarios]
+
+            num_muestras = len(valores_pct)
+            X = list(range(num_muestras))
+            Y = valores_pct
+
+            if CON_DATOS_SUFICIENTES:
+                sum_x = sum(X)
+                sum_y = sum(Y)
+                sum_x_cuadrado = sum([x**2 for x in X])
+                sum_xy = sum([X[i] * Y[i] for i in range(num_muestras)])
+                denominador = (num_muestras * sum_x_cuadrado) - (sum_x**2)
+                if denominador == 0:
+                    pendiente, interseccion = 0.0, Y[-1]
+                else:
+                    pendiente = ((num_muestras * sum_xy) - (sum_x * sum_y)) / denominador
+                    interseccion = (sum_y - (pendiente * sum_x)) / num_muestras
+            else:
+                factor_direccion = -1.0 if meta_metrica["tipo"] == "disponibilidad" else 1.0
+                if dias_proyeccion <= 14:
+                    pendiente = (1.25 / 7.0) * factor_direccion
+                    modo_contingencia_txt = "Estimación Normativa Semanal (+1.25% / 7d)"
+                else:
+                    pendiente = (5.0 / 30.0) * factor_direccion
+                    modo_contingencia_txt = "Estimación Normativa Mensual (+5.0% / 30d)"
+                interseccion = Y[-1]
+
+            pct_actual = Y[-1]
+            total_gb_actual = valores_total[-1]
+            gb_actual = valores_gb[-1]
+            
+            indice_proyectado = num_muestras + dias_proyeccion - 1
+            pct_base_proyectado = (pendiente * indice_proyectado) + interseccion
+
+            if meta_metrica["tipo"] == "consumo":
+                pct_final_proyectado = pct_base_proyectado * (1 + (porcentaje_ajuste_analista / 100.0))
+                pct_final_proyectado = max(0.0, min(100.0, pct_final_proyectado))
+                gb_proyectado_final = 0.0
+                if pct_final_proyectado >= 85.0:
+                    veredicto, color_alert = "CRÍTICO", "red"
+                    detalle_veredicto = "Saturacion de CPU inminente. El consumo proyectado supera el umbral corporativo del 85%."
+                elif pct_final_proyectado >= 70.0:
+                    veredicto, color_alert = "PRECAUCIÓN", "orange"
+                    detalle_veredicto = "Crecimiento elevado en procesamiento. Se aconseja revision preventiva."
+                else:
+                    veredicto, color_alert = "ESTABLE", "green"
+                    detalle_veredicto = f"La capacidad de procesamiento operara de forma segura en los proximos {dias_proyeccion} dias."
+            else:
+                pct_final_proyectado = pct_base_proyectado * (1 - (porcentaje_ajuste_analista / 100.0))
+                pct_final_proyectado = max(0.0, min(100.0, pct_final_proyectado))
+                gb_proyectado_final = round((total_gb_actual * pct_final_proyectado) / 100.0, 2)
+                if pct_final_proyectado <= 10.0:
+                    veredicto, color_alert = "CRÍTICO", "red"
+                    detalle_veredicto = "Agotamiento total de recurso libre inminente (Menos del 10% disponible)."
+                elif pct_final_proyectado <= 20.0:
+                    veredicto, color_alert = "PRECAUCIÓN", "orange"
+                    detalle_veredicto = "Recurso libre escaso para responder ante contingencias operativas (Menos del 20% disponible)."
+                else:
+                    veredicto, color_alert = "ESTABLE", "green"
+                    detalle_veredicto = "La infraestructura mantendra indices de disponibilidad saludables durante el periodo simulado."
+
+            st.markdown(" ")
+            if st.button("🚀 Generar Reporte y Procesar Simulación de Tendencia", use_container_width=True):
+                st.session_state.reporte_generado = True
                 st.rerun()
 
-        if seleccion == "-- Seleccione un Servidor --":
-            st.info("💡 Por favor, utilice el filtro superior seleccionando un servidor de la infraestructura para procesar los modelos de tendencia.")
-            return
+            if st.session_state.reporte_generado:
+                st.markdown("---")
+                if not CON_DATOS_SUFICIENTES:
+                    st.warning(f"⚠️ **Modo de Proyección Estática Normativa Activo:** Muestras históricas insuficientes. Aplicando algoritmo de {modo_contingencia_txt}.")
 
-        serv_info = mapa_servidores[seleccion]
-        ip_sel = serv_info['ip']
-
-        lista_metricas_raw = []
-        if serv_info.get('id_sensor_cpu', 0) > 0:
-            lista_metricas_raw.append("CPU")
-        if serv_info.get('id_sensor_ram', 0) > 0:
-            lista_metricas_raw.append("RAM")
-            
-        for d_idx in range(1, 7):
-            if serv_info.get(f'id_sensor_disco_{d_idx}', 0) > 0:
-                letra_disco = {1: "C:\\", 2: "F:\\", 3: "E:\\", 4: "D:\\", 5: "G:\\", 6: "Y:\\"}.get(d_idx, "")
-                lista_metricas_raw.append(f"DISCO {d_idx} ({letra_disco})")
-                
-        for s_idx in range(1, 9):
-            if serv_info.get(f'id_sensor_servicio_{s_idx}', 0) > 0:
-                lista_metricas_raw.append(f"SERVICIO {s_idx}")
-                
-        if serv_info.get('id_sensor_red', 0) > 0:
-            lista_metricas_raw.append("RED")
-        if serv_info.get('id_sensor_ping', 0) > 0:
-            lista_metricas_raw.append("PING")
-
-        if not lista_metricas_raw:
-            st.error(f"❌ El servidor '{seleccion}' no posee ningún sensor o métrica registrado activamente en el sistema.")
-            return
-
-        opciones_metricas = ["-- Seleccione una Métrica --"] + lista_metricas_raw
-        
-        try:
-            idx_met_defecto = opciones_metricas.index(st.session_state["metrica_seleccionada_capacity"])
-        except ValueError:
-            idx_met_defecto = 0
-
-        col1, col2 = st.columns(2)
-        with col1:
-            metrica_label = st.selectbox(
-                "Métrica / Sensor Activo detectado:", 
-                opciones_metricas, 
-                index=idx_met_defecto,
-                key=f"cap_metrica_sel_{st.session_state['key_semilla_capacity']}"
-            )
-            st.session_state["metrica_seleccionada_capacity"] = metrica_label
-
-        with col2:
-            dias_proy = st.slider("Días a proyectar:", 7, 90, 30, key=f"cap_slider_dias_{st.session_state['key_semilla_capacity']}")
-
-        if metrica_label == "-- Seleccione una Métrica --":
-            st.info("📊 Servidor detectado de forma conforme. Ahora elija la métrica específica en el segundo filtro para generar la proyección.")
-            return
-
-        mapa_metrica = {
-            "CPU": "val_cpu", "RAM": "val_ram", 
-            "DISCO 1 (C:\\)": "val_disco_1", "DISCO 2 (F:\\)": "val_disco_2", 
-            "DISCO 3 (E:\\)": "val_disco_3", "DISCO 4 (D:\\)": "val_disco_4", 
-            "DISCO 5 (G:\\)": "val_disco_5", "DISCO 6 (Y:\\)": "val_disco_6",
-            "SERVICIO 1": "estado_servicio_1", "SERVICIO 2": "estado_servicio_2",
-            "SERVICIO 3": "estado_servicio_3", "SERVICIO 4": "estado_servicio_4",
-            "SERVICIO 5": "estado_servicio_5", "SERVICIO 6": "estado_servicio_6",
-            "SERVICIO 7": "estado_servicio_7", "SERVICIO 8": "estado_servicio_8",
-            "RED": "val_red", "PING": "val_latencia"
-        }
-        columna_db = mapa_metrica[metrica_label]
-
-        datos = obtener_datos_historicos(ip_sel)
-        if len(datos) < 5:
-            st.error(f"❌ Datos insuficientes en el historial de {seleccion}. Se requieren al menos 5 registros históricos.")
-            return
-
-        valores = [d[columna_db] for d in datos if d[columna_db] is not None]
-        if not valores:
-            st.error(f"❌ El sensor '{metrica_label}' no posee lecturas telemétricas válidas en este servidor.")
-            return
-            
-        valor_actual_gb = sum(valores[:5]) / len(valores[:5])
-
-        # =====================================================================
-        # MAPEO ESTÁTICO DE CAPACIDADES SEGÚN PRTG (AILAS POR IP MULTI-SERVIDOR)
-        # =====================================================================
-        MAPA_HARDWARE = {
-            "10.10.1.133": {
-                "val_disco_1": 300.0,  # Disco 1 (C:) = 300 GB Totales (30 GB Libres = 10.0%)
-                "val_disco_6": 458.0,  # Disco 6 (Y:) = 458 GB Totales (60 GB Libres = 13.1%)
-                "val_ram": 5.53        # RAM Total = 5.53 GB Totales (4 GB Libres = 72.3%)
-            }
-        }
-
-        capacidad_total = None
-        if ip_sel in MAPA_HARDWARE:
-            capacidad_total = MAPA_HARDWARE[ip_sel].get(columna_db)
-
-        # DETERMINACIÓN DE UNIDADES Y MATEMÁTICA DE PROYECCIÓN LINEAL REAL
-        if "DISCO" in metrica_label:
-            if capacidad_total:
-                simbolo_unidad = "% Disp."
-                # Convertimos el promedio histórico a porcentaje real conforme a PRTG
-                valor_actual = (valor_actual_gb / capacidad_total) * 100.0
-                # Simulación de consumo: Restamos 0.08% de espacio disponible por día proyectado
-                valor_proyectado = max(0.0, valor_actual - (0.08 * dias_proy))
-                valor_proyectado_gb = (valor_proyectado / 100.0) * capacidad_total
-            else:
-                simbolo_unidad = "GB Libres"
-                valor_actual = valor_actual_gb
-                valor_proyectado = max(0.0, valor_actual * 0.92)
-                valor_proyectado_gb = valor_proyectado
-
-        elif metrica_label == "RAM":
-            if capacidad_total:
-                simbolo_unidad = "% Disp."
-                valor_actual = (valor_actual_gb / capacidad_total) * 100.0
-                # La RAM fluctúa de manera controlada (simulamos un consumo diario leve de 0.02%)
-                valor_proyectado = max(0.0, valor_actual - (0.02 * dias_proy))
-                valor_proyectado_gb = (valor_proyectado / 100.0) * capacidad_total
-            else:
-                simbolo_unidad = "GB Libres"
-                valor_actual = valor_actual_gb
-                valor_proyectado = max(0.0, valor_actual * 0.95)
-                valor_proyectado_gb = valor_proyectado
-
-        elif "SERVICIO" in metrica_label:
-            simbolo_unidad = "Estado"
-            valor_actual = valor_actual_gb
-            valor_proyectado = 1.0 if valor_actual >= 0.8 else 0.0
-        else:
-            factor_crecimiento = 1.05
-            valor_actual = valor_actual_gb
-            valor_proyectado = valor_actual * factor_crecimiento
-            if metrica_label == "CPU":
-                simbolo_unidad = "%"
-                valor_proyectado = min(100.0, valor_proyectado)
-            elif metrica_label == "RED":
-                simbolo_unidad = "Mb/s"
-            else:
-                simbolo_unidad = "ms"
-
-        st.markdown(f'<h4 style="color:#003366; margin-top:20px;">Tendencia Proyectada: {metrica_label}</h4>', unsafe_allow_html=True)
-        
-        # PROCESAMIENTO ESTABLE DE ESCALAS DEL GRÁFICO SVG
-        h_base = 150
-        if simbolo_unidad == "% Disp." or simbolo_unidad == "%":
-            y_actual = h_base - (min(valor_actual, 100) * 1.2)
-            y_proy = h_base - (min(valor_proyectado, 100) * 1.2)
-        elif simbolo_unidad == "Estado":
-            y_actual = h_base - (100 if valor_actual >= 0.8 else 10)
-            y_proy = h_base - (100 if valor_proyectado == 1.0 else 10)
-        else:
-            techo_escala = max(max(valores), valor_actual, valor_proyectado, 1.0) * 1.2
-            y_actual = h_base - ((valor_actual / techo_escala) * 120)
-            y_proy = h_base - ((valor_proyectado / techo_escala) * 120)
-
-        puntos = f"0,{h_base} 0,{y_actual} 150,{y_actual} 300,{y_proy} 300,{h_base}"
-        
-        # CONSTRUCCIÓN DE LAS ETIQUETAS ASOCIADAS A LA REALIDAD OPERATIVA
-        if ("DISCO" in metrica_label or metrica_label == "RAM") and capacidad_total:
-            lbl_hoy = f"Hoy: {valor_actual_gb:.1f} GB ({valor_actual:.1f}%)"
-            lbl_prox = f"Prox: {valor_proyectado_gb:.1f} GB ({valor_proyectado:.1f}%)"
-        elif simbolo_unidad == "Estado":
-            lbl_hoy = f"Hoy: {'ACTIVO' if valor_actual >= 0.8 else 'CAÍDO'}"
-            lbl_prox = f"Prox: {'ACTIVO' if valor_proyectado == 1.0 else 'CAÍDO'}"
-        else:
-            lbl_hoy = f"Hoy: {valor_actual:.1f} {simbolo_unidad}"
-            lbl_prox = f"Prox: {valor_proyectado:.1f} {simbolo_unidad}"
-
-        st.markdown(f"""
-        <div style="background: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #ddd;">
-            <svg width="100%" height="180" viewBox="0 0 300 180">
-                <line x1="0" y1="{h_base}" x2="300" y2="{h_base}" stroke="#ccc" stroke-width="2" />
-                <polyline points="{puntos}" fill="rgba(0, 51, 102, 0.15)" stroke="#003366" stroke-width="3" />
-                <circle cx="0" cy="{y_actual}" r="4" fill="#2c3e50" />
-                <circle cx="300" cy="{y_proy}" r="4" fill="#003366" />
-                <text x="5" y="{max(15, y_actual - 10)}" font-size="12" fill="#2c3e50">{lbl_hoy}</text>
-                <text x="130" y="{max(15, y_proy - 10)}" font-size="12" fill="#003366" font-weight="bold">{lbl_prox}</text>
-                <text x="0" y="170" font-size="10" fill="#999">Estado Actual</text>
-                <text x="240" y="170" font-size="10" fill="#999">+{dias_proy} días</text>
-            </svg>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.divider()
-        
-        # DISCRIMINACIÓN ESTRICTA DEL VEREDICTO DE CAPACIDAD
-        if "DISCO" in metrica_label or metrica_label == "RAM":
-            # Si el porcentaje real cae por debajo del 10.0%, se marca como CRÍTICO de inmediato
-            veredicto = "CRÍTICO" if valor_proyectado <= 10.0 else "SUFICIENTE"
-        elif metrica_label == "CPU":
-            veredicto = "CRÍTICO" if valor_proyectado >= 85.0 else "SUFICIENTE"
-        elif "SERVICIO" in metrica_label:
-            veredicto = "CRÍTICO" if valor_proyectado == 0.0 else "SUFICIENTE"
-        else:
-            veredicto = "SUFICIENTE"
-        
-        if veredicto == "CRÍTICO":
-            st.error(f"🚩 ALERTA DE CAPACITY PLANNING: Se proyecta el colapso o agotamiento de {metrica_label} en la ventana de {dias_proy} días.")
-        else:
-            st.success(f"✅ Previsión de Capacidad: El recurso {metrica_label} posee suficiente tolerancia operativa.")
-
-        if st.button("🚀 REGISTRAR Y GENERAR EXPEDIENTES DE CAPACITY", use_container_width=True, key="btn_gen_capacity_files"):
-            try:
-                timestamp_actual = datetime.now().strftime('%Y%m%d_%H%M%S')
-                
-                output_csv = io.StringIO()
-                output_csv.write("Fecha Analisis,IP Servidor,Nombre,Metrica Analizada,Ventana Dias,Valor Actual,Valor Proyectado,Unidad,Veredicto,Usuario,Cargo\n")
-                output_csv.write(
-                    f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')},{ip_sel},{serv_info['nombre_alias']},{metrica_label},"
-                    f"{dias_proy},{valor_actual:.2f},{valor_proyectado:.2f},{simbolo_unidad},{veredicto},{usuario_login},{nombre_analista}\n"
+                st.markdown(
+                    f'<div style="background-color:#f8f9fa; border:1px solid #ddd; border-left:6px solid {color_alert}; padding:15px; border-radius:4px; margin-top:10px;">'
+                    f'<h4 style="margin:0px; color:#333;">Veredicto Tecnico: <span style="color:{color_alert}; font-weight:bold;">{veredicto}</span></h4>'
+                    f'<p style="margin:5px 0px; font-size:13px; color:#555;">{detalle_veredicto}</p>'
+                    f'<ul style="margin:5px 0px; padding-left:20px; font-size:12px; color:#444;">'
+                    f'<li><b>Muestra Porcentual Actual:</b> {round(pct_actual, 2)}%</li>'
+                    f'<li><b>Tendencia Porcentual Proyectada:</b> {round(pct_final_proyectado, 2)}%</li>'
+                    f'{"<li><b>Capacidad Absoluta Actual:</b> " + str(round(gb_actual, 2)) + " GB de " + str(round(total_gb_actual, 2)) + " GB Totales</li>" if meta_metrica["tipo"] == "disponibilidad" else ""}'
+                    f'{"<li><b>Capacidad Absoluta Proyectada:</b> " + str(round(gb_proyectado_final, 2)) + " GB libres estimados</li>" if meta_metrica["tipo"] == "disponibilidad" else ""}'
+                    f'<li><b>Pendiente Lineal Aplicada (m):</b> {round(pendiente, 4)} unidades/dia</li>'
+                    f'</ul>'
+                    f'</div>', unsafe_allow_html=True
                 )
-                csv_binario = output_csv.getvalue().encode('utf-8', errors='ignore')
-                nombre_csv = f"Capacity_{ip_sel}_{metrica_label.replace(' ', '_').replace('\\','')}_{timestamp_actual}.csv"
 
-                pdf = PDF(orientation='L', unit='mm', format='A4')
+                st.markdown("##### 📁 Exportar Documentacion Analitica (Archivado Automático Activo)")
+                col_exp1, col_exp2 = st.columns(2)
+                nombre_doc_pdf = f"capacity_{ip_objetivo}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                nombre_doc_csv = f"capacity_{ip_objetivo}_{datetime.now().strftime('%Y%m%d')}.csv"
+
+                # 1. COMPILACIÓN DE PDF CON TABLA ESTILIZADA CON COLORES INSTITUCIONALES
+                pdf = PDF()
                 pdf.add_page()
-                pdf.set_font("Arial", "B", 10)
-                pdf.cell(0, 8, f"Fecha de Analisis: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", 0, 1)
-                pdf.cell(0, 8, f"Usuario: {usuario_login}", 0, 1)
-                pdf.cell(0, 8, f"Cargo: {nombre_analista}", 0, 1)
-                pdf.ln(4)
+                pdf.set_font("Arial", "B", 12)
+                pdf.cell(0, 8, f"Resumen Detallado - Nodo: {servidor_sel} ({ip_objetivo})", 0, 1)
+                pdf.set_font("Arial", "", 11)
+                pdf.cell(0, 6, f"Metrica de Analisis: {metrica_sel}", 0, 1)
+                pdf.cell(0, 6, f"Fecha de Evaluacion: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1)
+                pdf.cell(0, 6, f"Horizonte de Proyeccion: {dias_proyeccion} dias", 0, 1)
+                pdf.cell(0, 6, f"Factor de Crecimiento Analista: +{porcentaje_ajuste_analista}%", 0, 1)
+                pdf.cell(0, 6, f"Veredicto Final SIMPOL: {veredicto}", 0, 1)
+                pdf.cell(0, 6, f"Detalle Diagnostico: {detalle_veredicto}", 0, 1)
+                pdf.cell(0, 6, f"Modo Contingencia del Banco: {modo_contingencia_txt}", 0, 1)
+                pdf.ln(6)
                 
+                pdf.set_font("Arial", "B", 11)
+                pdf.cell(0, 6, "Metricas Base Calculadas:", 0, 1)
+                pdf.set_font("Arial", "", 10)
+                pdf.cell(0, 5, f"- Porcentaje Muestra Actual: {round(pct_actual, 2)}%", 0, 1)
+                pdf.cell(0, 5, f"- Porcentaje Final Proyectado: {round(pct_final_proyectado, 2)}%", 0, 1)
+                if meta_metrica["tipo"] == "disponibilidad":
+                    pdf.cell(0, 5, f"- Espacio Actual Disponible: {round(gb_actual, 2)} GB de {round(total_gb_actual, 2)} GB Totales", 0, 1)
+                    pdf.cell(0, 5, f"- Espacio Libre Proyectado: {round(gb_proyectado_final, 2)} GB", 0, 1)
+                pdf.cell(0, 5, f"- Coeficiente de Pendiente (m): {round(pendiente, 4)} unidades/dia", 0, 1)
+                pdf.ln(8)
+
+                # RENDERIZADO DE TABLA ESTILO BANCO CARONÍ
+                pdf.set_font("Arial", "B", 10)
+                # Configurar colores del encabezado (Azul Corporativo y texto blanco)
                 pdf.set_fill_color(0, 51, 102)
                 pdf.set_text_color(255, 255, 255)
-                cols = [
-                    ("IP Servidor", 35), ("Nombre Alias", 40), ("Métrica/Sensor", 40), 
-                    ("Ventana", 25), ("Valor Actual", 30), ("Valor Proyectado", 35), ("Veredicto Técnico", 40)
-                ]
-                for txt, w in cols:
-                    pdf.cell(w, 8, txt, 1, 0, "C", True)
-                pdf.ln()
-
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_font("Arial", "", 9)
-                pdf.cell(35, 7, str(ip_sel), 1, 0, "C")
-                pdf.cell(40, 7, str(serv_info['nombre_alias']), 1, 0, "C")
-                pdf.cell(40, 7, str(metrica_label), 1, 0, "C")
-                pdf.cell(25, 7, f"+{dias_proy} dias", 1, 0, "C")
+                pdf.cell(60, 8, "Fecha (Muestra)", 1, 0, "C", True)
+                pdf.cell(45, 8, "Valor Promedio (%)", 1, 1, "C", True)
                 
-                if simbolo_unidad == "Estado":
-                    txt_pdf_actual = 'ACTIVO' if valor_actual >= 0.8 else 'CAÍDO'
-                    txt_pdf_proy = 'ACTIVO' if valor_proyectado == 1.0 else 'CAÍDO'
-                elif ("DISCO" in metrica_label or metrica_label == "RAM") and capacidad_total:
-                    txt_pdf_actual = f"{valor_actual_gb:.1f} GB ({valor_actual:.1f}%)"
-                    txt_pdf_proy = f"{valor_proyectado_gb:.1f} GB ({valor_proyectado:.1f}%)"
-                else:
-                    txt_pdf_actual = f"{valor_actual:.2f} {simbolo_unidad}"
-                    txt_pdf_proy = f"{valor_proyectado:.2f} {simbolo_unidad}"
+                # Restaurar el texto a color oscuro para los registros
+                pdf.set_text_color(51, 51, 51)
+                pdf.set_font("Arial", "", 10)
+                
+                for i in range(min(num_muestras, 15)):
+                    f_iter = fechas_filtradas[i]
+                    f_str = f_iter.strftime('%Y-%m-%d') if hasattr(f_iter, 'strftime') else str(f_iter)
                     
-                pdf.cell(30, 7, txt_pdf_actual, 1, 0, "C")
-                pdf.cell(35, 7, txt_pdf_proy, 1, 0, "C")
-                
-                if veredicto == "CRÍTICO":
-                    pdf.set_text_color(200, 0, 0)
-                    pdf.set_font("Arial", "B", 9)
-                else:
-                    pdf.set_text_color(0, 128, 0)
-                pdf.cell(40, 7, str(veredicto), 1, 1, "C")
-                
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_font("Arial", "B", 10)
-                pdf.ln(10)
-                pdf.cell(0, 6, "Declaracion de Riesgos Operativos e Infraestructura:", 0, 1)
-                pdf.set_font("Arial", "I", 9)
-                if veredicto == "CRÍTICO":
-                    pdf.multi_cell(0, 5, f"ALERTA: Se ha determinado un riesgo inminente por saturacion o degradacion del recurso '{metrica_label}' dentro del periodo evaluado. Se requiere el escalamiento inmediato al departamento de arquitectura de servidores del Banco Caroni.")
-                else:
-                    pdf.multi_cell(0, 5, f"EVALUACION CONFORME: El recurso '{metrica_label}' opera dentro de las metricas basales aceptables con holgura suficiente.")
-
-                pdf_str = pdf.output(dest='S')
-                pdf_binario = pdf_str.encode('latin-1', errors='ignore') if isinstance(pdf_str, str) else bytes(pdf_str)
-                nombre_pdf = f"Capacity_{ip_sel}_{metrica_label.replace(' ', '_').replace('\\','')}_{timestamp_actual}.pdf"
-
-                st.session_state["cap_csv"] = csv_binario
-                st.session_state["cap_pdf"] = pdf_binario
-                st.session_state["cap_name_csv"] = nombre_csv
-                st.session_state["cap_name_pdf"] = nombre_pdf
-                st.session_state["cap_listo"] = True
-
-                archivar_reporte_capacity(csv_binario, nombre_csv, 'CSV', metrica_label, ip_sel, usuario_id)
-                archivar_reporte_capacity(pdf_binario, nombre_pdf, 'PDF', metrica_label, ip_sel, usuario_id)
-                
-                registrar_proyeccion(
-                    usuario_id=usuario_id, ip_servidor=ip_sel, metrica=metrica_label,
-                    actual=float(valor_actual), proyectado=float(valor_proyectado), veredicto=veredicto
-                )
-                st.success("🎉 ¡Expediente guardado con éxito en la tabla de Capacity!")
-                st.balloons()
-                st.rerun()
-
-            except Exception as e:
-                st.error("⚠️ Error procesando expedientes de Capacity.")
-                with open("simpol_debug.log", "a", encoding="utf-8") as f:
-                    f.write(f"Error critico en capacity.py: {e}\n{traceback.format_exc()}\n")
-
-        if st.session_state["cap_listo"]:
-            st.markdown("---")
-            d_col1, d_col2 = st.columns(2)
-            d_col1.download_button(
-                label="⬇️ Descargar Simulación Actual (CSV)", 
-                data=st.session_state["cap_csv"], 
-                file_name=st.session_state["cap_name_csv"], 
-                mime="text/csv", 
-                key="dl_cap_csv_btn"
-            )
-            d_col2.download_button(
-                label="⬇️ Descargar Informe Firmado Actual (PDF)", 
-                data=st.session_state["cap_pdf"], 
-                file_name=st.session_state["cap_name_pdf"], 
-                mime="application/pdf", 
-                key="dl_cap_pdf_btn"
-            )
-
-    # =====================================================================
-    # PESTAÑA 2: TABLA CORPORATIVA DE HISTORIAL (MUESTRA REPORTES CAPACITY)
-    # =====================================================================
-    with tab_historial:
-        st.markdown('<h3 style="color:#003366; margin-top:10px;">📜 Bóveda Exclusiva de Capacity Planning</h3>', unsafe_allow_html=True)
-        st.write("Consulta directa e inmediata de expedientes generados previamente:")
-        
-        historico_archivos = obtener_historico_capacity()
-        
-        if not historico_archivos:
-            st.info("📭 No hay expedientes grabados en la tabla dedicada de Capacity.")
-        else:
-            layout_grid = [3.5, 1.8, 1.2, 1.5, 2.0, 1.5]
-            
-            st.markdown(
-                """
-                <div style='background-color: #003366; padding: 12px; border-radius: 6px 6px 0px 0px; margin-bottom: -1px;'>
-                    <div style='display: flex; color: white; font-weight: bold; font-size: 13px;'>
-                        <div style='width: 30.4%; text-align: left;'>Nombre del Archivo</div>
-                        <div style='width: 15.6%; text-align: center;'>Métrica / Sensor</div>
-                        <div style='width: 10.4%; text-align: center;'>Formato</div>
-                        <div style='width: 13.0%; text-align: center;'>Tamaño</div>
-                        <div style='width: 17.4%; text-align: right;'>Fecha Registro</div>
-                        <div style='width: 13.2%; text-align: center;'>Acción</div>
-                    </div>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-            
-            for idx, item in enumerate(historico_archivos):
-                f_gen = item['fecha_generacion'].strftime('%d/%m/%Y %H:%M') if item['fecha_generacion'] else 'N/A'
-                fondo_fila = "#E6F0FA" if idx % 2 == 0 else "#FFFFFF"
-                
-                st.markdown(f"<div style='background-color: {fondo_fila}; padding: 8px 12px; border-left: 1px solid #ccc; border-right: 1px solid #ccc; border-bottom: 1px solid #eee; margin-top: -1px;'>", unsafe_allow_html=True)
-                
-                c1, c2, c3, c4, c5, c6 = st.columns(layout_grid)
-                
-                c1.write(f"📄 {item['nombre_archivo']}")
-                c2.markdown(f"<div style='text-align:center; font-weight:500; padding-top:4px;'>📊 {item['metrica_analizada']}</div>", unsafe_allow_html=True)
-                c3.markdown(f"<div style='text-align:center; padding-top:4px;'><span style='background-color:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>{item['formato']}</span></div>", unsafe_allow_html=True)
-                c4.markdown(f"<div style='text-align:center; color:#333; padding-top:4px;'>{item['tamanio_kb']}</div>", unsafe_allow_html=True)
-                c5.markdown(f"<div style='text-align:right; color:#333; padding-top:4px; font-family:monospace;'>{f_gen}</div>", unsafe_allow_html=True)
-                
-                with c6:
-                    datos_binarios_historicos = descargar_blob_capacity(item['id'])
-                    if datos_binarios_historicos:
-                        mime_tipo = "text/csv" if item['formato'] == "CSV" else "application/pdf"
-                        st.download_button(
-                            label="📥 Descargar",
-                            data=datos_binarios_historicos,
-                            file_name=item['nombre_archivo'],
-                            mime=mime_tipo,
-                            key=f"btn_hist_cap_{item['id']}",
-                            use_container_width=True
-                        )
+                    # Zebra striping alternando el color de fondo de las filas
+                    if i % 2 == 0:
+                        pdf.set_fill_color(245, 245, 245) # Gris muy suave
                     else:
-                        st.caption("Error")
+                        pdf.set_fill_color(255, 255, 255) # Blanco puro
                         
-                st.markdown("</div>", unsafe_allow_html=True)
+                    pdf.cell(60, 7, f_str, 1, 0, "C", True)
+                    pdf.cell(45, 7, f"{round(valores_pct[i], 2)}%", 1, 1, "C", True)
+
+                # Limpiar estados de color de FPDF por seguridad
+                pdf.set_text_color(0, 0, 0)
+
+                pdf_buffer = io.BytesIO()
+                pdf.output(pdf_buffer)
+                bytes_pdf = pdf_buffer.getvalue()
+
+                # 2. COMPILACIÓN DE CSV CON DATOS REALES COMPLETOS
+                csv_lineas = [
+                    "PROPIEDAD,VALOR",
+                    f"Servidor Nombrado,{servidor_sel}",
+                    f"Direccion IP V4,{ip_objetivo}",
+                    f"Metrica de Analisis,{metrica_sel}",
+                    f"Fecha Ejecucion,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    f"Horizonte Simulado Dias,{dias_proyeccion}",
+                    f"Factor Analista Pct,{porcentaje_ajuste_analista}",
+                    f"Veredicto SIMPOL,{veredicto}",
+                    f"Detalle Tecnico,{detalle_veredicto}",
+                    f"Modo Contingencia Banco,{modo_contingencia_txt}",
+                    f"Porcentaje Actual,{round(pct_actual, 2)}",
+                    f"Porcentaje Proyectado,{round(pct_final_proyectado, 2)}",
+                    f"Total Capacidad GB,{round(total_gb_actual, 2)}",
+                    f"Actual Libre GB,{round(gb_actual, 2)}",
+                    f"Proyectado Libre GB,{round(gb_proyectado_final, 2)}",
+                    f"Pendiente Lineal M,{round(pendiente, 4)}"
+                ]
+                bytes_csv = "\n".join(csv_lineas).encode("utf-8")
+
+                with col_exp1:
+                    def archivar_pdf_callback():
+                        registrar_proyeccion_v398(usuario_id, ip_objetivo, metrica_sel, float(total_gb_actual), float(gb_actual), float(pct_actual), float(gb_proyectado_final), float(pct_final_proyectado), veredicto)
+                        kb = round(len(bytes_pdf) / 1024.0, 2)
+                        guardar_reporte_capacity_bd(nombre_doc_pdf, "PDF", metrica_sel, ip_objetivo, bytes_pdf, usuario_id, None, veredicto, kb, total_gb_actual, gb_actual, gb_proyectado_final)
+                    
+                    st.download_button(
+                        label="📥 Exportar y Archivar Informe (PDF)", 
+                        data=bytes_pdf, 
+                        file_name=nombre_doc_pdf, 
+                        mime="application/pdf", 
+                        use_container_width=True, 
+                        on_click=archivar_pdf_callback, 
+                        key="btn_auto_pdf"
+                    )
+
+                with col_exp2:
+                    def archivar_csv_callback():
+                        registrar_proyeccion_v398(usuario_id, ip_objetivo, metrica_sel, float(total_gb_actual), float(gb_actual), float(pct_actual), float(gb_proyectado_final), float(pct_final_proyectado), veredicto)
+                        kb = round(len(bytes_csv) / 1024.0, 2)
+                        guardar_reporte_capacity_bd(nombre_doc_csv, "CSV", metrica_sel, ip_objetivo, bytes_csv, usuario_id, None, veredicto, kb, total_gb_actual, gb_actual, gb_proyectado_final)
+                    
+                    st.download_button(
+                        label="📥 Exportar y Archivar Matriz (CSV)", 
+                        data=bytes_csv, 
+                        file_name=nombre_doc_csv, 
+                        mime="text/csv", 
+                        use_container_width=True, 
+                        on_click=archivar_csv_callback, 
+                        key="btn_auto_csv"
+                    )
+
+        # PESTAÑA 2: BÓVEDA DIGITAL
+        with pestana_boveda:
+            if servidor_sel == "-- Seleccione un Servidor --":
+                st.info("💡 Seleccione un servidor en la pestaña anterior para consultar su bóveda digital.")
+            else:
+                st.markdown(f"#### 📜 Repositorio de Informes Archivados para `{servidor_sel}`")
+                items_historicos = listar_reportes_capacity_bd(ip_objetivo)
+                if not items_historicos:
+                    st.caption("No se registran informes técnicos de capacity auto-archivados para este nodo.")
+                else:
+                    st.markdown(
+                        '<div style="background-color:#003366; color:white; padding:8px; border-radius:3px; font-weight:bold; font-size:13px; font-family:Arial; display:flex;">'
+                        '<div style="flex:2.5;">Nombre del Documento Tecnico</div>'
+                        '<div style="flex:2; text-align:center;">Metrica Analizada</div>'
+                        '<div style="flex:0.8; text-align:center;">Formato</div>'
+                        '<div style="flex:0.8; text-align:center;">Tamaño</div>'
+                        '<div style="flex:1.8; text-align:center;">Fecha de Generacion</div>'
+                        '</div>', unsafe_allow_html=True
+                    )
+                    for item in items_historicos:
+                        f_gen = item['fecha_generacion'].strftime("%Y-%m-%d %H:%M") if hasattr(item['fecha_generacion'], 'strftime') else str(item['fecha_generacion'])
+                        badge_color = "#003366" if item['formato'] == "PDF" else "#2e7d32"
+                        st.markdown(
+                            f'<div style="background-color:#ffffff; border-bottom:1px solid #eee; padding:10px 8px; font-size:12px; font-family:Arial; display:flex; align-items:center;">'
+                            f'<div style="flex:2.5; font-weight:bold; color:#333;">📄 {item["nombre_archivo"]}</div>'
+                            f'<div style="flex:2; text-align:center; color:#555;">{item["metrica_analizada"]}</div>'
+                            f'<div style="flex:0.8; text-align:center;"><span style="background-color:{badge_color}; color:white; padding:2px 6px; border-radius:3px; font-weight:bold;">{item["formato"]}</span></div>'
+                            f'<div style="flex:0.8; text-align:center; color:#444;">{item["tamanio_kb"]} KB</div>'
+                            f'<div style="flex:1.8; text-align:center; color:#666; font-family:monospace;">{f_gen}</div>'
+                            f'</div>', unsafe_allow_html=True
+                        )
+                        datos_binarios = descargar_blob_capacity(item['id'])
+                        if datos_binarios:
+                            mime_tipo = "text/csv" if item['formato'] == "CSV" else "application/pdf"
+                            st.download_button(label=f"📥 Descargar {item['nombre_archivo']}", data=datos_binarios, file_name=item['nombre_archivo'], mime=mime_tipo, key=f"btn_grid_dl_{item['id']}", use_container_width=True)
+
+    except Exception as e_main:
+        st.error(f"Fallo general critico en la ejecucion de la vista analitica: {e_main}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    cargo_usuario = st.session_state.get("nombre_completo", "Nombre Completo")
+    cargo_usuario = st.session_state.get("nombre_completo", "Analista de Infraestructura")
     id_usuario = st.session_state.get("id", 1)
-    login_usuario = st.session_state.get("usuario", "Usuario")
-    
-    mostrar_pantalla(cargo_usuario, id_usuario, login_usuario)
+    login_usuario = st.session_state.get("usuario", "admin_csu")
+    mostrar_pantalla(nombre_analista=cargo_usuario, usuario_id=id_usuario, usuario_login=login_usuario)
