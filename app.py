@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import sys
-import threading
 import logging
 from datetime import datetime
 
@@ -28,43 +27,23 @@ def get_resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
-# === 4. MOTOR DEL AGENTE (INTEGRADO COMO HILO CORREGIDO) ===
-def ejecutar_agente_motor():
-    """Ejecuta la lógica de monitoreo sin bloquear la interfaz"""
-    try:
-        logging.info("Intentando importar e iniciar el motor del agente...")
-        from agente import ejecutar_motor_agente
-        ejecutar_motor_agente()
-    except Exception as e:
-        logging.error(f"Error crítico en el hilo del agente: {e}")
-
-def lanzar_hilo_monitoreo():
-    """Lanza el hilo del agente una sola vez por sesión de ejecución"""
-    if "agente_hilo_activo" not in st.session_state:
-        try:
-            t = threading.Thread(target=ejecutar_agente_motor, daemon=True)
-            t.start()
-            st.session_state["agente_hilo_activo"] = True
-            logging.info("Hilo del agente lanzado con éxito.")
-        except Exception as e:
-            logging.error(f"No se pudo crear el hilo: {e}")
-
-# === 5. CONFIGURACIÓN DE PÁGINA Y ESTILOS ===
+# === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
 st.set_page_config(
     page_title="SIMPOL - Banco Caroní",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# SE GARANTIZA LA INYECCIÓN TEMPRANA: Forzar la carga de style.css antes de la lógica de ruteo
 css_path = get_resource_path("style.css")
 if os.path.exists(css_path):
     try:
         with open(css_path, 'r', encoding='utf-8') as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"Error cargando style.css: {e}")
 
-# === 6. FLUJO PRINCIPAL PROTEGIDO ===
+# === 5. FLUJO PRINCIPAL PROTEGIDO ===
 import auth
 from menu import generar_menu
 
@@ -92,7 +71,7 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "accion_personal" in st.session_state:
             st.session_state["accion_personal"] = None
 
-    # 3. Réplica para Servidores (Forzamos reset absoluto de variables de control)
+    # 3. Réplica para Servidores
     if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
@@ -159,15 +138,14 @@ def main():
         st.session_state["user_actual"] = params.get("u")
 
     if not st.session_state.get("autenticado", False):
+        # PURGA DE URL: Evitamos conflictos limpiando los tokens antiguos de la URL en el login
+        if any(k in params for k in ["s", "rol", "uid", "u", "c", "p"]):
+            st.query_params.clear()
         auth.mostrar_login()
     else:
-        lanzar_hilo_monitoreo()
-        
         # =====================================================================
-        # SOLUCIÓN CRÍTICA: INICIALIZACIÓN TEMPRANA DEL CONTENEDOR PRINCIPAL
+        # CONTENEDOR PRINCIPAL INDEPENDIENTE
         # =====================================================================
-        # Declaramos el contenedor arriba de todo para poder limpiarlo antes
-        # de procesar cambios del menú lateral.
         placeholder_principal = st.empty()
         
         # Detención de re-dirección externa
@@ -184,14 +162,12 @@ def main():
         # Ejecución preventiva de limpieza de filtros
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         
-        # Renderizamos el menú lateral (donde cambian las opciones en tiempo real)
+        # Renderizamos el menú lateral
         generar_menu()
         
         # =====================================================================
         # INTERCEPTOR DE SEGURIDAD (ANTI-SOLAPAMIENTO MEJORADO)
         # =====================================================================
-        # Si el usuario cliqueó otra sección en el menú, destruimos visualmente 
-        # lo que había en la pantalla vieja ANTES del rerun.
         if params.get("p") != st.session_state["seccion_actual"]:
             placeholder_principal.empty()  # Blanqueo forzado del DOM de Streamlit
             st.query_params["p"] = st.session_state["seccion_actual"]
