@@ -35,6 +35,12 @@ def obtener_umbrales_actuales(ip):
         "ram_buen_estado": 20.0, "ram_advertencia": 15.0, "ram_critico": 10.0,
         "red_limite_mbps": 100.0, "latencia_limite_ms": 150.0
     }
+    # Inicialización por defecto de los 8 cores individuales
+    for idx in range(1, 9):
+        umbrales[f"cpu_p{idx}_buen_estado"] = 69.0
+        umbrales[f"cpu_p{idx}_advertencia"] = 70.0
+        umbrales[f"cpu_p{idx}_critico"] = 85.0
+
     for i in range(1, 7):
         umbrales[f"disco_{i}_buen_estado"] = 25.0
         umbrales[f"disco_{i}_advertencia"] = 15.0
@@ -76,6 +82,16 @@ def guardar_nuevos_umbrales(ip, dict_umbrales, usuario_id, justificacion):
             int(dict_umbrales["cpu_buen_estado"]), int(dict_umbrales["cpu_advertencia"]), int(dict_umbrales["cpu_critico"]),
             int(dict_umbrales["ram_buen_estado"]), int(dict_umbrales["ram_advertencia"]), int(dict_umbrales["ram_critico"])
         ]
+        
+        # Extendemos para guardar los umbrales específicos de los 8 procesadores logicos
+        for idx in range(1, 9):
+            columnas.extend([f"cpu_p{idx}_buen_estado", f"cpu_p{idx}_advertencia", f"cpu_p{idx}_critico"])
+            valores_sql.extend([
+                int(dict_umbrales.get(f"cpu_p{idx}_buen_estado", 69)),
+                int(dict_umbrales.get(f"cpu_p{idx}_advertencia", 70)),
+                int(dict_umbrales.get(f"cpu_p{idx}_critico", 85))
+            ])
+
         for i in range(1, 7):
             columnas.extend([f"disco_{i}_buen_estado", f"disco_{i}_advertencia", f"disco_{i}_critico"])
             valores_sql.extend([
@@ -142,11 +158,7 @@ def renderizar_barra_estado(titulo, pct_libre, gb_libres, gb_totales, umbral_adv
     """
     st.markdown(html_barra, unsafe_allow_html=True)
 
-def renderizar_barra_cpu(titulo, pct_uso, umbral_adv, umbral_crit):
-    """
-    Renderizador semafórico adaptado al comportamiento del CPU.
-    A mayor porcentaje de uso, mayor criticidad (Lógica inversa a RAM/Discos).
-    """
+def renderizar_barra_cpu(titulo, pct_uso, umbral_adv, umbral_crit, es_core_individual=False):
     if pct_uso >= umbral_crit:
         color_fondo = "#FF4B4B"  
         color_texto = "#FFFFFF"
@@ -163,9 +175,102 @@ def renderizar_barra_cpu(titulo, pct_uso, umbral_adv, umbral_crit):
         texto_estado = "NORMAL"
         estilo_borde = "border: 1px solid #27AE60;"
 
+    padding = "6px" if es_core_individual else "10px"
+    font_size = "12px" if es_core_individual else "13px"
+
     html_barra = f"""
+    <div style="margin-bottom: 12px;">
+        <p style="margin: 0px; font-weight: bold; color: #333; font-size: 13px;">{titulo}</p>
+        <div style="
+            background-color: {color_fondo}; 
+            color: {color_texto}; 
+            {estilo_borde}
+            padding: {padding}; 
+            border-radius: 5px; 
+            text-align: center; 
+            font-weight: bold; 
+            font-size: {font_size};
+            box-shadow: 0px 2px 4px rgba(0,0,0,0.06);
+            letter-spacing: 0.3px;
+        ">
+            {texto_estado} ({pct_uso:.1f}%)
+        </div>
+    </div>
+    """
+    st.markdown(html_barra, unsafe_allow_html=True)
+
+def renderizar_bloque_red_latencia(titulo, valor, limite, unidad, es_perdida=False):
+    """
+    Renderizador semafórico para métricas de red y diagnóstico de latencia extendido.
+    Para pérdidas de paquetes, > 1% es Advertencia, > 5% es Crítico.
+    Para tráfico y latencia, compara contra el límite configurado.
+    """
+    if es_perdida:
+        if valor >= 5.0:
+            color_fondo, color_texto, texto_estado, estilo_borde = "#FF4B4B", "#FFFFFF", "CRÍTICO", "border: 1px solid #D32F2F;"
+        elif valor >= 1.0:
+            color_fondo, color_texto, texto_estado, estilo_borde = "#F1C40F", "#111111", "ADVERTENCIA", "border: 1px solid #D4AC0D;"
+        else:
+            color_fondo, color_texto, texto_estado, estilo_borde = "#2ECC71", "#FFFFFF", "NORMAL", "border: 1px solid #27AE60;"
+        mostrar_limite = ""
+    else:
+        if valor >= limite:
+            color_fondo, color_texto, texto_estado, estilo_borde = "#FF4B4B", "#FFFFFF", "CRÍTICO", "border: 1px solid #D32F2F;"
+        elif valor >= (limite * 0.8):
+            color_fondo, color_texto, texto_estado, estilo_borde = "#F1C40F", "#111111", "ADVERTENCIA", "border: 1px solid #D4AC0D;"
+        else:
+            color_fondo, color_texto, texto_estado, estilo_borde = "#2ECC71", "#FFFFFF", "NORMAL", "border: 1px solid #27AE60;"
+        mostrar_limite = f" / Límite: {limite:.1f} {unidad}"
+
+    html_red = f"""
+    <div style="margin-bottom: 12px;">
+        <p style="margin: 0px; font-weight: bold; color: #333; font-size: 13px;">{titulo}</p>
+        <div style="
+            background-color: {color_fondo}; 
+            color: {color_texto}; 
+            {estilo_borde}
+            padding: 8px; 
+            border-radius: 5px; 
+            text-align: center; 
+            font-weight: bold; 
+            font-size: 12px;
+            box-shadow: 0px 2px 4px rgba(0,0,0,0.06);
+        ">
+            {texto_estado} ({valor:.2f} {unidad}{mostrar_limite})
+        </div>
+    </div>
+    """
+    st.markdown(html_red, unsafe_allow_html=True)
+
+def renderizar_estado_servicio(nombre_servicio, estado_enum, id_sensor):
+    estado_str = str(estado_enum).strip().upper()
+    
+    if estado_str in ['ACTIVO', 'ESTABLE', 'UP', 'OK']:
+        color_fondo = "#2ECC71"  
+        color_texto = "#FFFFFF"
+        texto_estado = "NORMAL"
+        estilo_borde = "border: 1px solid #27AE60;"
+    elif estado_str in ['PRECAUCIÓN', 'WARN', 'DEGRADADO', 'ADVERTENCIA']:
+        color_fondo = "#F1C40F"  
+        color_texto = "#111111"
+        texto_estado = "ADVERTENCIA"
+        estilo_borde = "border: 1px solid #D4AC0D;"
+    elif estado_str in ['OFF', 'INACTIVO']:
+        color_fondo = "#F2F4F4"  
+        color_texto = "#7F8C8D"  
+        texto_estado = "INACTIVO"
+        estilo_borde = "border: 1px solid #D5DBDB;"
+    else:
+        color_fondo = "#FF4B4B"  
+        color_texto = "#FFFFFF"
+        texto_estado = "CRÍTICO"
+        estilo_borde = "border: 1px solid #D32F2F;"
+
+    html_servicio = f"""
     <div style="margin-bottom: 15px;">
-        <p style="margin: 0px; font-weight: bold; color: #333; font-size: 14px;">{titulo}</p>
+        <p style="margin: 0px; font-weight: bold; color: #333; font-size: 14px;">
+            {nombre_servicio} <span style="font-size: 11px; color: #777; font-weight: normal;">(Sensor #{id_sensor})</span>
+        </p>
         <div style="
             background-color: {color_fondo}; 
             color: {color_texto}; 
@@ -178,48 +283,7 @@ def renderizar_barra_cpu(titulo, pct_uso, umbral_adv, umbral_crit):
             box-shadow: 0px 2px 4px rgba(0,0,0,0.08);
             letter-spacing: 0.5px;
         ">
-            {texto_estado} ({pct_uso:.1f}% Uso de Procesamiento)
-        </div>
-    </div>
-    """
-    st.markdown(html_barra, unsafe_allow_html=True)
-
-def renderizar_estado_servicio(nombre_servicio, estado_enum, id_sensor):
-    if estado_enum == 'ACTIVO':
-        color_fondo = "#E8F8F5"  
-        color_texto = "#117A65"  
-        estilo_borde = "border: 1px solid #A3E4D7;"
-        status_dot = "🟢"
-    elif estado_enum == 'OFF':
-        color_fondo = "#F2F4F4"  
-        color_texto = "#7F8C8D"  
-        estilo_borde = "border: 1px solid #D5DBDB;"
-        status_dot = "⚪"
-    else:
-        color_fondo = "#FADBD8"  
-        color_texto = "#78281F"  
-        estilo_borde = "border: 1px solid #F1948A;"
-        status_dot = "🔴"
-
-    html_servicio = f"""
-    <div style="
-        background-color: {color_fondo}; 
-        color: {color_texto}; 
-        {estilo_borde}
-        padding: 10px 14px; 
-        border-radius: 6px; 
-        box-shadow: 0px 1px 3px rgba(0,0,0,0.04);
-        margin-bottom: 12px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    ">
-        <div style="font-size: 10px; opacity: 0.7; font-weight: bold; letter-spacing: 0.3px;">SENSOR #{id_sensor}</div>
-        <div style="font-size: 13px; font-weight: bold; margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            {nombre_servicio}
-        </div>
-        <div style="font-size: 12px; font-weight: bold; margin-top: 1px;">
-            {status_dot} {estado_enum}
+            {texto_estado} ({estado_enum})
         </div>
     </div>
     """
@@ -309,7 +373,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         if not telemetria:
                             st.warning(f"⚠️ No se han recibido muestras recientes desde agente.py para el nodo `{ip_sel}`.")
                         else:
-                            # Layout de dos columnas para CPU y RAM
                             tiene_cpu = int(serv_info.get('id_sensor_cpu') or 0) > 0
                             tiene_ram = int(serv_info.get('id_sensor_ram') or 0) > 0
                             
@@ -320,7 +383,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                     if tiene_cpu:
                                         pct_cpu_uso = float(telemetria.get('val_cpu') or 0.0)
                                         renderizar_barra_cpu(
-                                            titulo="Carga de Procesamiento (CPU)",
+                                            titulo="Carga de Procesamiento Global (CPU)",
                                             pct_uso=pct_cpu_uso,
                                             umbral_adv=umbrales["cpu_advertencia"],
                                             umbral_crit=umbrales["cpu_critico"]
@@ -344,6 +407,41 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                         )
                                     else:
                                         st.caption("No hay sensor de RAM configurado.")
+
+                            if tiene_cpu:
+                                st.markdown('<h4 style="font-size:14px; color:#555; font-weight:bold; margin-top:10px; margin-bottom:8px;">🎛️ Desglose de Carga por Core de Procesamiento</h4>', unsafe_allow_html=True)
+                                cols_cores = st.columns(4)
+                                for c_idx in range(1, 9):
+                                    col_destino = cols_cores[(c_idx - 1) % 4]
+                                    val_core = float(telemetria.get(f'cpu_p{c_idx}') or 0.0)
+                                    with col_destino:
+                                        renderizar_barra_cpu(
+                                            titulo=f"Core {c_idx}",
+                                            pct_uso=val_core,
+                                            umbral_adv=umbrales.get(f"cpu_p{c_idx}_advertencia", 70.0),
+                                            umbral_crit=umbrales.get(f"cpu_p{c_idx}_critico", 85.0),
+                                            es_core_individual=True
+                                        )
+
+                            # NUEVO BLOQUE: RENDIMIENTO DE RED SEGMENTADO Y DIAGNÓSTICO DE LATENCIA EXTENDIDO
+                            st.markdown('<h3 style="font-size:17px; color:#003366; margin-top:25px; font-weight:bold;">🌐 Segmentación de Red y Diagnóstico de Latencia</h3>', unsafe_allow_html=True)
+                            
+                            col_red_izq, col_red_der = st.columns(2)
+                            limite_red = umbrales.get("red_limite_mbps", 100.0)
+                            limite_lat = umbrales.get("latencia_limite_ms", 150.0)
+
+                            with col_red_izq:
+                                st.markdown('<p style="color:#555; font-weight:bold; font-size:13px; margin-bottom:5px;">📊 Canales de Tráfico de Red</p>', unsafe_allow_html=True)
+                                renderizar_bloque_red_latencia("Tráfico Total", float(telemetria.get('val_red_total') or 0.0), limite_red, "Mbps")
+                                renderizar_bloque_red_latencia("Tráfico Entrante", float(telemetria.get('val_red_entrante') or 0.0), limite_red, "Mbps")
+                                renderizar_bloque_red_latencia("Tráfico Saliente", float(telemetria.get('val_red_saliente') or 0.0), limite_red, "Mbps")
+
+                            with col_red_der:
+                                st.markdown('<p style="color:#555; font-weight:bold; font-size:13px; margin-bottom:5px;">⏱️ Diagnóstico de Latencia Extendida</p>', unsafe_allow_html=True)
+                                renderizar_bloque_red_latencia("Ping Promedio", float(telemetria.get('val_latencia_ping') or 0.0), limite_lat, "ms")
+                                renderizar_bloque_red_latencia("Latencia Máxima", float(telemetria.get('val_latencia_max') or 0.0), limite_lat, "ms")
+                                renderizar_bloque_red_latencia("Latencia Mínima", float(telemetria.get('val_latencia_min') or 0.0), limite_lat, "ms")
+                                renderizar_bloque_red_latencia("Pérdida de Paquetes", float(telemetria.get('val_latencia_perdida') or 0.0), 0.0, "%", es_loss=True)
 
                             # 2. Panel de Discos
                             st.markdown('<h3 style="font-size:17px; color:#003366; margin-top:25px; font-weight:bold;">💾 Unidades de Almacenamiento Estático (Libre)</h3>', unsafe_allow_html=True)
@@ -379,21 +477,21 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 
                             # 3. Apartado de Servicios
                             st.markdown("---")
-                            servicios_registrados = []
+                            services_registrados = []
                             for s in range(1, 9):
                                 id_sensor_srv = int(serv_info.get(f'id_sensor_servicio_{s}') or 0)
                                 if id_sensor_srv > 0:
                                     estado_enum = telemetria.get(f'estado_servicio_{s}', 'INACTIVO')
-                                    servicios_registrados.append({
+                                    services_registrados.append({
                                         "nombre": f"Servicio Integrado {s}",
                                         "estado": estado_enum,
                                         "sensor": id_sensor_srv
                                     })
 
-                            if servicios_registrados:
+                            if services_registrados:
                                 st.markdown('<h3 style="font-size:17px; color:#003366; margin-top:25px; font-weight:bold;">⚙️ Estado de Alerta para Servicios</h3>', unsafe_allow_html=True)
-                                cols_servicios = st.columns(len(servicios_registrados))
-                                for idx, srv in enumerate(servicios_registrados):
+                                cols_servicios = st.columns(len(services_registrados))
+                                for idx, srv in enumerate(services_registrados):
                                     with cols_servicios[idx]:
                                         renderizar_estado_servicio(srv["nombre"], srv["estado"], srv["sensor"])
 
@@ -430,15 +528,13 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.markdown("---")
 
                 dict_nuevos_valores = {}
-                
                 tiene_cpu = int(serv_conf_info.get('id_sensor_cpu') or 0) > 0
                 tiene_ram = int(serv_conf_info.get('id_sensor_ram') or 0) > 0
                 
-                # Renderizar los controles deslizantes
                 columnas_hw = st.columns(2)
                 
                 with columnas_hw[0]:
-                    st.markdown('<p style="color:#003366; font-weight:bold; font-size:14px; margin-bottom:5px;">🧠 Procesamiento (CPU)</p>', unsafe_allow_html=True)
+                    st.markdown('<p style="color:#003366; font-weight:bold; font-size:14px; margin-bottom:5px;">🧠 Procesamiento (CPU Global)</p>', unsafe_allow_html=True)
                     if tiene_cpu:
                         dict_nuevos_valores["cpu_buen_estado"] = st.slider("🟢 Estable (Uso % CPU Máx)", 1, 100, int(umbrales_vivos.get("cpu_buen_estado", 69)), key="p2_cpu_ok")
                         dict_nuevos_valores["cpu_advertencia"] = st.slider("⚠️ Advertencia (Uso % CPU)", 10, 100, int(umbrales_vivos.get("cpu_advertencia", 70)), key="p2_cpu_adv")
@@ -461,7 +557,33 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         dict_nuevos_valores["ram_advertencia"] = int(umbrales_vivos.get("ram_advertencia", 15))
                         dict_nuevos_valores["ram_critico"] = int(umbrales_vivos.get("ram_critico", 10))
 
-                # 2. CANALES DE ALMACENAMIENTO ESTÁTICO (Discos con las 3 variables)
+                if tiene_cpu:
+                    st.markdown('<h3 style="font-size:17px; color:#003366; margin-top:25px; font-weight:bold;">🎛️ Configuración Avanzada de Cores Lógicos</h3>', unsafe_allow_html=True)
+                    exp_cores = st.expander("Ver y editar umbrales individuales de los 8 Cores", expanded=False)
+                    with exp_cores:
+                        cols_cores_conf = st.columns(4)
+                        for c_idx in range(1, 9):
+                            col_core_dest = cols_cores_conf[(c_idx - 1) % 4]
+                            with col_core_dest:
+                                st.markdown(f'<p style="color:#333; font-weight:bold; font-size:13px; margin-bottom:2px;">Core {c_idx}</p>', unsafe_allow_html=True)
+                                dict_nuevos_valores[f"cpu_p{c_idx}_buen_estado"] = st.slider(f"🟢 Estable Core {c_idx}", 1, 100, int(umbrales_vivos.get(f"cpu_p{c_idx}_buen_estado", 69)), key=f"p2_core_ok_{c_idx}")
+                                dict_nuevos_valores[f"cpu_p{c_idx}_advertencia"] = st.slider(f"⚠️ Adv Core {c_idx}", 1, 100, int(umbrales_vivos.get(f"cpu_p{c_idx}_advertencia", 70)), key=f"p2_core_adv_{c_idx}")
+                                dict_nuevos_valores[f"cpu_p{c_idx}_critico"] = st.slider(f"🔴 Crit Core {c_idx}", 1, 100, int(umbrales_vivos.get(f"cpu_p{c_idx}_critico", 85)), key=f"p2_core_crit_{c_idx}")
+                else:
+                    for c_idx in range(1, 9):
+                        dict_nuevos_valores[f"cpu_p{c_idx}_buen_estado"] = int(umbrales_vivos.get(f"cpu_p{c_idx}_buen_estado", 69))
+                        dict_nuevos_valores[f"cpu_p{c_idx}_advertencia"] = int(umbrales_vivos.get(f"cpu_p{c_idx}_advertencia", 70))
+                        dict_nuevos_valores[f"cpu_p{c_idx}_critico"] = int(umbrales_vivos.get(f"cpu_p{c_idx}_critico", 85))
+
+                # NUEVO APARTADO EN CONFIGURACIÓN: UMBRALES DE RED Y LATENCIA
+                st.markdown('<h3 style="font-size:17px; color:#003366; margin-top:25px; font-weight:bold;">🌐 Umbrales de Red y Latencia</h3>', unsafe_allow_html=True)
+                col_net_c1, col_net_c2 = st.columns(2)
+                with col_net_c1:
+                    dict_nuevos_valores["red_limite_mbps"] = st.slider("Límite de Tráfico (Mbps)", 10, 1000, int(umbrales_vivos.get("red_limite_mbps", 100)), key="p2_red_limite")
+                with col_net_c2:
+                    dict_nuevos_valores["latencia_limite_ms"] = st.slider("Límite de Latencia Ping (ms)", 10, 500, int(umbrales_vivos.get("latencia_limite_ms", 150)), key="p2_lat_limite")
+
+                # 2. CANALES DE ALMACENAMIENTO ESTÁTICO (Discos)
                 discos_configurables = []
                 letras_unidades_conf = {1: "C:", 2: "D:", 3: "E:", 4: "F:", 5: "G:", 6: "Y:"}
                 
@@ -478,9 +600,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         d_num = d_conf['num']
                         with cols_discos_conf[idx]:
                             st.markdown(f'<p style="color:#333; font-weight:bold; font-size:13px; margin-bottom:2px;">Unidad {d_conf["letra"]}</p>', unsafe_allow_html=True)
-                            dict_nuevos_valores[f"disco_{d_num}_buen_estado"] = st.slider(f"🟢 Estable (% Libre)", 1, 100, int(umbrales_vivos.get(f"disco_{d_num}_buen_estado", 25)), key=f"p2_ok_{d_num}")
-                            dict_nuevos_valores[f"disco_{d_num}_advertencia"] = st.slider(f"⚠️ Advertencia (% Libre)", 1, 100, int(umbrales_vivos.get(f"disco_{d_num}_advertencia", 15)), key=f"p2_adv_{d_num}")
-                            dict_nuevos_valores[f"disco_{d_num}_critico"] = st.slider(f"🔴 Crítico (% Libre)", 1, 100, int(umbrales_vivos.get(f"disco_{d_num}_critico", 5)), key=f"p2_crit_{d_num}")
+                            dict_nuevos_valores[f"disco_{d_num}_buen_estado"] = st.slider(f"🟢 Estable (% Libre) d{d_num}", 1, 100, int(umbrales_vivos.get(f"disco_{d_num}_buen_estado", 25)), label_visibility="collapsed", key=f"p2_ok_{d_num}")
+                            dict_nuevos_valores[f"disco_{d_num}_advertencia"] = st.slider(f"⚠️ Advertencia (% Libre) d{d_num}", 1, 100, int(umbrales_vivos.get(f"disco_{d_num}_advertencia", 15)), label_visibility="collapsed", key=f"p2_adv_{d_num}")
+                            dict_nuevos_valores[f"disco_{d_num}_critico"] = st.slider(f"🔴 Crítico (% Libre) d{d_num}", 1, 100, int(umbrales_vivos.get(f"disco_{d_num}_critico", 5)), label_visibility="collapsed", key=f"p2_crit_{d_num}")
 
                 st.markdown("---")
                 

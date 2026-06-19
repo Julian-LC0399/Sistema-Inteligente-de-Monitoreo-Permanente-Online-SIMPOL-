@@ -31,9 +31,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
     Filtra mediante un menú desplegable ágil asistido por caché de datos.
     Oculta dinámicamente las columnas cuyos sensores no estén asignados (valor 0).
     Redirecciona limpiamente mediante un botón corporativo externo exclusivo.
-    Soporta estructuralmente hasta 6 discos (con Disco 6 mapeado a Y:), 8 sensores de servicios y la columna tipo V3.6.
-    Pestaña 2 interactiva: Permite listar, registrar y editar la tabla datos_adicionales de forma exacta,
-    asistido por un filtro obligatorio que no muestra datos hasta ser seleccionado.
+    Soporta estructuralmente hasta 6 discos, 8 sensores de servicios y red desglosada (Total, Entrante, Saliente).
+    Pestaña 2 interactiva: Permite listar, registrar y editar la tabla datos_adicionales de forma exacta.
     """
     # INYECCIÓN DE ESTILOS PERFECCIONADA: ELIMINA LOS BOTONES + Y - DE LOS INPUTS NUMÉRICOS
     st.markdown("""
@@ -164,12 +163,12 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 conn = conectar_bd()
                 cursor = conn.cursor(dictionary=True)
                 query = """
-                    SELECT ip, nombre_alias, sistema_operativo, tipo, estado_monitoreo, fecha_alta, 
+                    SELECT ip, nombre_alias, sistema_operativo, tipo, servicios, estado_monitoreo, fecha_alta, 
                            id_sensor_cpu, id_sensor_ram, 
                            id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
                            id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
                            id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
-                           id_sensor_red, id_sensor_latencia 
+                           id_sensor_red_total, id_sensor_red_entrante, id_sensor_red_saliente, id_sensor_latencia 
                     FROM servidores
                     WHERE nombre_alias = %s
                 """
@@ -182,11 +181,13 @@ def mostrar_tabla_servidores(rol_usuario=None):
             if hay_filtro and servidores_filtrados:
                 tiene_cpu = any(s['id_sensor_cpu'] != 0 for s in servidores_filtrados)
                 tiene_ram = any(s['id_sensor_ram'] != 0 for s in servidores_filtrados)
-                tiene_red = any(s['id_sensor_red'] != 0 for s in servidores_filtrados)
+                tiene_red_tot = any(s['id_sensor_red_total'] != 0 for s in servidores_filtrados)
+                tiene_red_ent = any(s['id_sensor_red_entrante'] != 0 for s in servidores_filtrados)
+                tiene_red_sal = any(s['id_sensor_red_saliente'] != 0 for s in servidores_filtrados)
                 tiene_latencia = any(s['id_sensor_latencia'] != 0 for s in servidores_filtrados)
                 
                 discos_activos = {}
-                letras_unidades = {1: "C:", 2: "F:", 3: "E:", 4: "D:", 5: "G:", 6: "Y:"}
+                letras_unidades = {1: "C:", 2: "D:", 3: "E:", 4: "F:", 5: "G:", 6: "Y:"}
                 for i in range(1, 7):
                     discos_activos[i] = any(s[f'id_sensor_disco_{i}'] != 0 for s in servidores_filtrados)
                 
@@ -245,7 +246,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     if servicios_activos[i]:
                         html_lineas.append(f'<th>SERVICIO {i}</th>')
                         
-                if tiene_red: html_lineas.append('<th>ID RED</th>')
+                if tiene_red_tot: html_lineas.append('<th>RED TOTAL</th>')
+                if tiene_red_ent: html_lineas.append('<th>RED ENTRANTE</th>')
+                if tiene_red_sal: html_lineas.append('<th>RED SALIENTE</th>')
                 if tiene_latencia: html_lineas.append('<th>ID LATENCIA</th>')
                 
                 html_lineas.append('<th>ESTADO</th>')
@@ -266,7 +269,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     html_lineas.append(f'<td><b>{s["ip"]}</b></td>')
                     html_lineas.append(f'<td>{s["nombre_alias"]}</td>')
                     html_lineas.append(f'<td>{s["sistema_operativo"]}</td>')
-                    html_lineas.append(f'<td>{s.get("tipo", "No definido")}</td>')
+                    html_lineas.append(f'<td>{s.get("tipo", "Virtual")}</td>')
                     
                     if tiene_cpu: html_lineas.append(f'<td>{s["id_sensor_cpu"]}</td>')
                     if tiene_ram: html_lineas.append(f'<td>{s["id_sensor_ram"]}</td>')
@@ -279,7 +282,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         if servicios_activos[i]:
                             html_lineas.append(f'<td>ID {s.get(f"id_sensor_servicio_{i}", 0)}</td>')
                             
-                    if tiene_red: html_lineas.append(f'<td>{s["id_sensor_red"]}</td>')
+                    if tiene_red_tot: html_lineas.append(f'<td>{s["id_sensor_red_total"]}</td>')
+                    if tiene_red_ent: html_lineas.append(f'<td>{s["id_sensor_red_entrante"]}</td>')
+                    if tiene_red_sal: html_lineas.append(f'<td>{s["id_sensor_red_saliente"]}</td>')
                     if tiene_latencia: html_lineas.append(f'<td>{s["id_sensor_latencia"]}</td>')
                     
                     html_lineas.append(f'<td style="text-align: center;">{estado_html}</td>')
@@ -341,14 +346,12 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     with st.form("form_registro_srv"):
                         st.markdown("<div class='subtitulo-formulario'>📋 Datos Principales del Nodo</div>", unsafe_allow_html=True)
                         col_reg_p1, col_reg_p2 = st.columns(2)
-                        reg_ip = col_reg_p1.text_input("Dirección IP (Campo Requerido)", placeholder="Ej: 10.0.4.50")
+                        reg_ip = col_reg_p1.text_input("Dirección IP (Campo Requerido)", placeholder="Ej: 10.10.1.50")
                         reg_alias = col_reg_p2.text_input("Nombre / Alias del Servidor (Requerido)", placeholder="Ej: SRV-PROD-BD")
                         
                         col_reg_p3, col_reg_p4 = st.columns(2)
                         reg_so = col_reg_p3.selectbox("Sistema Operativo Base Instalado", ["Windows", "Linux"])
-                        
-                        # MODIFICACIÓN REQUERIDA: Tipo exclusivo en "Virtual"
-                        reg_tipo = col_reg_p4.selectbox("Tipo de Infraestructura V3.6", ["Virtual"])
+                        reg_tipo = col_reg_p4.selectbox("Tipo de Infraestructura", ["Virtual"])
                         
                         st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                         col_reg_e1, col_reg_e2 = st.columns(2)
@@ -356,19 +359,25 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         reg_ram = col_reg_e2.number_input("ID Sensor PRTG - Consumo Memoria RAM", value=0, step=None)
                         
                         col_reg_e3, col_reg_e4 = st.columns(2)
-                        reg_red = col_reg_e3.number_input("ID Sensor PRTG - Ancho de Banda Red", value=0, step=None)
-                        reg_lat = col_reg_e4.number_input("ID Sensor PRTG - Latencia de Respuesta (Ping)", value=0, step=None)
+                        reg_lat = col_reg_e3.number_input("ID Sensor PRTG - Latencia de Respuesta (Ping)", value=0, step=None)
+                        reg_servicios_str = col_reg_e4.text_input("Descripción de Servicios Core", value="Ninguno")
                         
+                        st.markdown("<div class='subtitulo-formulario'>🌐 Sensores Avanzados de Ancho de Banda / Red</div>", unsafe_allow_html=True)
+                        col_red1, col_red2, col_red3 = st.columns(3)
+                        reg_red_tot = col_red1.number_input("ID Sensor Red - Tráfico Total", value=0, step=None)
+                        reg_red_ent = col_red2.number_input("ID Sensor Red - Tráfico Entrante", value=0, step=None)
+                        reg_red_sal = col_red3.number_input("ID Sensor Red - Tráfico Saliente", value=0, step=None)
+
                         st.markdown("<div class='subtitulo-formulario'>💾 Matriz de Almacenamiento (PRTG Multidisco)</div>", unsafe_allow_html=True)
                         col_reg_d1, col_reg_d2, col_reg_d3 = st.columns(3)
-                        reg_d1 = col_reg_d1.number_input("Disco 1 (Unidad C:)", value=0, step=None)
-                        reg_d2 = col_reg_d2.number_input("Disco 2 (Unidad F:)", value=0, step=None)
-                        reg_d3 = col_reg_d3.number_input("Disco 3 (Unidad E:)", value=0, step=None)
+                        reg_d1 = col_reg_d1.number_input("Disco 1 (Unidad C:\\)", value=0, step=None)
+                        reg_d2 = col_reg_d2.number_input("Disco 2 (Unidad D:\\)", value=0, step=None)
+                        reg_d3 = col_reg_d3.number_input("Disco 3 (Unidad E:\\)", value=0, step=None)
                         
                         col_reg_d4, col_reg_d5, col_reg_d6 = st.columns(3)
-                        reg_d4 = col_reg_d4.number_input("Disco 4 (Unidad D:)", value=0, step=None)
-                        reg_d5 = col_reg_d5.number_input("Disco 5 (Unidad G:)", value=0, step=None)
-                        reg_d6 = col_reg_d6.number_input("Disco 6 (Unidad Y:)", value=0, step=None)
+                        reg_d4 = col_reg_d4.number_input("Disco 4 (Unidad F:\\)", value=0, step=None)
+                        reg_d5 = col_reg_d5.number_input("Disco 5 (Unidad G:\\)", value=0, step=None)
+                        reg_d6 = col_reg_d6.number_input("Disco 6 (Unidad Y:\\)", value=0, step=None)
 
                         st.markdown("<div class='subtitulo-formulario'>⚙️ Monitoreo de Servicios del Sistema (8 Slots Activos)</div>", unsafe_allow_html=True)
                         col_reg_s1, col_reg_s2 = st.columns(2)
@@ -396,21 +405,21 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                     conn_write = conectar_bd()
                                     cursor_write = conn_write.cursor()
                                     ins_query = """
-                                        INSERT INTO servidores (ip, nombre_alias, sistema_operativo, tipo,
+                                        INSERT INTO servidores (ip, nombre_alias, sistema_operativo, tipo, servicios,
                                                                 id_sensor_cpu, id_sensor_ram, 
                                                                 id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
                                                                 id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
                                                                 id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
-                                                                id_sensor_red, id_sensor_latencia, estado_monitoreo)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+                                                                id_sensor_red_total, id_sensor_red_entrante, id_sensor_red_saliente, id_sensor_latencia, estado_monitoreo)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
                                     """
                                     cursor_write.execute(ins_query, (
-                                        reg_ip.strip(), reg_alias.strip(), reg_so, reg_tipo,
+                                        reg_ip.strip(), reg_alias.strip(), reg_so, reg_tipo, reg_servicios_str.strip(),
                                         int(reg_cpu), int(reg_ram),
                                         int(reg_d1), int(reg_d2), int(reg_d3), int(reg_d4), int(reg_d5), int(reg_d6),
                                         int(reg_s1), int(reg_s2), int(reg_s3), int(reg_s4), int(reg_s5),
                                         int(reg_s6), int(reg_s7), int(reg_s8),
-                                        int(reg_red), int(reg_lat)
+                                        int(reg_red_tot), int(reg_red_ent), int(reg_red_sal), int(reg_lat)
                                     ))
                                     conn_write.commit()
                                     st.success("🎉 Servidor añadido al catálogo institucional con éxito.")
@@ -445,29 +454,30 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             st.markdown("<div class='subtitulo-formulario'>📋 Identificación Comercial</div>", unsafe_allow_html=True)
                             col_edi_p1, col_edi_p2 = st.columns(2)
                             edit_alias = col_edi_p1.text_input("Alias / Nombre Comercial del Servidor", value=srv_actual['nombre_alias'])
-                            
-                            # MODIFICACIÓN REQUERIDA: Campo bloqueado con disabled=True
-                            edit_tipo = col_edi_p2.text_input("Tipo de Infraestructura V3.6", value=srv_actual.get('tipo', 'Virtual'), disabled=True)
+                            edit_servicios = col_edi_p2.text_input("Servicios Core descritos", value=srv_actual.get('servicios', 'Ninguno'))
                             
                             st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                             col_e1, col_e2 = st.columns(2)
                             edit_cpu = col_e1.number_input("ID Sensor PRTG - Rendimiento CPU", value=int(srv_actual['id_sensor_cpu']), step=None)
                             edit_ram = col_e2.number_input("ID Sensor PRTG - Consumo Memoria RAM", value=int(srv_actual['id_sensor_ram']), step=None)
+                            edit_lat = st.number_input("ID Sensor PRTG - Latencia (Ping)", value=int(srv_actual['id_sensor_latencia']), step=None)
                             
-                            col_e3, col_e4 = st.columns(2)
-                            edit_red = col_e3.number_input("ID Sensor PRTG - Tráfico de Red", value=int(srv_actual['id_sensor_red']), step=None)
-                            edit_lat = col_e4.number_input("ID Sensor PRTG - Latencia (Ping)", value=int(srv_actual['id_sensor_latencia']), step=None)
-                            
+                            st.markdown("<div class='subtitulo-formulario'>🌐 Sensores de Red Distribuidos</div>", unsafe_allow_html=True)
+                            col_edr1, col_edr2, col_edr3 = st.columns(3)
+                            edit_red_tot = col_edr1.number_input("ID Red - Tráfico Total", value=int(srv_actual.get('id_sensor_red_total', 0)), step=None)
+                            edit_red_ent = col_edr2.number_input("ID Red - Tráfico Entrante", value=int(srv_actual.get('id_sensor_red_entrante', 0)), step=None)
+                            edit_red_sal = col_edr3.number_input("ID Red - Tráfico Saliente", value=int(srv_actual.get('id_sensor_red_saliente', 0)), step=None)
+
                             st.markdown("<div class='subtitulo-formulario'>💾 Matriz de Almacenamiento (PRTG Multidisco)</div>", unsafe_allow_html=True)
                             col_d1, col_d2, col_d3 = st.columns(3)
-                            edit_d1 = col_d1.number_input("Disco 1 (Unidad C:)", value=int(srv_actual['id_sensor_disco_1']), step=None)
-                            edit_d2 = col_d2.number_input("Disco 2 (Unidad F:)", value=int(srv_actual['id_sensor_disco_2']), step=None)
-                            edit_d3 = col_d3.number_input("Disco 3 (Unidad E:)", value=int(srv_actual['id_sensor_disco_3']), step=None)
+                            edit_d1 = col_d1.number_input("Disco 1 (Unidad C:\\)", value=int(srv_actual['id_sensor_disco_1']), step=None)
+                            edit_d2 = col_d2.number_input("Disco 2 (Unidad D:\\)", value=int(srv_actual['id_sensor_disco_2']), step=None)
+                            edit_d3 = col_d3.number_input("Disco 3 (Unidad E:\\)", value=int(srv_actual['id_sensor_disco_3']), step=None)
                             
                             col_d4, col_d5, col_d6 = st.columns(3)
-                            edit_d4 = col_d4.number_input("Disco 4 (Unidad D:)", value=int(srv_actual['id_sensor_disco_4']), step=None)
-                            edit_d5 = col_d5.number_input("Disco 5 (Unidad G:)", value=int(srv_actual['id_sensor_disco_5']), step=None)
-                            edit_d6 = col_d6.number_input("Disco 6 (Unidad Y:)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=None)
+                            edit_d4 = col_d4.number_input("Disco 4 (Unidad F:\\)", value=int(srv_actual['id_sensor_disco_4']), step=None)
+                            edit_d5 = col_d5.number_input("Disco 5 (Unidad G:\\)", value=int(srv_actual['id_sensor_disco_5']), step=None)
+                            edit_d6 = col_d6.number_input("Disco 6 (Unidad Y:\\)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=None)
 
                             st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (8 Slots Ampliados)</div>", unsafe_allow_html=True)
                             col_s1, col_s2 = st.columns(2)
@@ -491,19 +501,19 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                     cursor_edit = conn_edit.cursor()
                                     upd_query = """
                                         UPDATE servidores 
-                                        SET nombre_alias=%s, id_sensor_cpu=%s, id_sensor_ram=%s, 
+                                        SET nombre_alias=%s, servicios=%s, id_sensor_cpu=%s, id_sensor_ram=%s, 
                                             id_sensor_disco_1=%s, id_sensor_disco_2=%s, id_sensor_disco_3=%s, id_sensor_disco_4=%s, id_sensor_disco_5=%s, id_sensor_disco_6=%s,
                                             id_sensor_servicio_1=%s, id_sensor_servicio_2=%s, id_sensor_servicio_3=%s, id_sensor_servicio_4=%s, id_sensor_servicio_5=%s,
                                             id_sensor_servicio_6=%s, id_sensor_servicio_7=%s, id_sensor_servicio_8=%s,
-                                            id_sensor_red=%s, id_sensor_latencia=%s
+                                            id_sensor_red_total=%s, id_sensor_red_entrante=%s, id_sensor_red_saliente=%s, id_sensor_latencia=%s
                                         WHERE ip=%s
                                     """
                                     cursor_edit.execute(upd_query, (
-                                        edit_alias.strip(), int(edit_cpu), int(edit_ram), 
+                                        edit_alias.strip(), edit_servicios.strip(), int(edit_cpu), int(edit_ram), 
                                         int(edit_d1), int(edit_d2), int(edit_d3), int(edit_d4), int(edit_d5), int(edit_d6),
                                         int(edit_s1), int(edit_s2), int(edit_s3), int(edit_s4), int(edit_s5),
                                         int(edit_s6), int(edit_s7), int(edit_s8),
-                                        int(edit_red), int(edit_lat), ip_edit
+                                        int(edit_red_tot), int(edit_red_ent), int(edit_red_sal), int(edit_lat), ip_edit
                                     ))
                                     conn_edit.commit()
                                     st.success("🎉 Estructura modificada con éxito en la base de datos.")
@@ -518,7 +528,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                     
                             if col_btn_edi2.form_submit_button("❌ Cancelar Modificación", use_container_width=True):
                                 st.session_state.accion_infra = None
-                                st.rerun()
+                                srv_actual.rerun()
 
                 # Formulario de Desactivación Servidores
                 elif st.session_state.accion_infra == "desactivar" and hay_filtro:
@@ -547,10 +557,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             finally:
                                 if cursor_status: cursor_status.close()
                                 if conn_status: conn_status.close()
-                                
-                        if col_btn_des2.form_submit_button("❌ Cancelar", use_container_width=True):
-                            st.session_state.accion_infra = None
-                            st.rerun()
                 
         except Exception as e:
             st.error(f"Fallo técnico al procesar el módulo de servidores: {e}")
@@ -625,7 +631,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
                            da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
                            da.nombre_switch, da.direccion_mac, da.direcciones_ip, da.version, 
-                           da.tamano_gb, da.cantidad_vhd, da.funcion
+                           da.tamano_gb, da.amount_vhd, da.funcion
                     FROM datos_adicionales da
                     INNER JOIN servidores s ON da.id_servidor = s.id_servidor
                     WHERE s.nombre_alias = %s
@@ -719,7 +725,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 <td>{r['direcciones_ip'] if r['direcciones_ip'] else 'N/A'}</td>
                                 <td>{r['version'] if r['version'] else 'N/A'}</td>
                                 <td style="text-align: right;">{r['tamano_gb']} GB</td>
-                                <td style="text-align: center;">{r['cantidad_vhd']}</td>
+                                <td style="text-align: center;">{r['amount_vhd']}</td>
                                 <td>{r['funcion'] if r['funcion'] else 'N/A'}</td>
                             </tr>
                         """)
@@ -796,7 +802,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                             INSERT INTO datos_adicionales (id_servidor, host, nombre_vm, estado, uso_cpu_pct, 
                                                                           memoria_asignada_mb, tiempo_encendido, nombre_switch, 
                                                                           direccion_mac, direcciones_ip, version, tamano_gb, 
-                                                                          cantidad_vhd, funcion) 
+                                                                          amount_vhd, funcion) 
                                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         """
                                         cursor_ad.execute(query_ins, (
@@ -843,12 +849,12 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             st.markdown("<div class='subtitulo-formulario'>⚡ Rendimiento y Estado Operacional</div>", unsafe_allow_html=True)
                             col_e4, col_e5, col_e6, col_e7 = st.columns(4)
                             
-                            estados_opciones = ["Running", "OFF", "Suspended"]
-                            idx_est = estados_opciones.index(ad_actual['estado']) if ad_actual['estado'] in estados_opciones else 0
-                            edit_estado = col_e4.selectbox("Estado Actual", estados_opciones, index=idx_est)
+                            options_estados = ["Running", "OFF", "Suspended"]
+                            idx_est = options_estados.index(ad_actual['estado']) if ad_actual['estado'] in options_estados else 0
+                            edit_estado = col_e4.selectbox("Estado Actual", options_estados, index=idx_est)
                             
                             edit_cpu = col_e5.number_input("Uso de CPU (%)", min_value=0, max_value=100, value=int(ad_actual['uso_cpu_pct']), step=None)
-                            edit_ram = col_e6.number_input("Memoria RAM Asignada (MB)", min_value=0, value=int(ad_actual['memoria_assigned_mb'] if 'memoria_assigned_mb' in ad_actual else ad_actual['memoria_asignada_mb']), step=None)
+                            edit_ram = col_e6.number_input("Memoria RAM Asignada (MB)", min_value=0, value=int(ad_actual['memoria_asignada_mb']), step=None)
                             edit_uptime = col_e7.text_input("Tiempo Encendido (Uptime)", value=ad_actual['tiempo_encendido'] if ad_actual['tiempo_encendido'] else "")
                             
                             st.markdown("<div class='subtitulo-formulario'>🌐 Conectividad Red e Identificación Lógica</div>", unsafe_allow_html=True)
@@ -861,7 +867,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             st.markdown("<div class='subtitulo-formulario'>💾 Dimensionamiento de Almacenamiento y Función</div>", unsafe_allow_html=True)
                             col_e12, col_e13, col_e14 = st.columns(3)
                             edit_tamano = col_e12.number_input("Espacio Total Asignado (GB)", min_value=0.0, value=float(ad_actual['tamano_gb']), step=None, format="%.2f")
-                            edit_vhd = col_e13.number_input("Cantidad Discos Virtuales (VHD)", min_value=0, value=int(ad_actual['cantidad_vhd']), step=None)
+                            edit_vhd = col_e13.number_input("Cantidad Discos Virtuales (VHD)", min_value=0, value=int(ad_actual['amount_vhd']), step=None)
                             edit_funcion = col_e14.text_input("Rol / Función Operativa", value=ad_actual['funcion'] if ad_actual['funcion'] else "")
                             
                             col_btn_ae1, col_btn_ae2 = st.columns(2)
@@ -876,7 +882,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                             SET id_servidor=%s, host=%s, nombre_vm=%s, estado=%s, uso_cpu_pct=%s, 
                                                 memoria_asignada_mb=%s, tiempo_encendido=%s, nombre_switch=%s, 
                                                 direccion_mac=%s, direcciones_ip=%s, version=%s, tamano_gb=%s, 
-                                                cantidad_vhd=%s, funcion=%s 
+                                                amount_vhd=%s, funcion=%s 
                                             WHERE id=%s
                                         """
                                         cursor_ad.execute(query_upd, (

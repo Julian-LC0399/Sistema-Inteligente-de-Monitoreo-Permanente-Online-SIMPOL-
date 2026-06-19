@@ -23,7 +23,7 @@ class PDF(FPDF):
         self.cell(0, 10, f"Generado por SIMPOL | Página {self.page_no()} | Confidencial", 0, 0, "C")
 
 # =====================================================================
-# FUNCIONES DE CONSULTA A BASE DE DATOS (VERSION SINCRONIZADA V3.9.8)
+# FUNCIONES DE CONSULTA A BASE DE DATOS (VERSION OPERACIONAL V4.3.0)
 # =====================================================================
 def obtener_datos_reporte(ip_servidor, fecha_inicio, fecha_fin):
     conn = conectar_bd()
@@ -38,12 +38,37 @@ def obtener_datos_reporte(ip_servidor, fecha_inicio, fecha_fin):
         cursor.execute(query, (ip_servidor, fecha_inicio, fecha_fin))
         resultados = cursor.fetchall()
         cursor.close()
-        conn.close()
         return resultados
     except Exception as e:
         st.error(f"Error consultando registros para reporte: {e}")
-        if conn: conn.close()
         return []
+    finally:
+        if conn: conn.close()
+
+def obtener_alertas_reporte(ip_servidor, fecha_inicio, fecha_fin):
+    conn = conectar_bd()
+    if not conn: return []
+    try:
+        cursor = conn.cursor(dictionary=True)
+        query = """
+            SELECT componente, tipo_alerta, fecha_inicio, fecha_fin, comentario
+            FROM alertas
+            WHERE ip_servidor = %s 
+              AND (
+                   (fecha_inicio BETWEEN %s AND %s)
+                OR (fecha_fin BETWEEN %s AND %s)
+                OR (fecha_inicio <= %s AND (fecha_fin IS NULL OR fecha_fin >= %s))
+              )
+        """
+        cursor.execute(query, (ip_servidor, fecha_inicio, fecha_fin, fecha_inicio, fecha_fin, fecha_fin, fecha_inicio))
+        alertas = cursor.fetchall()
+        cursor.close()
+        return alertas
+    except Exception as e:
+        st.error(f"Error obteniendo alertas del servidor: {e}")
+        return []
+    finally:
+        if conn: conn.close()
 
 def guardar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, tamanio_kb):
     conn = conectar_bd()
@@ -61,49 +86,51 @@ def guardar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_bl
         ))
         conn.commit()
         cursor.close()
-        conn.close()
         return True
     except Exception as e:
         st.error(f"Error persistiendo archivo en histórico: {e}")
-        if conn: conn.close()
         return False
+    finally:
+        if conn: conn.close()
 
 def listar_reportes_archivados_filtrado(ip_servidor, token_sensor):
     conn = conectar_bd()
     resultados = []
-    if conn:
-        try:
-            cursor = conn.cursor(dictionary=True)
-            query = """
-                SELECT r.id, r.nombre_archivo, r.format as formato, r.ip_servidor, r.fecha_generacion, r.tamanio_kb, u.usuario as registrado_por
-                FROM reportes_archivados r
-                LEFT JOIN usuarios u ON r.usuario_id = u.id
-                WHERE TRIM(r.ip_servidor) = %s AND r.nombre_archivo LIKE %s
-                ORDER BY r.fecha_generacion DESC
-            """
-            patron_busqueda = f"%_{token_sensor}_%"
-            cursor.execute(query, (ip_servidor.strip(), patron_busqueda))
-            resultados = cursor.fetchall()
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            st.error(f"Error listando histórico filtrado: {e}")
+    if not conn: return []
+    try:
+        cursor = conn.cursor(dictionary=True)
+        query = """
+            SELECT r.id, r.nombre_archivo, r.format as formato, r.ip_servidor, r.fecha_generacion, r.tamanio_kb, u.usuario as registrado_por
+            FROM reportes_archivados r
+            LEFT JOIN usuarios u ON r.usuario_id = u.id
+            WHERE TRIM(r.ip_servidor) = %s AND r.nombre_archivo LIKE %s
+            ORDER BY r.fecha_generacion DESC
+        """
+        patron_busqueda = f"%_{token_sensor}_%"
+        cursor.execute(query, (ip_servidor.strip(), patron_busqueda))
+        resultados = cursor.fetchall()
+        cursor.close()
+    except Exception as e:
+        st.error(f"Error listando histórico filtrado: {e}")
+    finally:
+        if conn: conn.close()
     return resultados
 
 def descargar_contenido_blob(id_archivo):
     conn = conectar_bd()
     blob_data = None
-    if conn:
-        try:
-            cursor = conn.cursor(dictionary=True)
-            query = "SELECT contenido FROM reportes_archivados WHERE id = %s"
-            cursor.execute(query, (id_archivo,))
-            row = cursor.fetchone()
-            if row: blob_data = row['contenido']
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            st.error(f"Error extrayendo binario: {e}")
+    if not conn: return None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        query = "SELECT contenido FROM reportes_archivados WHERE id = %s"
+        cursor.execute(query, (id_archivo,))
+        row = cursor.fetchone()
+        if row: blob_data = row['contenido']
+        cursor.close()
+    except Exception as e:
+        st.error(f"Error extrayendo binario: {e}")
+    finally:
+        if conn: conn.close()
     return blob_data
 
 # =====================================================================
@@ -118,39 +145,45 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     )
     st.markdown("---")
 
+    # Inicialización temprana de variables de estado
+    if "rep_listo" not in st.session_state: st.session_state["rep_listo"] = False
+    if "rep_csv" not in st.session_state: st.session_state["rep_csv"] = None
+    if "rep_pdf" not in st.session_state: st.session_state["rep_pdf"] = None
+    if "rep_name_csv" not in st.session_state: st.session_state["rep_name_csv"] = ""
+    if "rep_name_pdf" not in st.session_state: st.session_state["rep_name_pdf"] = ""
+    if "key_semilla_selectbox" not in st.session_state: st.session_state["key_semilla_selectbox"] = 1000
+
+    if "servidor_seleccionado_reporte" not in st.session_state:
+        st.session_state["servidor_seleccionado_reporte"] = "-- Seleccione un Servidor --"
+    if "filtro_sensor_general" not in st.session_state:
+        st.session_state["filtro_sensor_general"] = "Reporte Integral (Todas las Variables)"
+    if "filtro_fecha_i" not in st.session_state:
+        st.session_state["filtro_fecha_i"] = datetime.now() - timedelta(days=1)
+    if "filtro_fecha_f" not in st.session_state:
+        st.session_state["filtro_fecha_f"] = datetime.now()
+    if "filtro_formato_salida" not in st.session_state:
+        st.session_state["filtro_formato_salida"] = "PDF"
+
     from database import obtener_lista_servidores
     servidores = obtener_lista_servidores()
     if not servidores:
         st.info("💡 No se registran nodos de infraestructura para compilar reportes.")
         return
 
-    # --- CONTROL DE ESTADOS EN SESSION STATE ---
-    if "filtro_servidor" not in st.session_state:
-        st.session_state.filtro_servidor = "-- Seleccione un Servidor --"
-    if "filtro_sensor_general" not in st.session_state:
-        st.session_state.filtro_sensor_general = "Reporte Integral (Todas las Variables)"
-    if "filtro_reporte_especifico" not in st.session_state:
-        st.session_state.filtro_reporte_especifico = "Métrica Completa (Set Triple)"
-    if "filtro_fecha_i" not in st.session_state:
-        st.session_state.filtro_fecha_i = datetime.now() - timedelta(days=1)
-    if "filtro_fecha_f" not in st.session_state:
-        st.session_state.filtro_fecha_f = datetime.now()
-
     nombres_servidores = ["-- Seleccione un Servidor --"] + [s['nombre_alias'] for s in servidores]
     
     try:
-        idx_inicial = nombres_servidores.index(st.session_state.filtro_servidor)
+        idx_inicial = nombres_servidores.index(st.session_state["servidor_seleccionado_reporte"])
     except ValueError:
         idx_inicial = 0
 
-    # FILTRO 1: Selector de Servidores
     serv_seleccionado = st.selectbox(
         "Seleccione el Servidor objetivo:", 
         options=nombres_servidores, 
         index=idx_inicial,
-        key="widget_rep_servidor"
+        key=f"sb_srv_reportes_semilla_{st.session_state['key_semilla_selectbox']}"
     )
-    st.session_state.filtro_servidor = serv_seleccionado
+    st.session_state["servidor_seleccionado_reporte"] = serv_seleccionado
 
     if serv_seleccionado == "-- Seleccione un Servidor --":
         st.info("💡 Seleccione un nodo de la lista para activar las herramientas de reportes.")
@@ -159,50 +192,42 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     serv_info = next((s for s in servidores if s['nombre_alias'] == serv_seleccionado), None)
     ip_objetivo = str(serv_info['ip']).strip()
 
-    # --- MAPEO DINÁMICO DE LETRAS DE DISCO DESDE LA BD (LIMPIANDO \\) ---
     letras_discos = {}
     for i in range(1, 7):
         campo_letra = f'letra_disco_{i}'
         letra_raw = str(serv_info.get(campo_letra, '')).replace('\\', '').strip().upper()
         letras_discos[i] = letra_raw if letra_raw else f"DISCO{i}"
 
-    # FILTRO 2: Sensores Activos en Servidor (Validando ID > 0 según tu BD)
     sensores_disponibles = ["Reporte Integral (Todas las Variables)"]
     
     if serv_info.get('id_sensor_cpu') and int(serv_info['id_sensor_cpu']) > 0:
         sensores_disponibles.append("Uso de CPU")
-        
     if serv_info.get('id_sensor_ram') and int(serv_info['id_sensor_ram']) > 0:
         sensores_disponibles.append("Memoria RAM")
-        
     for i in range(1, 7):
         campo_sensor = f'id_sensor_disco_{i}'
         if serv_info.get(campo_sensor) and int(serv_info[campo_sensor]) > 0:
             sensores_disponibles.append(f"Disco {letras_discos[i]}")
-            
     if serv_info.get('id_sensor_latencia') and int(serv_info['id_sensor_latencia']) > 0:
         sensores_disponibles.append("Latencia de Red")
 
-    if st.session_state.filtro_sensor_general not in sensores_disponibles:
-        st.session_state.filtro_sensor_general = sensores_disponibles[0]
+    if st.session_state["filtro_sensor_general"] not in sensores_disponibles:
+        st.session_state["filtro_sensor_general"] = sensores_disponibles[0]
 
     sensor_general = st.selectbox(
         "Sensor registrado en el Servidor:",
         options=sensores_disponibles,
-        index=sensores_disponibles.index(st.session_state.filtro_sensor_general),
+        index=sensores_disponibles.index(st.session_state["filtro_sensor_general"]),
         key="widget_rep_sensor_general"
     )
-    st.session_state.filtro_sensor_general = sensor_general
+    st.session_state["filtro_sensor_general"] = sensor_general
 
     s_prefix = "INTEGRAL"
     num_disco_activo = None
     
-    if "RAM" in sensor_general: 
-        s_prefix = "RAM"
-    elif "CPU" in sensor_general: 
-        s_prefix = "CPU"
-    elif "Latencia" in sensor_general: 
-        s_prefix = "LATENCIA"
+    if "RAM" in sensor_general: s_prefix = "RAM"
+    elif "CPU" in sensor_general: s_prefix = "CPU"
+    elif "Latencia" in sensor_general: s_prefix = "LATENCIA"
     elif "Disco" in sensor_general:
         letra_sel = sensor_general.replace("Disco ", "").strip()
         for i, letra in letras_discos.items():
@@ -213,51 +238,39 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 
     tab1, tab2 = st.tabs(["📊 Generación de Reportes", "📜 Repositorio e Histórico de Archivos"])
 
-    # =====================================================================
-    # PESTAÑA 1: PARÁMETROS Y EMISIÓN DE REPORTE POR SENSOR
-    # =====================================================================
     with tab1:
         st.markdown("#### Parámetros de Extracción y Filtrado")
 
-        opciones_reporte_especifico = ["Métrica Completa (Set Triple)"]
-        if s_prefix == "RAM":
-            opciones_reporte_especifico = ["Métrica Completa (Set Triple)", "Solo RAM Disponible (GB)", "Solo RAM Disponible %"]
-        elif "DISCO" in s_prefix and num_disco_activo:
-            letra_activa = letras_discos[num_disco_activo]
-            opciones_reporte_especifico = ["Métrica Completa (Set Triple)", f"Solo Espacio Libre {letra_activa} (GB)", f"Solo Espacio Libre {letra_activa} %"]
-        elif s_prefix == "CPU":
-            opciones_reporte_especifico = ["Porcentaje de Uso de CPU"]
-        elif s_prefix == "LATENCIA":
-            opciones_reporte_especifico = ["Métrica de Latencia de Red (ms)"]
-        else:
-            opciones_reporte_especifico = ["Reporte Consolidado Global SIMPOL"]
-
-        if st.session_state.filtro_reporte_especifico not in opciones_reporte_especifico:
-            st.session_state.filtro_reporte_especifico = opciones_reporte_especifico[0]
-
-        reporte_especifico = st.selectbox(
-            "Tipo de reporte analítico a generar por sensor:",
-            options=opciones_reporte_especifico,
-            index=opciones_reporte_especifico.index(st.session_state.filtro_reporte_especifico),
-            key="widget_rep_especifico"
-        )
-        st.session_state.filtro_reporte_especifico = reporte_especifico
-
-        col_f1, col_f2 = st.columns(2)
+        col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
-            fecha_i = st.date_input("Fecha Inicial:", value=st.session_state.filtro_fecha_i, key="widget_rep_fi")
-            st.session_state.filtro_fecha_i = fecha_i
+            fecha_i = st.date_input("Fecha Inicial:", value=st.session_state["filtro_fecha_i"], key="widget_rep_fi")
+            st.session_state["filtro_fecha_i"] = fecha_i
         with col_f2:
-            fecha_f = st.date_input("Fecha Final:", value=st.session_state.filtro_fecha_f, key="widget_rep_ff")
-            st.session_state.filtro_fecha_f = fecha_f
+            fecha_f = st.date_input("Fecha Final:", value=st.session_state["filtro_fecha_f"], key="widget_rep_ff")
+            st.session_state["filtro_fecha_f"] = fecha_f
+        with col_f3:
+            formatos_lista = ["PDF", "CSV"]
+            formato_sel = st.selectbox(
+                "Formato de Exportación:",
+                options=formatos_lista,
+                index=formatos_lista.index(st.session_state["filtro_formato_salida"]),
+                key="widget_rep_formato"
+            )
+            st.session_state["filtro_formato_salida"] = formato_sel
 
         col_btn1, col_btn2 = st.columns([3, 1])
         
         with col_btn2:
             if st.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_clear_all_filters"):
-                for k in ["widget_rep_servidor", "widget_rep_sensor_general", "widget_rep_especifico", "widget_rep_fi", "widget_rep_ff", "filtro_servidor", "filtro_sensor_general", "filtro_reporte_especifico", "filtro_fecha_i", "filtro_fecha_f"]:
-                    if k in st.session_state:
-                        del st.session_state[k]
+                st.session_state["servidor_seleccionado_reporte"] = "-- Seleccione un Servidor --"
+                st.session_state["filtro_sensor_general"] = "Reporte Integral (Todas las Variables)"
+                st.session_state["filtro_fecha_i"] = datetime.now() - timedelta(days=1)
+                st.session_state["filtro_fecha_f"] = datetime.now()
+                st.session_state["filtro_formato_salida"] = "PDF"
+                st.session_state["rep_listo"] = False
+                st.session_state["rep_csv"] = None
+                st.session_state["rep_pdf"] = None
+                st.session_state["key_semilla_selectbox"] += 1
                 st.rerun()
 
         dt_inicio = datetime.combine(fecha_i, time.min)
@@ -267,9 +280,10 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             st.error("❌ La fecha inicial debe ser menor a la fecha final seleccionada.")
         else:
             datos_muestras = obtener_datos_reporte(ip_objetivo, dt_inicio, dt_fin)
+            lista_alertas_servidor = obtener_alertas_reporte(ip_objetivo, dt_inicio, dt_fin)
 
             with col_btn1:
-                ejecutar_reporte = st.button("📊 GENERAR Y ARCHIVAR REPORTE DIRECTO EN BD", use_container_width=True, type="secondary", key="btn_run_report_gray")
+                ejecutar_reporte = st.button(f"📊 GENERAR Y ARCHIVAR REPORTE ({formato_sel})", use_container_width=True, type="secondary", key="btn_run_report_gray")
 
             if ejecutar_reporte:
                 if not datos_muestras:
@@ -277,156 +291,222 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 else:
                     nombre_base_archivo = f"reporte_{s_prefix}_{serv_info['nombre_alias']}_{fecha_i.strftime('%Y%m%d')}"
 
-                    # --- 1. GENERACIÓN DEL REPORTE PDF (ESTILIZADO BANCO CARONÍ) ---
-                    try:
-                        pdf = PDF()
-                        pdf.add_page()
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 7, f"REPORTE: {sensor_general.upper()} - {reporte_especifico.upper()}", 0, 1)
-                        pdf.set_font("Arial", "", 10)
-                        pdf.cell(50, 6, f"Servidor Objetivo: {serv_info['nombre_alias']} ({ip_objetivo})", 0, 1)
-                        pdf.cell(50, 6, f"Rango Temporal: {fecha_i.strftime('%d/%m/%Y')} al {fecha_f.strftime('%d/%m/%Y')}", 0, 1)
-                        pdf.cell(50, 6, f"Analista Emisor: {nombre_analista}", 0, 1)
-                        pdf.ln(5)
+                    # --- OPCIÓN PDF ---
+                    if formato_sel == "PDF":
+                        try:
+                            pdf = PDF()
+                            pdf.add_page()
+                            pdf.set_font("Arial", "B", 11)
+                            pdf.cell(0, 7, f"REPORTE: {sensor_general.upper()}", 0, 1)
+                            pdf.set_font("Arial", "", 10)
+                            pdf.cell(50, 6, f"Servidor Objetivo: {serv_info['nombre_alias']} ({ip_objetivo})", 0, 1)
+                            pdf.cell(50, 6, f"Rango Temporal: {fecha_i.strftime('%d/%m/%Y')} al {fecha_f.strftime('%d/%m/%Y')}", 0, 1)
+                            pdf.cell(50, 6, f"Analista Emisor: {nombre_analista}", 0, 1)
+                            pdf.ln(5)
 
-                        # --- CONFIGURACIÓN DE COLORES DE CABECERA (AZUL CORPORATIVO) ---
-                        pdf.set_fill_color(0, 51, 102)   # #003366
-                        pdf.set_text_color(255, 255, 255) # Blanco
-                        pdf.set_draw_color(180, 180, 180) # Bordes Gris Suave
-                        pdf.set_font("Arial", "B", 9)
-                        
-                        pdf.cell(40, 7, "Fecha Registro", 1, 0, "C", True)
+                            bloques_metricas = []
+                            if s_prefix == "INTEGRAL":
+                                bloques_metricas = [
+                                    {"titulo": "MÉTRICA - USO DE CPU (ÚLTIMOS 5 REGISTROS)", "prefix": "CPU"},
+                                    {"titulo": "MÉTRICA - MEMORIA RAM (ÚLTIMOS 5 REGISTROS)", "prefix": "RAM"},
+                                    {"titulo": "MÉTRICA - LATENCIA DE RED (ÚLTIMOS 5 REGISTROS)", "prefix": "LATENCIA"}
+                                ]
+                                for i in range(1, 7):
+                                    campo_sensor = f'id_sensor_disco_{i}'
+                                    if serv_info.get(campo_sensor) and int(serv_info[campo_sensor]) > 0:
+                                        bloques_metricas.append({"titulo": f"MÉTRICA - DISCO {letras_discos[i]} (ÚLTIMOS 5 REGISTROS)", "prefix": f"DISCO{i}", "disco_idx": i})
+                            else:
+                                bloques_metricas = [{"titulo": f"MÉTRICA - {sensor_general.upper()}", "prefix": s_prefix, "disco_idx": num_disco_activo}]
 
-                        # Cabeceras adaptadas dinámicamente a la BD para los 6 discos
-                        if s_prefix == "RAM":
-                            if "Disponible (GB)" in reporte_especifico:
-                                pdf.cell(145, 7, "RAM Disponible (GB)", 1, 1, "C", True)
-                            elif "Disponible %" in reporte_especifico:
-                                pdf.cell(145, 7, "RAM Disponible %", 1, 1, "C", True)
-                            else:
-                                pdf.cell(50, 7, "RAM Total (GB)", 1, 0, "C", True)
-                                pdf.cell(50, 7, "RAM Disponible (GB)", 1, 0, "C", True)
-                                pdf.cell(45, 7, "RAM Disponible %", 1, 1, "C", True)
-                        elif "DISCO" in s_prefix and num_disco_activo:
-                            letra_activa = letras_discos[num_disco_activo]
-                            if "Libre (GB)" in reporte_especifico:
-                                pdf.cell(145, 7, f"Disco {letra_activa} Libre (GB)", 1, 1, "C", True)
-                            elif "Libre %" in reporte_especifico:
-                                pdf.cell(145, 7, f"Disco {letra_activa} Libre %", 1, 1, "C", True)
-                            else:
-                                pdf.cell(50, 7, f"Disco {letra_activa} Total (GB)", 1, 0, "C", True)
-                                pdf.cell(50, 7, f"Disco {letra_activa} Libre (GB)", 1, 0, "C", True)
-                                pdf.cell(45, 7, f"Disco {letra_activa} Libre %", 1, 1, "C", True)
-                        elif s_prefix == "CPU":
-                            pdf.cell(145, 7, "Consumo CPU %", 1, 1, "C", True)
-                        elif s_prefix == "LATENCIA":
-                            pdf.cell(145, 7, "Latencia de Respuesta (ms)", 1, 1, "C", True)
-                        else: # INTEGRAL GLOBAL
-                            pdf.cell(30, 7, "CPU %", 1, 0, "C", True)
-                            pdf.cell(40, 7, "RAM Disp (GB)", 1, 0, "C", True)
-                            pdf.cell(40, 7, f"D. {letras_discos[1]} Lib (GB)", 1, 0, "C", True)
-                            pdf.cell(35, 7, "Latencia ms", 1, 1, "C", True)
-
-                        # --- RENDERIZADO DE FILAS CON EFECTO CEBRA ---
-                        pdf.set_text_color(0, 0, 0) # Volver a texto negro
-                        pdf.set_font("Arial", "", 9)
-                        
-                        for idx, r in enumerate(datos_muestras[:40]):
-                            # Alternar fondo gris claro en las filas pares
-                            fila_cebra = (idx % 2 == 0)
-                            if fila_cebra:
-                                pdf.set_fill_color(242, 242, 242) # #F2F2F2
-                            else:
-                                pdf.set_fill_color(255, 255, 255) # Blanco
+                            for bloque in bloques_metricas:
+                                p_sub = bloque["prefix"]
+                                pdf.set_font("Arial", "B", 10)
+                                pdf.set_text_color(0, 51, 102)
+                                pdf.cell(0, 8, bloque["titulo"], 0, 1)
                                 
-                            f_text = r['fecha_registro'].strftime("%d/%m/%Y %H:%M") if hasattr(r['fecha_registro'], 'strftime') else str(r['fecha_registro'])
-                            pdf.cell(40, 6, f_text, 1, 0, "C", True)
+                                pdf.set_fill_color(0, 51, 102)   
+                                pdf.set_text_color(255, 255, 255) 
+                                pdf.set_draw_color(180, 180, 180) 
+                                pdf.set_font("Arial", "B", 9)
+                                
+                                pdf.cell(35, 7, "Fecha Registro", 1, 0, "C", True)
+
+                                if p_sub == "RAM":
+                                    pdf.cell(35, 7, "RAM Total", 1, 0, "C", True)
+                                    pdf.cell(35, 7, "RAM Disp (GB)", 1, 0, "C", True)
+                                    pdf.cell(30, 7, "RAM Disp %", 1, 0, "C", True)
+                                elif "DISCO" in p_sub:
+                                    d_idx = bloque["disco_idx"]
+                                    letra_activa = letras_discos[d_idx]
+                                    pdf.cell(35, 7, f"D. {letra_activa} Tot", 1, 0, "C", True)
+                                    pdf.cell(35, 7, f"D. {letra_activa} Lib (GB)", 1, 0, "C", True)
+                                    pdf.cell(30, 7, f"D. {letra_activa} Lib %", 1, 0, "C", True)
+                                elif p_sub == "CPU":
+                                    pdf.cell(100, 7, "Consumo CPU %", 1, 0, "C", True)
+                                elif p_sub == "LATENCIA":
+                                    pdf.cell(100, 7, "Latencia de Respuesta (ms)", 1, 0, "C", True)
+
+                                pdf.cell(50, 7, "Estado", 1, 1, "C", True)
+
+                                pdf.set_text_color(0, 0, 0)
+                                pdf.set_font("Arial", "", 8.5)
+                                
+                                muestras_render = datos_muestras[:5] if s_prefix == "INTEGRAL" else datos_muestras
+                                
+                                for idx, r in enumerate(muestras_render):
+                                    f_registro = r['fecha_registro']
+                                    f_text = f_registro.strftime("%d/%m/%Y %H:%M") if hasattr(f_registro, 'strftime') else str(f_registro)
+                                    
+                                    alerta_activa = None
+                                    for al in lista_alertas_servidor:
+                                        comp_bd = str(al['componente']).upper().replace("_", "").strip()
+                                        comp_rep = str(p_sub).upper().replace("_", "").strip()
+                                        
+                                        if comp_bd == comp_rep:
+                                            f_ini = al['fecha_inicio']
+                                            f_fin = al['fecha_fin']
+                                            
+                                            # Ventana operativa reducida a 2 minutos para evitar falsos positivos
+                                            inicio_tolerante = f_ini - timedelta(minutes=2)
+                                            fin_tolerante = (f_fin + timedelta(minutes=2)) if f_fin is not None else None
+                                            
+                                            if f_registro >= inicio_tolerante and (fin_tolerante is None or f_registro <= fin_tolerante):
+                                                alerta_activa = al
+                                                break
+
+                                    msg_alerta = str(alerta_activa['tipo_alerta']).upper().strip() if alerta_activa else "ESTABLE"
+
+                                    pdf.set_fill_color(242, 242, 242) if (idx % 2 == 0) else pdf.set_fill_color(255, 255, 255)
+                                    pdf.set_text_color(0, 0, 0)
+                                    pdf.cell(35, 6, f_text, 1, 0, "C", True)
+                                    
+                                    if p_sub == "RAM":
+                                        pdf.cell(35, 6, f"{r.get('val_ram_total_gb', 0.0)} GB", 1, 0, "C", True)
+                                        pdf.cell(35, 6, f"{r.get('val_ram_disponible_gb', 0.0)} GB", 1, 0, "C", True)
+                                        pdf.cell(30, 6, f"{r.get('val_ram_disponible_pct', 0.0)} %", 1, 0, "C", True)
+                                    elif "DISCO" in p_sub:
+                                        d_idx = bloque["disco_idx"]
+                                        d_tot = r.get(f'val_disco_{d_idx}_total_gb', 0.0)
+                                        d_lib = r.get(f'val_disco_{d_idx}_libres_gb', 0.0)
+                                        d_pct = r.get(f'val_disco_{d_idx}_pct_libre', 0.0)
+                                        pdf.cell(35, 6, f"{d_tot} GB", 1, 0, "C", True)
+                                        pdf.cell(35, 6, f"{d_lib} GB", 1, 0, "C", True)
+                                        pdf.cell(30, 6, f"{d_pct} %", 1, 0, "C", True)
+                                    elif p_sub == "CPU":
+                                        pdf.cell(100, 6, f"{r.get('val_cpu', 0.0)} %", 1, 0, "C", True)
+                                    elif p_sub == "LATENCIA":
+                                        pdf.cell(100, 6, f"{r.get('val_latencia', 0.0)} ms", 1, 0, "C", True)
+
+                                    if "CRITICO" in msg_alerta or "CRÍTICO" in msg_alerta:
+                                        pdf.set_fill_color(255, 214, 214)   
+                                        pdf.set_text_color(180, 0, 0)       
+                                    elif any(w in msg_alerta for w in ["PRECAUCION", "PRECAUCIÓN", "ADVERTENCIA"]):
+                                        pdf.set_fill_color(255, 243, 205)   
+                                        pdf.set_text_color(133, 100, 4)     
+                                    else: 
+                                        pdf.set_fill_color(212, 239, 223)   
+                                        pdf.set_text_color(21, 103, 51)     
+
+                                    pdf.cell(50, 6, msg_alerta, 1, 1, "C", True)
+                                    pdf.set_text_color(0, 0, 0)
+                                pdf.ln(4)
+
+                            pdf_buffer = io.BytesIO()
+                            pdf.output(pdf_buffer)
+                            bytes_pdf = pdf_buffer.getvalue()
+                            kb_size_pdf = round(len(bytes_pdf) / 1024.0, 2)
                             
-                            if s_prefix == "RAM":
-                                if "Disponible (GB)" in reporte_especifico:
-                                    pdf.cell(145, 6, f"{r.get('val_ram_disponible_gb', 0.0)} GB", 1, 1, "C", True)
-                                elif "Disponible %" in reporte_especifico:
-                                    pdf.cell(145, 6, f"{r.get('val_ram_disponible_pct', 0.0)} %", 1, 1, "C", True)
-                                else:
-                                    pdf.cell(50, 6, f"{r.get('val_ram_total_gb', 0.0)} GB", 1, 0, "C", True)
-                                    pdf.cell(50, 6, f"{r.get('val_ram_disponible_gb', 0.0)} GB", 1, 0, "C", True)
-                                    pdf.cell(45, 6, f"{r.get('val_ram_disponible_pct', 0.0)} %", 1, 1, "C", True)
-                            elif "DISCO" in s_prefix and num_disco_activo:
-                                d_tot = r.get(f'val_disco_{num_disco_activo}_total_gb', 0.0)
-                                d_lib = r.get(f'val_disco_{num_disco_activo}_libres_gb', 0.0)
-                                d_pct = r.get(f'val_disco_{num_disco_activo}_pct_libre', 0.0)
-                                if "Libre (GB)" in reporte_especifico:
-                                    pdf.cell(145, 6, f"{d_lib} GB", 1, 1, "C", True)
-                                elif "Libre %" in reporte_especifico:
-                                    pdf.cell(145, 6, f"{d_pct} %", 1, 1, "C", True)
-                                else:
-                                    pdf.cell(50, 6, f"{d_tot} GB", 1, 0, "C", True)
-                                    pdf.cell(50, 6, f"{d_lib} GB", 1, 0, "C", True)
-                                    pdf.cell(45, 6, f"{d_pct} %", 1, 1, "C", True)
-                            elif s_prefix == "CPU":
-                                pdf.cell(145, 6, f"{r.get('val_cpu', 0.0)} %", 1, 1, "C", True)
-                            elif s_prefix == "LATENCIA":
-                                pdf.cell(145, 6, f"{r.get('val_latencia', 0.0)} ms", 1, 1, "C", True)
+                            st.session_state["rep_pdf"] = bytes_pdf
+                            st.session_state["rep_name_pdf"] = f"{nombre_base_archivo}.pdf"
+                            st.session_state["rep_listo"] = True
+                            
+                            guardar_reporte_archivado(st.session_state["rep_name_pdf"], "PDF", ip_objetivo, bytes_pdf, usuario_id, kb_size_pdf)
+                            st.success(f"📦 **Reporte PDF generado y guardado exitosamente en el historial.**")
+                        except Exception as e_pdf:
+                            st.error(f"Error generando PDF: {e_pdf}")
+
+                    # --- OPCIÓN CSV ---
+                    elif formato_sel == "CSV":
+                        try:
+                            lineas_csv = []
+                            bloques_metricas = []
+                            if s_prefix == "INTEGRAL":
+                                bloques_metricas = [
+                                    {"titulo": "USO DE CPU (ÚLTIMOS 5 REGISTROS)", "prefix": "CPU", "cols": ["FECHA_REGISTRO", "CPU_PCT", "ESTADO"]},
+                                    {"titulo": "MEMORIA RAM (ÚLTIMOS 5 REGISTROS)", "prefix": "RAM", "cols": ["FECHA_REGISTRO", "RAM_TOTAL_GB", "RAM_DISPONIBLE_GB", "RAM_DISPONIBLE_PCT", "ESTADO"]},
+                                    {"titulo": "LATENCIA DE RED (ÚLTIMOS 5 REGISTROS)", "prefix": "LATENCIA", "cols": ["FECHA_REGISTRO", "LATENCIA_MS", "ESTADO"]}
+                                ]
+                                for i in range(1, 7):
+                                    campo_sensor = f'id_sensor_disco_{i}'
+                                    if serv_info.get(campo_sensor) and int(serv_info[campo_sensor]) > 0:
+                                        letra_activa = letras_discos[i]
+                                        bloques_metricas.append({
+                                            "titulo": f"DISCO {letra_activa} (ÚLTIMOS 5 REGISTROS)", 
+                                            "prefix": f"DISCO{i}", 
+                                            "disco_idx": i,
+                                            "cols": ["FECHA_REGISTRO", f"DISCO_{letra_activa}_TOTAL_GB", f"DISCO_{letra_activa}_LIBRE_GB", f"DISCO_{letra_activa}_LIBRE_PCT", "ESTADO"]
+                                        })
                             else:
-                                pdf.cell(30, 6, f"{r.get('val_cpu', 0.0)}%", 1, 0, "C", True)
-                                pdf.cell(40, 6, f"{r.get('val_ram_disponible_gb', 0.0)} GB", 1, 0, "C", True)
-                                pdf.cell(40, 6, f"{r.get('val_disco_1_libres_gb', 0.0)} GB", 1, 0, "C", True)
-                                pdf.cell(35, 6, f"{r.get('val_latencia', 0.0)} ms", 1, 1, "C", True)
+                                if s_prefix == "RAM":
+                                    columnas = ["FECHA_REGISTRO", "RAM_TOTAL_GB", "RAM_DISPONIBLE_GB", "RAM_DISPONIBLE_PCT", "ESTADO"]
+                                elif "DISCO" in s_prefix and num_disco_activo:
+                                    l_act = letras_discos[num_disco_activo]
+                                    columnas = ["FECHA_REGISTRO", f"DISCO_{l_act}_TOTAL_GB", f"DISCO_{l_act}_LIBRE_GB", f"DISCO_{l_act}_LIBRE_PCT", "ESTADO"]
+                                elif s_prefix == "CPU":
+                                    columnas = ["FECHA_REGISTRO", "CPU_PCT", "ESTADO"]
+                                elif s_prefix == "LATENCIA":
+                                    columnas = ["FECHA_REGISTRO", "LATENCIA_MS", "ESTADO"]
+                                bloques_metricas = [{"titulo": sensor_general.upper(), "prefix": s_prefix, "disco_idx": num_disco_activo, "cols": columnas}]
 
-                        pdf_buffer = io.BytesIO()
-                        pdf.output(pdf_buffer)
-                        bytes_pdf = pdf_buffer.getvalue()
-                        kb_size_pdf = round(len(bytes_pdf) / 1024.0, 2)
-                        
-                        guardar_reporte_archivado(f"{nombre_base_archivo}.pdf", "PDF", ip_objetivo, bytes_pdf, usuario_id, kb_size_pdf)
-                    except Exception as e_pdf:
-                        st.error(f"Error generando PDF: {e_pdf}")
+                            for bloque in bloques_metricas:
+                                lineas_csv.append(f"=== {bloque['titulo']} ===")
+                                lineas_csv.append(",".join(bloque["cols"]))
+                                
+                                muestras_render = datos_muestras[:5] if s_prefix == "INTEGRAL" else datos_muestras
+                                
+                                for r in muestras_render:
+                                    f_registro = r['fecha_registro']
+                                    f_t = f_registro.strftime("%Y-%m-%d %H:%M:%S") if hasattr(f_registro, 'strftime') else str(f_registro)
+                                    
+                                    alerta_activa = None
+                                    for al in lista_alertas_servidor:
+                                        if str(al['componente']).upper().replace("_", "").strip() == str(bloque["prefix"]).upper().replace("_", "").strip():
+                                            f_ini = al['fecha_inicio']
+                                            f_fin = al['fecha_fin']
+                                            if f_registro >= (f_ini - timedelta(minutes=2)) and (f_fin is None or f_registro <= (f_fin + timedelta(minutes=2))):
+                                                alerta_activa = al
+                                                break
 
-                    # --- 2. GENERACIÓN DEL REPORTE CSV ---
-                    try:
-                        if s_prefix == "RAM":
-                            columnas = ["FECHA_REGISTRO", "RAM_TOTAL_GB", "RAM_DISPONIBLE_GB", "RAM_DISPONIBLE_PCT"]
-                        elif "DISCO" in s_prefix and num_disco_activo:
-                            l_act = letras_discos[num_disco_activo]
-                            columnas = ["FECHA_REGISTRO", f"DISCO_{l_act}_TOTAL_GB", f"DISCO_{l_act}_LIBRE_GB", f"DISCO_{l_act}_LIBRE_PCT"]
-                        elif s_prefix == "CPU":
-                            columnas = ["FECHA_REGISTRO", "CPU_PCT"]
-                        elif s_prefix == "LATENCIA":
-                            columnas = ["FECHA_REGISTRO", "LATENCIA_MS"]
-                        else:
-                            columnas = ["FECHA_REGISTRO", "CPU_PCT", "RAM_TOTAL", "RAM_LIBRE_GB", "RAM_LIBRE_PCT", f"D_{letras_discos[1]}_LIBRE_GB", "LATENCIA"]
+                                    txt_alerta_csv = str(alerta_activa['tipo_alerta']).upper().strip() if alerta_activa else "ESTABLE"
 
-                        lineas_csv = [",".join(columnas)]
-                        for r in datos_muestras:
-                            f_t = r['fecha_registro'].strftime("%Y-%m-%d %H:%M:%S") if hasattr(r['fecha_registro'], 'strftime') else str(r['fecha_registro'])
+                                    if bloque["prefix"] == "RAM":
+                                        row_str = f"{f_t},{r.get('val_ram_total_gb',0.0)},{r.get('val_ram_disponible_gb',0.0)},{r.get('val_ram_disponible_pct',0.0)},{txt_alerta_csv}"
+                                    elif "DISCO" in bloque["prefix"]:
+                                        d_idx = bloque["disco_idx"]
+                                        row_str = f"{f_t},{r.get(f'val_disco_{d_idx}_total_gb',0.0)},{r.get(f'val_disco_{d_idx}_libres_gb',0.0)},{r.get(f'val_disco_{d_idx}_pct_libre',0.0)},{txt_alerta_csv}"
+                                    elif bloque["prefix"] == "CPU":
+                                        row_str = f"{f_t},{r.get('val_cpu',0.0)},{txt_alerta_csv}"
+                                    elif bloque["prefix"] == "LATENCIA":
+                                        row_str = f"{f_t},{r.get('val_latencia',0.0)},{txt_alerta_csv}"
+                                    
+                                    lineas_csv.append(row_str)
+                                lineas_csv.append("") 
+
+                            bytes_csv = "\n".join(lineas_csv).encode("utf-8")
+                            kb_size_csv = round(len(bytes_csv) / 1024.0, 2)
                             
-                            if s_prefix == "RAM":
-                                row_str = f"{f_t},{r.get('val_ram_total_gb',0.0)},{r.get('val_ram_disponible_gb',0.0)},{r.get('val_ram_disponible_pct',0.0)}"
-                            elif "DISCO" in s_prefix and num_disco_activo:
-                                d_tot = r.get(f'val_disco_{num_disco_activo}_total_gb', 0.0)
-                                d_lib = r.get(f'val_disco_{num_disco_activo}_libres_gb', 0.0)
-                                d_pct = r.get(f'val_disco_{num_disco_activo}_pct_libre', 0.0)
-                                row_str = f"{f_t},{d_tot},{d_lib},{d_pct}"
-                            elif s_prefix == "CPU":
-                                row_str = f"{f_t},{r.get('val_cpu',0.0)}"
-                            elif s_prefix == "LATENCIA":
-                                row_str = f"{f_t},{r.get('val_latencia',0.0)}"
-                            else:
-                                row_str = f"{f_t},{r.get('val_cpu',0.0)},{r.get('val_ram_total_gb',0.0)},{r.get('val_ram_disponible_gb',0.0)},{r.get('val_ram_disponible_pct',0.0)},{r.get('val_disco_1_libres_gb',0.0)},{r.get('val_latencia',0.0)}"
+                            st.session_state["rep_csv"] = bytes_csv
+                            st.session_state["rep_name_csv"] = f"{nombre_base_archivo}.csv"
+                            st.session_state["rep_listo"] = True
                             
-                            lineas_csv.append(row_str)
+                            guardar_reporte_archivado(st.session_state["rep_name_csv"], "CSV", ip_objetivo, bytes_csv, usuario_id, kb_size_csv)
+                            st.success(f"📦 **Reporte CSV guardado y archivado con éxito.**")
+                        except Exception as e_csv:
+                            st.error(f"Error generando CSV: {e_csv}")
 
-                        bytes_csv = "\n".join(lineas_csv).encode("utf-8")
-                        kb_size_csv = round(len(bytes_csv) / 1024.0, 2)
-                        
-                        guardar_reporte_archivado(f"{nombre_base_archivo}.csv", "CSV", ip_objetivo, bytes_csv, usuario_id, kb_size_csv)
-                        st.success(f"📦 **Reporte generado:** Se archivaron las variables de `{reporte_especifico}` con éxito en el histórico de la base de datos.")
-                    except Exception as e_csv:
-                        st.error(f"Error generando CSV: {e_csv}")
-
-    # =====================================================================
-    # PESTAÑA 2: REPOSITORIO HISTÓRICO FILTRADO POR EL TOKEN GENERAL
-    # =====================================================================
+# =====================================================================
+# PESTAÑA 2: REPOSITORIO HISTÓRICO FILTRADO
+# =====================================================================
     with tab2:
         st.markdown(f"#### 📜 Histórico Filtrado por Sensor General: `{sensor_general}`")
         
