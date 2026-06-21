@@ -1,4 +1,5 @@
 import streamlit as st
+import time
 from datetime import datetime, timedelta
 from database import conectar_bd, obtener_lista_servidores
 
@@ -13,9 +14,9 @@ def callback_cambio_servidor_tab2():
 
 
 # =========================================================================
-# PESTAÑA 2 ENCAPSULADA EN UN FRAGMENTO (RETIENE EL FOCO Y EL TIEMPO REAL)
+# PESTAÑA 2 ENCAPSULADA EN UN FRAGMENTO (TIEMPO REAL DINÁMICO)
 # =========================================================================
-@st.fragment(run_every=10)
+@st.fragment()  
 def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_componentes, servidores_activos):
     nombre_srv = st.session_state["sb_graf_srv"]
     componente_sel = st.session_state["sb_graf_sensor"]
@@ -56,7 +57,7 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     if not info_srv:
         return
 
-    # Extracción de la configuración de sensores registrados en este servidor específico
+    # Extracción de la configuración de sensores
     id_cpu = int(info_srv.get("id_sensor_cpu") or 0)
     id_ram = int(info_srv.get("id_sensor_ram") or 0)
     id_red_total = int(info_srv.get("id_sensor_red_total") or info_srv.get("id_sensor_red") or 0)
@@ -69,31 +70,36 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     datos_raw = []
     if conexion:
         rango_desde = datetime.now() - timedelta(hours=4)
+        cursor = None
         try:
-            with conexion.cursor(dictionary=True) as cursor:
-                cursor.execute(
-                    "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                    "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
-                    "val_red_total, val_red_entrante, val_red_saliente, "
-                    "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
-                    "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
-                    "FROM monitoreo WHERE ip_servidor = %s AND fecha_registro >= %s "
-                    "ORDER BY fecha_registro ASC LIMIT 50;", (info_srv['ip'], rango_desde)
-                )
-                datos_raw = cursor.fetchall()
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
+                "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
+                "val_red_total, val_red_entrante, val_red_saliente, "
+                "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
+                "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
+                "FROM monitoreo WHERE ip_servidor = %s AND fecha_registro >= %s "
+                "ORDER BY fecha_registro ASC LIMIT 50;", (info_srv['ip'], rango_desde)
+            )
+            datos_raw = cursor.fetchall()
         finally:
+            if cursor:
+                cursor.close()
             conexion.close()
 
     if not datos_raw:
         st.warning("⚠️ Esperando paquetes de telemetría del agente activo...")
         return
 
+    # DETECCIÓN DE ESTADO DEL AGENTE
+    ultima_fecha_registro = datos_raw[-1]["fecha_registro"]
+    diferencia_tiempo = datetime.now() - ultima_fecha_registro
+    agente_activo = diferencia_tiempo.total_seconds() <= 45  
+
     config_sensores = []
     explicacion_comun = ""
     
-    # =========================================================================
-    # CONFIGURACIÓN DINÁMICA FILTRADA POR SENSOR REGISTRADO
-    # =========================================================================
     if componente_sel == "🧠 Memoria (RAM)" and id_ram > 0:
         explicacion_comun = (
             "💡 **¿Qué estamos midiendo aquí?** La memoria RAM es el espacio de trabajo inmediato del servidor.\n\n"
@@ -157,7 +163,11 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         return
 
     cols_dashboard = st.columns(num_sensores)
-    st.markdown('<p style="font-size: 11px; color: #47a323; margin-bottom: 5px; text-align: right;">🟢 <b>Live Feed Activo</b> — Sincronizando flujos cada 10s</p>', unsafe_allow_html=True)
+    
+    if agente_activo:
+        st.markdown('<p style="font-size: 11px; color: #47a323; margin-bottom: 5px; text-align: right;">🟢 <b>Live Feed Activo</b> — Actualizando datos cada 15s</p>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<p style="font-size: 11px; color: #888888; margin-bottom: 5px; text-align: right;">⚠️ <b>Agente Desconectado</b> — Mostrando últimos datos ({ultima_fecha_registro.strftime("%H:%M:%S")})</p>', unsafe_allow_html=True)
 
     for idx_sensor, cfg in enumerate(config_sensores):
         with cols_dashboard[idx_sensor]:
@@ -212,7 +222,7 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             )
             st.components.v1.html(html_sensor_box, height=310, scrolling=False)
 
-    # --- REJILLA MULTICORE EXCLUSIVA CUANDO SE SELECCIONA CPU ---
+    # --- REJILLA MULTICORE ---
     if componente_sel == "⚙️ Procesamiento (Solo CPU)" and id_cpu > 0:
         st.markdown('<h4 style="color:#003366; font-size:15px; margin-top:20px; margin-bottom:10px; border-bottom:1px solid #ddd; padding-bottom:4px;">🎛️ Desglose de Rendimiento por Procesador (8 Cores)</h4>', unsafe_allow_html=True)
         
@@ -261,22 +271,21 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     st.markdown("---")
     st.info(explicacion_comun)
 
+    if agente_activo:
+        time.sleep(15)
+        st.rerun(scope="fragment")  
+
 
 # =========================================================================
 # VISTA PRINCIPAL DEL MÓDULO
 # =========================================================================
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
-    """
-    Módulo de monitoreo - SIMPOL V4.1.0
-    - FIX: Desacoplamiento estructural de CPU y Red en vistas independientes.
-    """
     if "usuario" in st.session_state:
         permisos_activos = st.session_state.get("permisos", [])
         if "VER_SISTEMA" not in permisos_activos:
             st.error("🚫 Acceso Denegado: Su cuenta no cuenta con el privilegio [VER_SISTEMA].")
             return
 
-    # Cabecera
     st.markdown(
         f'<div style="background-color:#f8f9fa; padding:10px 15px; border-left:4px solid #003366; border-radius:4px; margin-bottom:10px;">'
         f'<h3 style="color:#003366; margin:0px; font-size:20px;">🖥️ Centro de Control y Telemetría</h3>'
@@ -286,7 +295,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         unsafe_allow_html=True
     )
 
-    # Inicialización Segura
     if "sb_srv_tab1" not in st.session_state:
         st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
     if "sb_metrica_tab1" not in st.session_state:
@@ -296,14 +304,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     if "sb_graf_sensor" not in st.session_state:
         st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
 
-    # Carga de Configuraciones
     servidores_activos = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores_activos if s.get('nombre_alias')])))
     
     opciones_servidores_tab1 = ["-- Seleccione un Servidor para empezar --", "-- Todos los Servidores --"] + lista_nombres_bd
     opciones_servidores_tab2 = ["-- Seleccione un Servidor --"] + lista_nombres_bd
     
+    # Mapeo de diccionarios para traducir IP a Nombre de Servidor rápidamente
+    dict_ip_a_nombre = {s['ip']: s['nombre_alias'] for s in servidores_activos if s.get('ip')}
+
     mapa_columnas = {
+        "identificador_servidor": "SERVIDOR (ALIAS / IP)",
         "fecha_registro": "FECHA REGISTRO", "val_cpu": "USO CPU GLOBAL (%)", "val_ram_total_gb": "RAM TOTAL (GB)",
         "val_ram_disponible_pct": "RAM DISPONIBLE (%)", "val_ram_disponible_gb": "RAM LIBRE (GB)",
         "val_disco_1_pct_libre": "DISCO C LIBRE (%)", "val_disco_1_libres_gb": "DISCO C LIBRE (GB)",
@@ -336,9 +347,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         key="controlador_pestañas_monitoreo"
     )
 
-    # =========================================================================
-    # TAB 1: REJILLA HISTÓRICA (Acoplada con el nuevo pool de columnas)
-    # =========================================================================
     with tab_historico:
         if not servidores_activos:
             st.info("💡 No hay servidores activos mapeados en la base de datos.")
@@ -346,6 +354,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             seleccion_srv = st.session_state["sb_srv_tab1"]
             seleccion_metrica = st.session_state["sb_metrica_tab1"]
             servidor_seleccionado_tab1 = (seleccion_srv != "-- Seleccione un Servidor para empezar --")
+            es_vista_global = (seleccion_srv == "-- Todos los Servidores --")
             
             col_srv, col_metrica, col_limpiar = st.columns([3, 2, 1])
             with col_srv:
@@ -364,29 +373,38 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 conexion = conectar_bd()
                 registros_dinamicos = []
                 if conexion:
+                    cursor = None
                     try:
-                        with conexion.cursor(dictionary=True) as cursor:
-                            query_base = (
-                                "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                                "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
-                                "val_red_total, val_red_entrante, val_red_saliente, "
-                                "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
-                                "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 FROM monitoreo "
-                                "WHERE val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
-                            )
-                            if seleccion_srv == "-- Todos los Servidores --":
-                                cursor.execute(query_base + "ORDER BY fecha_registro DESC LIMIT 150;")
-                            else:
-                                info_srv = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
-                                if info_srv:
-                                    cursor.execute(query_base + "AND ip_servidor = %s ORDER BY fecha_registro DESC LIMIT 150;", (info_srv['ip'],))
-                            registros_dinamicos = cursor.fetchall()
+                        cursor = conexion.cursor(dictionary=True)
+                        query_base = (
+                            "SELECT ip_servidor, fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
+                            "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
+                            "val_red_total, val_red_entrante, val_red_saliente, "
+                            "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
+                            "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 FROM monitoreo "
+                            "WHERE val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
+                        )
+                        if es_vista_global:
+                            cursor.execute(query_base + "ORDER BY fecha_registro DESC LIMIT 150;")
+                        else:
+                            info_srv = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
+                            if info_srv:
+                                cursor.execute(query_base + "AND ip_servidor = %s ORDER BY fecha_registro DESC LIMIT 150;", (info_srv['ip'],))
+                        registros_dinamicos = cursor.fetchall()
                     finally:
+                        if cursor:
+                            cursor.close()
                         conexion.close()
 
                 if registros_dinamicos:
-                    # 1. Definimos las columnas a renderizar según el filtro
-                    columnas_db = ["fecha_registro"]
+                    columnas_db = []
+                    
+                    # Si es la vista de todo el parque, agregamos el campo identificador combinado
+                    if es_vista_global:
+                        columnas_db.append("identificador_servidor")
+                    
+                    columnas_db.append("fecha_registro")
+                    
                     if seleccion_metrica == "📊 Todas las Métricas":
                         columnas_db += ["val_cpu", "val_ram_disponible_pct", "val_disco_1_pct_libre", "val_red_total", "val_latencia_ping"]
                     elif seleccion_metrica == "🧠 Variables de Memoria (RAM)":
@@ -398,16 +416,14 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     elif seleccion_metrica == "💽 Variables de Almacenamiento (Disco C)":
                         columnas_db += ["val_disco_1_pct_libre", "val_disco_1_libres_gb", "val_disco_1_total_gb"]
 
-                    # 2. Comprobar si todas las columnas numéricas visibles son exactamente 0
                     suma_total_metricas = 0.0
                     for fila in registros_dinamicos:
                         for col in columnas_db:
-                            if col != "fecha_registro":
+                            if col not in ["fecha_registro", "identificador_servidor"]:
                                 val_f = fila.get(col)
                                 if val_f is not None:
                                     suma_total_metricas += abs(float(val_f))
                     
-                    # 3. Si la suma da 0, no dibujamos la tabla HTML vacía
                     if suma_total_metricas == 0.0:
                         st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
                     else:
@@ -420,7 +436,15 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
                             html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
                             for col in columnas_db:
-                                val = fila.get(col)
+                                
+                                # PROCESAMIENTO DINÁMICO: Obtención de Nombre + IP si es la columna virtual
+                                if col == "identificador_servidor":
+                                    ip_raw = fila.get("ip_servidor", "-")
+                                    alias_srv = dict_ip_a_nombre.get(ip_raw, "Desconocido")
+                                    val = f"🖥️ {alias_srv} ({ip_raw})"
+                                else:
+                                    val = fila.get(col)
+                                    
                                 try:
                                     if val is not None and isinstance(val, (int, float)):
                                         txt = f"{float(val):.2f}" if "pct" in col or "gb" in col or "red" in col or "_p" in col or "latencia" in col else f"{int(val)}"
@@ -432,6 +456,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                 align_style = 'text-align: left;'
                                 if val is not None and isinstance(val, (int, float)):
                                     align_style = 'text-align: right; font-family: monospace;'
+                                elif col == "identificador_servidor":
+                                    align_style = 'text-align: left; font-weight: bold; color: #003366;'
                                 
                                 html_tabla += f'<td style="padding: 9px 14px; color: #333333; white-space: nowrap; {align_style}">{txt}</td>'
                             html_tabla += "</tr>"
@@ -439,8 +465,5 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 else:
                     st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
 
-    # =========================================================================
-    # TAB 2: ANALÍTICA (MÓDULO FRAGMENTADO COMPLETAMENTE SEGURO)
-    # =========================================================================
     with tab_graficas:
         renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_componentes, servidores_activos)
