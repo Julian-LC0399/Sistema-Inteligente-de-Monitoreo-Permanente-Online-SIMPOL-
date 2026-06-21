@@ -73,26 +73,48 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         cursor = None
         try:
             cursor = conexion.cursor(dictionary=True)
-            cursor.execute(
+            
+            # Intento 1: Traer datos recientes de las últimas 4 horas
+            query_graficas = (
                 "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
                 "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
                 "val_red_total, val_red_entrante, val_red_saliente, "
                 "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
                 "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
                 "FROM monitoreo WHERE ip_servidor = %s AND fecha_registro >= %s "
-                "ORDER BY fecha_registro ASC LIMIT 50;", (info_srv['ip'], rango_desde)
+                "AND val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
+                "ORDER BY fecha_registro ASC LIMIT 50;"
             )
+            cursor.execute(query_graficas, (info_srv['ip'], rango_desde))
             datos_raw = cursor.fetchall()
+            
+            # Intento 2 (COMPORTAMIENTO FUERA DE LÍNEA): Si el agente está apagado hace tiempo y no hay datos en las últimas 4 horas,
+            # traemos el último bloque histórico disponible de forma descendente y lo re-ordenamos para la gráfica.
+            if not datos_raw:
+                query_historico_graficas = (
+                    "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
+                    "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
+                    "val_red_total, val_red_entrante, val_red_saliente, "
+                    "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
+                    "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
+                    "FROM monitoreo WHERE ip_servidor = %s AND val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
+                    "ORDER BY fecha_registro DESC LIMIT 50;"
+                )
+                cursor.execute(query_historico_graficas, (info_srv['ip'],))
+                datos_descendentes = cursor.fetchall()
+                # Invertimos para mantener la coherencia de la línea de tiempo izquierda -> derecha
+                datos_raw = list(reversed(datos_descendentes))
+
         finally:
             if cursor:
                 cursor.close()
             conexion.close()
 
     if not datos_raw:
-        st.warning("⚠️ Esperando paquetes de telemetría del agente activo...")
+        st.warning("⚠️ Sin registros de telemetría disponibles en la base de datos para este servidor.")
         return
 
-    # DETECCIÓN DE ESTADO DEL AGENTE
+    # DETECCIÓN DE ESTADO DEL AGENTE (Vivo si reportó hace menos de 45 segundos)
     ultima_fecha_registro = datos_raw[-1]["fecha_registro"]
     diferencia_tiempo = datetime.now() - ultima_fecha_registro
     agente_activo = diferencia_tiempo.total_seconds() <= 45  
@@ -167,7 +189,7 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     if agente_activo:
         st.markdown('<p style="font-size: 11px; color: #47a323; margin-bottom: 5px; text-align: right;">🟢 <b>Live Feed Activo</b> — Actualizando datos cada 15s</p>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<p style="font-size: 11px; color: #888888; margin-bottom: 5px; text-align: right;">⚠️ <b>Agente Desconectado</b> — Mostrando últimos datos ({ultima_fecha_registro.strftime("%H:%M:%S")})</p>', unsafe_allow_html=True)
+        st.markdown(f'<p style="font-size: 11px; color: #d40000; margin-bottom: 5px; text-align: right;">⚠️ <b>Agente Desconectado (Offline)</b> — Mostrando últimos datos estáticos ({ultima_fecha_registro.strftime("%Y-%m-%d %H:%M:%S")})</p>', unsafe_allow_html=True)
 
     for idx_sensor, cfg in enumerate(config_sensores):
         with cols_dashboard[idx_sensor]:
@@ -271,6 +293,8 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     st.markdown("---")
     st.info(explicacion_comun)
 
+    # Solo si el agente está reportando en vivo, forzamos la actualización cada 15s.
+    # Si está apagado, se queda estático para no generar consultas innecesarias a la BD.
     if agente_activo:
         time.sleep(15)
         st.rerun(scope="fragment")  
@@ -310,7 +334,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     opciones_servidores_tab1 = ["-- Seleccione un Servidor para empezar --", "-- Todos los Servidores --"] + lista_nombres_bd
     opciones_servidores_tab2 = ["-- Seleccione un Servidor --"] + lista_nombres_bd
     
-    # Mapeo de diccionarios para traducir IP a Nombre de Servidor rápidamente
     dict_ip_a_nombre = {s['ip']: s['nombre_alias'] for s in servidores_activos if s.get('ip')}
 
     mapa_columnas = {
@@ -398,8 +421,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 
                 if registros_dinamicos:
                     columnas_db = []
-                    
-                    # Si es la vista de todo el parque, agregamos el campo identificador combinado
                     if es_vista_global:
                         columnas_db.append("identificador_servidor")
                     
@@ -436,8 +457,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
                             html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
                             for col in columnas_db:
-                                
-                                # PROCESAMIENTO DINÁMICO: Obtención de Nombre + IP si es la columna virtual
                                 if col == "identificador_servidor":
                                     ip_raw = fila.get("ip_servidor", "-")
                                     alias_srv = dict_ip_a_nombre.get(ip_raw, "Desconocido")
