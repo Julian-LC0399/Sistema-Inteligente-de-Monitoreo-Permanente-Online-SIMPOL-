@@ -41,8 +41,8 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         )
     with col_g_limpiar_2:
         if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab2_inner", use_container_width=True):
-            st.session_state.pop("sb_graf_srv", None)
-            st.session_state.pop("sb_graf_sensor", None)
+            st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
+            st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
             st.rerun(scope="fragment")
 
     if not servidor_seleccionado_tab2:
@@ -354,8 +354,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.selectbox("Filtrar Métrica Rejilla", options=opciones_metricas_tab1, key="sb_metrica_tab1", label_visibility="collapsed", disabled=not servidor_seleccionado_tab1)
             with col_limpiar:
                 if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab1", use_container_width=True):
-                    st.session_state.pop("sb_srv_tab1", None)
-                    st.session_state.pop("sb_metrica_tab1", None)
+                    st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
+                    st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
                     st.rerun()
 
             if not servidor_seleccionado_tab1:
@@ -385,6 +385,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         conexion.close()
 
                 if registros_dinamicos:
+                    # 1. Definimos las columnas a renderizar según el filtro
                     columnas_db = ["fecha_registro"]
                     if seleccion_metrica == "📊 Todas las Métricas":
                         columnas_db += ["val_cpu", "val_ram_disponible_pct", "val_disco_1_pct_libre", "val_red_total", "val_latencia_ping"]
@@ -397,26 +398,46 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     elif seleccion_metrica == "💽 Variables de Almacenamiento (Disco C)":
                         columnas_db += ["val_disco_1_pct_libre", "val_disco_1_libres_gb", "val_disco_1_total_gb"]
 
-                    html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;"><table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;"><thead><tr>"""
-                    for col in columnas_db:
-                        html_tabla += f'<th style="position: sticky; top: 0; background-color: #002244; padding: 11px 14px; color: #ffffff; text-align: left; font-weight: 600; font-size: 11px; white-space: nowrap; z-index: 10; border-bottom: 2px solid #001122;">{mapa_columnas.get(col, col.upper())}</th>'
-                    html_tabla += "</tr></thead><tbody>"
-                    
-                    for idx, fila in enumerate(registros_dinamicos):
-                        bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
-                        html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
+                    # 2. Comprobar si todas las columnas numéricas visibles son exactamente 0
+                    suma_total_metricas = 0.0
+                    for fila in registros_dinamicos:
                         for col in columnas_db:
-                            val = fila.get(col)
-                            try:
+                            if col != "fecha_registro":
+                                val_f = fila.get(col)
+                                if val_f is not None:
+                                    suma_total_metricas += abs(float(val_f))
+                    
+                    # 3. Si la suma da 0, no dibujamos la tabla HTML vacía
+                    if suma_total_metricas == 0.0:
+                        st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
+                    else:
+                        html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;"><table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;"><thead><tr>"""
+                        for col in columnas_db:
+                            html_tabla += f'<th style="position: sticky; top: 0; background-color: #002244; padding: 11px 14px; color: #ffffff; text-align: left; font-weight: 600; font-size: 11px; white-space: nowrap; z-index: 10; border-bottom: 2px solid #001122;">{mapa_columnas.get(col, col.upper())}</th>'
+                        html_tabla += "</tr></thead><tbody>"
+                        
+                        for idx, fila in enumerate(registros_dinamicos):
+                            bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
+                            html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
+                            for col in columnas_db:
+                                val = fila.get(col)
+                                try:
+                                    if val is not None and isinstance(val, (int, float)):
+                                        txt = f"{float(val):.2f}" if "pct" in col or "gb" in col or "red" in col or "_p" in col or "latencia" in col else f"{int(val)}"
+                                    else:
+                                        txt = val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(val, "strftime") else str(val if val is not None else "-")
+                                except (ValueError, TypeError):
+                                    txt = "-"
+                                
+                                align_style = 'text-align: left;'
                                 if val is not None and isinstance(val, (int, float)):
-                                    txt = f"{float(val):.2f}" if "pct" in col or "gb" in col or "red" in col or "_p" in col or "latencia" in col else f"{int(val)}"
-                                else:
-                                    txt = val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(val, "strftime") else str(val if val is not None else "-")
-                            except (ValueError, TypeError):
-                                txt = "-"
-                            html_tabla += f'<td style="padding: 9px 14px; color: #333333; white-space: nowrap;">{txt}</td>'
-                        html_tabla += "</tr>"
-                    st.markdown(html_tabla + "</tbody></table></div>", unsafe_allow_html=True)
+                                    align_style = 'text-align: right; font-family: monospace;'
+                                
+                                html_tabla += f'<td style="padding: 9px 14px; color: #333333; white-space: nowrap; {align_style}">{txt}</td>'
+                            html_tabla += "</tr>"
+                        st.markdown(html_tabla + "</tbody></table></div>", unsafe_allow_html=True)
+                else:
+                    st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
 
     # =========================================================================
     # TAB 2: ANALÍTICA (MÓDULO FRAGMENTADO COMPLETAMENTE SEGURO)

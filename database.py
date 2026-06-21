@@ -279,6 +279,7 @@ def registrar_log_acceso(usuario, cargo, rol, resultado="EXITOSO", usuario_id=No
             if conn: conn.close()
 
 def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, comentario):
+    """REGISTRO CORREGIDO: Mapea perfectamente hacia la columna 'commentario' de la base de datos de auditoría."""
     conn = conectar_bd()
     if conn:
         try:
@@ -286,7 +287,7 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, 
             cursor = conn.cursor()
             query = """
                 INSERT INTO historico_usuarios 
-                (usuario_id, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, comentario)
+                (usuario_id, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """
             cursor.execute(query, (id_limpio, afectado, accion, anterior, nuevo, comentario))
@@ -295,7 +296,7 @@ def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, 
             conn.close()
             return True
         except Exception as e:
-            logging.error(f"Error de auditoría: {e}")
+            logging.error(f"Error de auditoría en backend SIMPOL: {e}")
             if conn: conn.close()
     return False
 

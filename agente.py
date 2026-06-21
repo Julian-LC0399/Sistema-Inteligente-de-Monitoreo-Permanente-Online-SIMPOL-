@@ -187,7 +187,6 @@ def ejecutar_motor_agente():
                     status_latencia = "ESTABLE"
                     status_discos_lista = []
                     
-                    # Variables auxiliares para los logs originales
                     log_items_consola = []
 
                     # --- CPU ---
@@ -208,7 +207,7 @@ def ejecutar_motor_agente():
                             cores_txt.append(f"P{idx}: {v_core}%")
                         log_items_consola.append(f"• CPU Global: {v_cpu}% [{', '.join(cores_txt)}]")
 
-                    # --- RAM CORRECTA ---
+                    # --- RAM ---
                     if id_ram > 0:
                         v_ram_total = safe_float(telemetria.get("ram_total_gb") or telemetria.get("RAM_TOTAL_GB", 0.0))
                         v_ram_pct = safe_float(telemetria.get("ram_pct") or telemetria.get("ram_disponible_pct") or telemetria.get("RAM_PCT", 100.0))
@@ -265,7 +264,7 @@ def ejecutar_motor_agente():
                             log_items_consola.append(f"• {letra_unidad}: {pct_libre}% Libre ({libres_gb}/{total_gb} GB) -> [{st_disco}]")
 
                     # --- SERVICIOS ---
-                    for j in range(1, 8):
+                    for j in range(1, 9):
                         id_sensor_servicio = ids_servicios[j-1]
                         if id_sensor_servicio > 0:
                             st_servicio = str(telemetria.get(f"servicio_{j}_status") or telemetria.get(f"SERVICIO_{j}_STATUS", "ACTIVO")).upper().strip()
@@ -310,7 +309,7 @@ def ejecutar_motor_agente():
                     columnas_sql.extend(["estado_sistema", "fecha_registro"])
                     parametros_sql.extend([str(estado_sistema_code), datetime.now()])
 
-                    # Inserción limpia a la BD
+                    # Inserción a la BD
                     placeholders = ", ".join(["%s"] * len(parametros_sql))
                     query = f"INSERT INTO monitoreo ({', '.join(columnas_sql)}) VALUES ({placeholders})"
                     cursor_write = conn.cursor()
@@ -318,14 +317,16 @@ def ejecutar_motor_agente():
                     conn.commit()
                     cursor_write.close()
 
-                    # --- RENDERIZADO DEL MENSAJE ORIGINAL ---
-                    print(f"\n🖥️  [NODO PROCESADO]: '{nombre}' ({ip})")
+                    modo_conexion = telemetria.get("modo_conexion", "MODO PRTG")
+
+                    # Renderizado del Log en Consola
+                    print(f"\n🖥️  [NODO PROCESADO]: '{nombre}' ({ip}) | 🌐 Conexión: {modo_conexion}")
                     print(f"   ├─📊 [TELEMETRÍA REGISTRADA]:")
                     for line in log_items_consola:
                         print(f"   │  {line}")
                     print(f"   │  • CÓDIGO DE SALUD REGISTRADO: {estado_sistema_code}")
                     
-                    # Alertas activas reales en la BD
+                    # Alertas vigentes reales de la BD
                     cursor_alertas = conn.cursor(dictionary=True)
                     cursor_alertas.execute("SELECT componente, tipo_alerta, comentario FROM alertas WHERE ip_servidor = %s AND estado_alerta = 'ACTIVA'", (ip,))
                     alertas_vigentes = cursor_alertas.fetchall()
