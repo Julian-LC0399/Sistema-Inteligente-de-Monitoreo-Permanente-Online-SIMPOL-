@@ -31,7 +31,7 @@ def get_resource_path(relative_path):
 st.set_page_config(
     page_title="SIMPOL - Banco Caroní",
     layout="wide",
-    initial_sidebar_state="expanded"  # Forzamos que por defecto intente abrirse
+    initial_sidebar_state="expanded"
 )
 
 # SE GARANTIZA LA INYECCIÓN TEMPRANA: Forzar la carga de style.css antes de la lógica de ruteo
@@ -43,10 +43,10 @@ if os.path.exists(css_path):
     except Exception as e:
         logging.error(f"Error cargando style.css: {e}")
 
-# ESCUDO TOTAL: Bloquea el colapso del menú y borra CUALQUIER flecha nativa de Streamlit
+# BLINDAJE VISUAL INSTITUCIONAL Y ELIMINACIÓN DE MARCAS DE STREAMLIT
 st.markdown("""
     <style>
-        /* 1. Forzar que la barra lateral mantenga su tamaño fijo pase lo que pase */
+        /* 1. Mantener barra lateral fija y abierta */
         section[data-testid="stSidebar"] {
             display: flex !important;
             visibility: visible !important;
@@ -56,30 +56,72 @@ st.markdown("""
             transition: none !important;
         }
         
-        /* 2. ELIMINACIÓN ABSOLUTA DE LA FLECHA '<<' (Dentro del menú) */
+        /* Ocultar botones de colapso de la barra lateral */
         section[data-testid="stSidebar"] button {
             display: none !important;
         }
-        /* Específico por si Streamlit lo renderiza con selectores de pruebas */
         [data-testid="stSidebar"] [id^="collapsed-control"],
         section[data-testid="stSidebar"] button[title="Collapse sidebar"],
         section[data-testid="stSidebar"] svg {
             display: none !important;
         }
-        
-        /* 3. ELIMINACIÓN ABSOLUTA DE LA FLECHA '>' (Fuera del menú si estuviera cerrado) */
         [data-testid="sidebar-collapsed-control"],
         [data-testid="sidebar-collapsed-control"] button {
             display: none !important;
             visibility: hidden !important;
         }
         
-        /* 4. Ajuste del cuerpo principal de la interfaz */
+        /* 2. OCULTAR MENÚ DE 3 PUNTOS, BOTÓN DE DEPLOY Y ENCABEZADO SUPERIOR */
+        [data-testid="stHeader"], 
+        header, 
+        .stActionButton, 
+        #MainMenu, 
+        footer {
+            visibility: hidden !important;
+            display: none !important;
+        }
+        
+        /* 3. OCULTAR EL TEXTO "Press Enter to apply" EN TODOS LOS CAMPOS DE TEXTO */
+        [data-testid="stTextInputInstructions"],
+        [data-testid="stNumberInputInstructions"],
+        [data-testid="stTextAreaInstructions"],
+        .stTextInput small,
+        .stTextInput div[data-testid="InputInstructions"] {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0px !important;
+            padding: 0px !important;
+        }
+        
+        /* 4. OCULTAR TOOLBARS SECUNDARIOS */
+        [data-testid="stToolbar"] {
+            visibility: hidden !important;
+            display: none !important;
+        }
+        
+        /* Ajustar el contenedor de la app */
         .stAppViewMain {
             margin-left: 0px !important;
+            padding-top: 20px !important;
         }
     </style>
 """, unsafe_allow_html=True)
+
+# PARCHE ANTI-ENTER FUNCIONAL
+st.markdown("""
+    <script>
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.keyCode === 13) {
+                const target = e.target;
+                if (target.tagName === 'INPUT' && target.type !== 'submit' && target.type !== 'button') {
+                    e.preventDefault();
+                    return false;
+                }
+            }
+        }, true);
+    </script>
+""", unsafe_allow_html=True)
+
 
 # === 5. FLUJO PRINCIPAL PROTEGIDO ===
 import auth
