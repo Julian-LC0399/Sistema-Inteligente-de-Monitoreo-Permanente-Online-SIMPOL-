@@ -2,7 +2,6 @@ import streamlit as st
 from fpdf import FPDF
 from database import conectar_bd
 from datetime import datetime, timedelta, time
-import io
 
 # =====================================================================
 # CLASE DE CONFIGURACIÓN GRÁFICA DEL REPORTE PDF (ESTILO BANCO CARONÍ)
@@ -51,7 +50,7 @@ def obtener_alertas_reporte(ip_servidor, fecha_inicio, fecha_fin):
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT componente, tipo_alerta, fecha_inicio, fecha_fin, comentario
+            SELECT id, componente, tipo_alerta, fecha_inicio, fecha_fin, comentario
             FROM alertas
             WHERE ip_servidor = %s 
               AND (
@@ -70,19 +69,44 @@ def obtener_alertas_reporte(ip_servidor, fecha_inicio, fecha_fin):
     finally:
         if conn: conn.close()
 
-def guardar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, tamanio_kb):
+def guardar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, tamanio_kb, ultima_muestra=None, alerta_vinculada=None):
     conn = conectar_bd()
     if not conn: return False
     try:
         cursor = conn.cursor()
+        
+        # Extracción dinámica de la última telemetría para poblar los snapshots reales de la base de datos
+        snap_ram_tot = 0.0; snap_ram_disp = 0.0; snap_ram_pct = 0.0
+        snap_red_tot = 0.0; snap_red_ent = 0.0; snap_red_sal = 0.0
+        snap_lat = 0.0; snap_per = 0.0; snap_srv = None
+        
+        if ultima_muestra:
+            snap_ram_tot = float(ultima_muestra.get('val_ram_total_gb') or 0.0)
+            snap_ram_disp = float(ultima_muestra.get('val_ram_disponible_gb') or 0.0)
+            snap_ram_pct = float(ultima_muestra.get('val_ram_disponible_pct') or 0.0)
+            snap_red_tot = float(ultima_muestra.get('val_red_total') or 0.0)
+            snap_red_ent = float(ultima_muestra.get('val_red_entrante') or 0.0)
+            snap_red_sal = float(ultima_muestra.get('val_red_saliente') or 0.0)
+            snap_lat = float(ultima_muestra.get('val_latencia_ping') or 0.0)
+            snap_per = float(ultima_muestra.get('val_latencia_perdida') or 0.0)
+            snap_srv = ultima_muestra.get('estado_servicio_1') # Referencia base
+
+        id_alerta = alerta_vinculada.get('id') if alerta_vinculada else None
+        tipo_alerta_txt = alerta_vinculada.get('tipo_alerta', 'ESTABLE') if alerta_vinculada else 'ESTABLE'
+
         query = """
             INSERT INTO reportes_archivados 
-            (nombre_archivo, format, ip_servidor, contenido, usuario_id, snapshot_total_gb, snapshot_disponible_gb, snapshot_disponible_pct, tamanio_kb)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (nombre_archivo, `format`, ip_servidor, contenido, usuario_id, alerta_id, tipo_alerta,
+             snapshot_total_gb, snapshot_disponible_gb, snapshot_disponible_pct, 
+             snapshot_red_total_mbps, snapshot_red_entrante_mbps, snapshot_red_saliente_mbps,
+             snapshot_latencia_ms, snapshot_perdida_pct, snapshot_servicio_estado, tamanio_kb)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
-            nombre_archivo, formato, ip_servidor.strip(), contenido_blob, usuario_id, 
-            0.0, 0.0, 0.0, tamanio_kb
+            nombre_archivo, formato, ip_servidor.strip(), contenido_blob, usuario_id, id_alerta, tipo_alerta_txt,
+            snap_ram_tot, snap_ram_disp, snap_ram_pct, 
+            snap_red_tot, snap_red_ent, snap_red_sal,
+            snap_lat, snap_per, snap_srv, tamanio_kb
         ))
         conn.commit()
         cursor.close()
@@ -145,7 +169,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     )
     st.markdown("---")
 
-    # Inicialización temprana de variables de estado
     if "rep_listo" not in st.session_state: st.session_state["rep_listo"] = False
     if "rep_csv" not in st.session_state: st.session_state["rep_csv"] = None
     if "rep_pdf" not in st.session_state: st.session_state["rep_pdf"] = None
@@ -281,6 +304,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         else:
             datos_muestras = obtener_datos_reporte(ip_objetivo, dt_inicio, dt_fin)
             lista_alertas_servidor = obtener_alertas_reporte(ip_objetivo, dt_inicio, dt_fin)
+            ultima_muestra_obj = datos_muestras[0] if datos_muestras else None
 
             with col_btn1:
                 ejecutar_reporte = st.button(f"📊 GENERAR Y ARCHIVAR REPORTE ({formato_sel})", use_container_width=True, type="secondary", key="btn_run_report_gray")
@@ -290,6 +314,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.warning(f"⚠️ Telemetría no disponible para `{serv_seleccionado}` en este rango temporal.")
                 else:
                     nombre_base_archivo = f"reporte_{s_prefix}_{serv_info['nombre_alias']}_{fecha_i.strftime('%Y%m%d')}"
+                    alerta_detectada_global = None
 
                     # --- OPCIÓN PDF ---
                     if formato_sel == "PDF":
@@ -366,12 +391,12 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                             f_ini = al['fecha_inicio']
                                             f_fin = al['fecha_fin']
                                             
-                                            # Ventana operativa reducida a 2 minutos para evitar falsos positivos
                                             inicio_tolerante = f_ini - timedelta(minutes=2)
                                             fin_tolerante = (f_fin + timedelta(minutes=2)) if f_fin is not None else None
                                             
                                             if f_registro >= inicio_tolerante and (fin_tolerante is None or f_registro <= fin_tolerante):
                                                 alerta_activa = al
+                                                if not alerta_detectada_global: alerta_detectada_global = al
                                                 break
 
                                     msg_alerta = str(alerta_activa['tipo_alerta']).upper().strip() if alerta_activa else "ESTABLE"
@@ -395,7 +420,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                     elif p_sub == "CPU":
                                         pdf.cell(100, 6, f"{r.get('val_cpu', 0.0)} %", 1, 0, "C", True)
                                     elif p_sub == "LATENCIA":
-                                        pdf.cell(100, 6, f"{r.get('val_latencia', 0.0)} ms", 1, 0, "C", True)
+                                        # CORRECCIÓN DE COLUMNA: val_latencia_ping para acoplar a la base de datos
+                                        pdf.cell(100, 6, f"{r.get('val_latencia_ping', 0.0)} ms", 1, 0, "C", True)
 
                                     if "CRITICO" in msg_alerta or "CRÍTICO" in msg_alerta:
                                         pdf.set_fill_color(255, 214, 214)   
@@ -411,16 +437,20 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                     pdf.set_text_color(0, 0, 0)
                                 pdf.ln(4)
 
-                            pdf_buffer = io.BytesIO()
-                            pdf.output(pdf_buffer)
-                            bytes_pdf = pdf_buffer.getvalue()
+                            bytes_pdf = pdf.output(dest='S')
+                            if isinstance(bytes_pdf, str):
+                                bytes_pdf = bytes_pdf.encode('latin1')
+
                             kb_size_pdf = round(len(bytes_pdf) / 1024.0, 2)
                             
                             st.session_state["rep_pdf"] = bytes_pdf
                             st.session_state["rep_name_pdf"] = f"{nombre_base_archivo}.pdf"
                             st.session_state["rep_listo"] = True
                             
-                            guardar_reporte_archivado(st.session_state["rep_name_pdf"], "PDF", ip_objetivo, bytes_pdf, usuario_id, kb_size_pdf)
+                            guardar_reporte_archivado(
+                                st.session_state["rep_name_pdf"], "PDF", ip_objetivo, bytes_pdf, 
+                                usuario_id, kb_size_pdf, ultima_muestra=ultima_muestra_obj, alerta_vinculada=alerta_detectada_global
+                            )
                             st.success(f"📦 **Reporte PDF generado y guardado exitosamente en el historial.**")
                         except Exception as e_pdf:
                             st.error(f"Error generando PDF: {e_pdf}")
@@ -449,7 +479,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             else:
                                 if s_prefix == "RAM":
                                     columnas = ["FECHA_REGISTRO", "RAM_TOTAL_GB", "RAM_DISPONIBLE_GB", "RAM_DISPONIBLE_PCT", "ESTADO"]
-                                elif "DISCO" in s_prefix and num_disco_activo:
+                                companion_disc = "DISCO" in s_prefix and num_disco_activo
+                                if companion_disc:
                                     l_act = letras_discos[num_disco_activo]
                                     columnas = ["FECHA_REGISTRO", f"DISCO_{l_act}_TOTAL_GB", f"DISCO_{l_act}_LIBRE_GB", f"DISCO_{l_act}_LIBRE_PCT", "ESTADO"]
                                 elif s_prefix == "CPU":
@@ -475,6 +506,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                             f_fin = al['fecha_fin']
                                             if f_registro >= (f_ini - timedelta(minutes=2)) and (f_fin is None or f_registro <= (f_fin + timedelta(minutes=2))):
                                                 alerta_activa = al
+                                                if not alerta_detectada_global: alerta_detectada_global = al
                                                 break
 
                                     txt_alerta_csv = str(alerta_activa['tipo_alerta']).upper().strip() if alerta_activa else "ESTABLE"
@@ -487,7 +519,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                     elif bloque["prefix"] == "CPU":
                                         row_str = f"{f_t},{r.get('val_cpu',0.0)},{txt_alerta_csv}"
                                     elif bloque["prefix"] == "LATENCIA":
-                                        row_str = f"{f_t},{r.get('val_latencia',0.0)},{txt_alerta_csv}"
+                                        # CORRECCIÓN DE COLUMNA: val_latencia_ping para acoplar a la base de datos
+                                        row_str = f"{f_t},{r.get('val_latencia_ping',0.0)},{txt_alerta_csv}"
                                     
                                     lineas_csv.append(row_str)
                                 lineas_csv.append("") 
@@ -499,7 +532,10 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             st.session_state["rep_name_csv"] = f"{nombre_base_archivo}.csv"
                             st.session_state["rep_listo"] = True
                             
-                            guardar_reporte_archivado(st.session_state["rep_name_csv"], "CSV", ip_objetivo, bytes_csv, usuario_id, kb_size_csv)
+                            guardar_reporte_archivado(
+                                st.session_state["rep_name_csv"], "CSV", ip_objetivo, bytes_csv, 
+                                usuario_id, kb_size_csv, ultima_muestra=ultima_muestra_obj, alerta_vinculada=alerta_detectada_global
+                            )
                             st.success(f"📦 **Reporte CSV guardado y archivado con éxito.**")
                         except Exception as e_csv:
                             st.error(f"Error generando CSV: {e_csv}")
