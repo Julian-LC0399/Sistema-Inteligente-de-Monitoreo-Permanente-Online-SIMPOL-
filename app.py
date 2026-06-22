@@ -31,7 +31,7 @@ def get_resource_path(relative_path):
 st.set_page_config(
     page_title="SIMPOL - Banco Caroní",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded"  # Forzamos que por defecto intente abrirse
 )
 
 # SE GARANTIZA LA INYECCIÓN TEMPRANA: Forzar la carga de style.css antes de la lógica de ruteo
@@ -43,6 +43,44 @@ if os.path.exists(css_path):
     except Exception as e:
         logging.error(f"Error cargando style.css: {e}")
 
+# ESCUDO TOTAL: Bloquea el colapso del menú y borra CUALQUIER flecha nativa de Streamlit
+st.markdown("""
+    <style>
+        /* 1. Forzar que la barra lateral mantenga su tamaño fijo pase lo que pase */
+        section[data-testid="stSidebar"] {
+            display: flex !important;
+            visibility: visible !important;
+            min-width: 320px !important;
+            max-width: 320px !important;
+            transform: none !important;
+            transition: none !important;
+        }
+        
+        /* 2. ELIMINACIÓN ABSOLUTA DE LA FLECHA '<<' (Dentro del menú) */
+        section[data-testid="stSidebar"] button {
+            display: none !important;
+        }
+        /* Específico por si Streamlit lo renderiza con selectores de pruebas */
+        [data-testid="stSidebar"] [id^="collapsed-control"],
+        section[data-testid="stSidebar"] button[title="Collapse sidebar"],
+        section[data-testid="stSidebar"] svg {
+            display: none !important;
+        }
+        
+        /* 3. ELIMINACIÓN ABSOLUTA DE LA FLECHA '>' (Fuera del menú si estuviera cerrado) */
+        [data-testid="sidebar-collapsed-control"],
+        [data-testid="sidebar-collapsed-control"] button {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        
+        /* 4. Ajuste del cuerpo principal de la interfaz */
+        .stAppViewMain {
+            margin-left: 0px !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # === 5. FLUJO PRINCIPAL PROTEGIDO ===
 import auth
 from menu import generar_menu
@@ -52,7 +90,6 @@ def gestionar_limpieza_filtros(seccion_destino):
     Controla los estados de los filtros de monitoreo, usuarios, servidores,
     reportes, capacity planning y alertas.
     """
-    # 1. Limpieza de filtros del módulo de Monitoreo en vivo
     if seccion_destino != "🖥️ Monitoreo en vivo":
         if "filtro_monitoreo_nombre" in st.session_state:
             st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor--"
@@ -64,14 +101,12 @@ def gestionar_limpieza_filtros(seccion_destino):
             try: del st.query_params["srv"]
             except KeyError: pass
 
-    # 2. Réplica para Gestión de usuarios
     if seccion_destino != "👥 Gestión de usuarios":
         if "filtro_analista" in st.session_state:
             st.session_state["filtro_analista"] = "-- Seleccione un Analista --"
         if "accion_personal" in st.session_state:
             st.session_state["accion_personal"] = None
 
-    # 3. Réplica para Servidores
     if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
@@ -82,7 +117,6 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "accion_adicional" in st.session_state:
             st.session_state["accion_adicional"] = None
 
-    # 4. Réplica para Reportes
     if seccion_destino != "📄 Reportes":
         st.session_state["rep_listo"] = False
         st.session_state["rep_csv"] = None
@@ -93,7 +127,6 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "key_semilla_selectbox" in st.session_state:
             st.session_state["key_semilla_selectbox"] += 1
 
-    # 5. Réplica para Capacity planning
     if seccion_destino != "📈 Capacity planning":
         if "servidor_seleccionado_capacity" in st.session_state:
             st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
@@ -102,7 +135,6 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "dias_prediccion_capacity" in st.session_state:
             st.session_state["dias_prediccion_capacity"] = 30
 
-    # 6. Alertas
     if seccion_destino != "🔔 Alertas":
         st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
         st.session_state["sb_conf_umbrales"] = "-- Seleccione un Servidor --"
@@ -124,7 +156,6 @@ def gestionar_limpieza_filtros(seccion_destino):
 def main():
     params = st.query_params
     
-    # 1. Recuperar Autenticación desde la URL tras F5
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = True if params.get("s") == "1" else False
     
@@ -137,18 +168,22 @@ def main():
     if params.get("u") and "user_actual" not in st.session_state:
         st.session_state["user_actual"] = params.get("u")
 
+    if st.session_state.get("autenticado") and not params.get("s"):
+        st.query_params["s"] = "1"
+        st.query_params["rol"] = st.session_state.get("rol", "operador")
+        st.query_params["uid"] = str(st.session_state.get("user_id", 1))
+        st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
+        st.query_params["c"] = st.session_state.get("cargo", "Analista")
+        st.query_params["p"] = st.session_state.get("seccion_actual", "🏠 Inicio")
+        st.rerun()
+
     if not st.session_state.get("autenticado", False):
-        # PURGA DE URL: Evitamos conflictos limpiando los tokens antiguos de la URL en el login
         if any(k in params for k in ["s", "rol", "uid", "u", "c", "p"]):
             st.query_params.clear()
         auth.mostrar_login()
     else:
-        # =====================================================================
-        # CONTENEDOR PRINCIPAL INDEPENDIENTE
-        # =====================================================================
         placeholder_principal = st.empty()
         
-        # Detención de re-dirección externa
         url_pestaña = params.get("p")
         if "navegacion_principal" in st.session_state:
             st.session_state["seccion_actual"] = st.session_state["navegacion_principal"]
@@ -159,30 +194,21 @@ def main():
             if st.session_state.get("nav_radio") != st.session_state["seccion_actual"]:
                 st.session_state["seccion_actual"] = url_pestaña
         
-        # Ejecución preventiva de limpieza de filtros
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         
-        # Renderizamos el menú lateral
         generar_menu()
         
-        # =====================================================================
-        # INTERCEPTOR DE SEGURIDAD (ANTI-SOLAPAMIENTO MEJORADO)
-        # =====================================================================
         if params.get("p") != st.session_state["seccion_actual"]:
-            placeholder_principal.empty()  # Blanqueo forzado del DOM de Streamlit
+            placeholder_principal.empty()  
             st.query_params["p"] = st.session_state["seccion_actual"]
-            st.rerun()  # Reinicio limpio instantáneo
+            st.rerun()  
         
-        # Persistencia ordinaria de parámetros en URL
         st.query_params["s"] = "1"
         st.query_params["rol"] = st.session_state.get("rol", "operador")
         st.query_params["uid"] = str(st.session_state.get("user_id", 1))
         st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
         st.query_params["c"] = st.session_state.get("cargo", "Analista")
         
-        # =====================================================================
-        # RENDERIZADO DEL MÓDULO CORRESPONDIENTE
-        # =====================================================================
         seleccion = st.session_state["seccion_actual"]
 
         with placeholder_principal.container():
