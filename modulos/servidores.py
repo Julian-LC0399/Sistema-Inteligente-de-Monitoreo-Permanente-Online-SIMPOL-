@@ -315,8 +315,13 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     if st.button("🔍 Ver Datos", use_container_width=True, key="btn_ver_datos_exclusivo"):
                         servidor_elegido = st.session_state["filtro_servidor_nombre"]
                         st.session_state["servidor_seleccionado"] = servidor_elegido
+                        
+                        # ALINEACIÓN DE ESTADOS CORRECTA PARA MONITOREO.PY
                         st.session_state["filtro_monitoreo_nombre"] = servidor_elegido
-                        st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
+                        st.session_state["filtro_monitoreo_sensor"] = "📊 Todas las Métricas"
+                        st.session_state["sb_graf_srv"] = servidor_elegido
+                        st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
+                        
                         st.session_state["navegacion_principal"] = "🖥️ Monitoreo en vivo"
                         st.query_params["p"] = "🖥️ Monitoreo en vivo"
                         st.query_params["srv"] = servidor_elegido
@@ -854,7 +859,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             edit_estado = col_e4.selectbox("Estado Actual", options_estados, index=idx_est)
                             
                             edit_cpu = col_e5.number_input("Uso de CPU (%)", min_value=0, max_value=100, value=int(ad_actual['uso_cpu_pct']), step=None)
-                            edit_ram = col_e6.number_input("Memoria RAM Asignada (MB)", min_value=0, value=int(ad_actual['memoria_asignada_mb']), step=None)
+                            edit_ram = col_e6.number_input("Memoria RAM Asignada (MB)", min_value=0, value=int(ad_actual['memoria_assigned_mb']), step=None)
                             edit_uptime = col_e7.text_input("Tiempo Encendido (Uptime)", value=ad_actual['tiempo_encendido'] if ad_actual['tiempo_encendido'] else "")
                             
                             st.markdown("<div class='subtitulo-formulario'>🌐 Conectividad Red e Identificación Lógica</div>", unsafe_allow_html=True)

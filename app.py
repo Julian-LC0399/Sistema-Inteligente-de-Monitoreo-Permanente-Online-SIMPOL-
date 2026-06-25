@@ -132,6 +132,11 @@ def gestionar_limpieza_filtros(seccion_destino):
     Controla los estados de los filtros de monitoreo, usuarios, servidores,
     reportes, capacity planning y alertas.
     """
+    # BLINDAJE CRÍTICO: Si venimos redireccionados por el botón "Ver Datos" (comprobando url o estado), 
+    # abortamos cualquier purga destructiva antes de pintar la pantalla destino.
+    if seccion_destino == "🖥️ Monitoreo en vivo" or st.query_params.get("p") == "🖥️ Monitoreo en vivo":
+        return
+
     if seccion_destino != "🖥️ Monitoreo en vivo":
         if "filtro_monitoreo_nombre" in st.session_state:
             st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor--"
@@ -226,15 +231,24 @@ def main():
     else:
         placeholder_principal = st.empty()
         
+        # --- LÓGICA DE RUTAS Y SINCRONIZACIÓN PERFECCIONADA ---
         url_pestaña = params.get("p")
+        
         if "navegacion_principal" in st.session_state:
-            st.session_state["seccion_actual"] = st.session_state["navegacion_principal"]
+            destino = st.session_state["navegacion_principal"]
+            st.session_state["seccion_actual"] = destino
+            st.session_state["nav_radio"] = destino  # Alínea el widget de la barra lateral de menu.py antes de renderizar
             del st.session_state["navegacion_principal"] 
         elif "seccion_actual" not in st.session_state:
             st.session_state["seccion_actual"] = url_pestaña if url_pestaña else "🏠 Inicio"
         elif url_pestaña and url_pestaña != st.session_state["seccion_actual"]:
             if st.session_state.get("nav_radio") != st.session_state["seccion_actual"]:
                 st.session_state["seccion_actual"] = url_pestaña
+                st.session_state["nav_radio"] = url_pestaña
+
+        # Evita que el menú lateral pise la selección manual del usuario
+        if st.session_state.get("nav_radio") and st.session_state["nav_radio"] != st.session_state["seccion_actual"]:
+            st.session_state["seccion_actual"] = st.session_state["nav_radio"]
         
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         

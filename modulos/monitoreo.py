@@ -88,8 +88,7 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             cursor.execute(query_graficas, (info_srv['ip'], rango_desde))
             datos_raw = cursor.fetchall()
             
-            # Intento 2 (COMPORTAMIENTO FUERA DE LÍNEA): Si el agente está apagado hace tiempo y no hay datos en las últimas 4 horas,
-            # traemos el último bloque histórico disponible de forma descendente y lo re-ordenamos para la gráfica.
+            # Intento 2 (COMPORTAMIENTO FUERA DE LÍNEA)
             if not datos_raw:
                 query_historico_graficas = (
                     "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
@@ -102,7 +101,6 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
                 )
                 cursor.execute(query_historico_graficas, (info_srv['ip'],))
                 datos_descendentes = cursor.fetchall()
-                # Invertimos para mantener la coherencia de la línea de tiempo izquierda -> derecha
                 datos_raw = list(reversed(datos_descendentes))
 
         finally:
@@ -114,7 +112,7 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         st.warning("⚠️ Sin registros de telemetría disponibles en la base de datos para este servidor.")
         return
 
-    # DETECCIÓN DE ESTADO DEL AGENTE (Vivo si reportó hace menos de 45 segundos)
+    # DETECCIÓN DE ESTADO DEL AGENTE
     ultima_fecha_registro = datos_raw[-1]["fecha_registro"]
     diferencia_tiempo = datetime.now() - ultima_fecha_registro
     agente_activo = diferencia_tiempo.total_seconds() <= 45  
@@ -293,8 +291,6 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     st.markdown("---")
     st.info(explicacion_comun)
 
-    # Solo si el agente está reportando en vivo, forzamos la actualización cada 15s.
-    # Si está apagado, se queda estático para no generar consultas innecesarias a la BD.
     if agente_activo:
         time.sleep(15)
         st.rerun(scope="fragment")  
@@ -319,6 +315,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         unsafe_allow_html=True
     )
 
+    # Inicializadores base de controles de estado
     if "sb_srv_tab1" not in st.session_state:
         st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
     if "sb_metrica_tab1" not in st.session_state:
@@ -327,6 +324,23 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
     if "sb_graf_sensor" not in st.session_state:
         st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
+
+    # =========================================================================
+    # INTERCEPTOR DE REDIRECCIÓN EXCLUSIVO DESDE SERVIDORES.PY
+    # =========================================================================
+    if "filtro_monitoreo_nombre" in st.session_state and st.session_state["filtro_monitoreo_nombre"]:
+        srv_redireccionado = st.session_state["filtro_monitoreo_nombre"]
+        
+        # Sincronizamos los selectboxes globales con el servidor solicitado
+        st.session_state["sb_srv_tab1"] = srv_redireccionado
+        st.session_state["sb_graf_srv"] = srv_redireccionado
+        
+        # Opcional: Activamos la métrica inicial de RAM para mostrar telemetría de inmediato
+        st.session_state["sb_graf_sensor"] = "🧠 Memoria (RAM)"
+        st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+        
+        # Consumimos la variable para que no bloquee elecciones futuras en el dashboard
+        del st.session_state["filtro_monitoreo_nombre"]
 
     servidores_activos = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores_activos if s.get('nombre_alias')])))

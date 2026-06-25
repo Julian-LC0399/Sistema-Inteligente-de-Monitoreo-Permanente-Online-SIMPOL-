@@ -120,19 +120,19 @@ def generar_menu():
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # Obtenemos la sección activa requerida por el backend
+        # === BLINDAJE ANTI-WARNING Y CONFIGURACIÓN DINÁMICA DEL ESTADO ===
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
-        # Buscamos el índice correcto de la sección activa para dárselo de manera nativa al widget
-        indice_defecto = opciones.index(seccion_persistente)
+        # Sincronizamos la clave del widget antes de declararlo para que herede la selección
+        st.session_state["nav_radio"] = seccion_persistente
 
         # Componente de navegación por Radio Nativo
+        # (Se elimina el parámetro index para que no colisione con el Session State API)
         seleccion = st.radio(
             "Navegación del Sistema", 
             opciones, 
-            index=indice_defecto,
             key="nav_radio", 
             label_visibility="collapsed",
             on_change=cambiar_pagina
