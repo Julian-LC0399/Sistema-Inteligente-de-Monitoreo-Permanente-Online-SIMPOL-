@@ -2,6 +2,7 @@ import streamlit as st
 from database import conectar_bd
 import re
 import urllib.parse
+import time
 
 # ==========================================================================
 # OPTIMIZACIÓN DE RENDIMIENTO: Caché para evitar consultas pesadas recurrentes
@@ -28,12 +29,10 @@ def validar_ip(ip_str):
 
 def mostrar_tabla_servidores(rol_usuario=None):
     """
-    Renderiza el catálogo de servidores de forma optimizada.
-    Filtra mediante un menú desplegable ágil asistido por caché de datos.
-    Oculta dinámicamente las columnas cuyos sensores no estén asignados (valor 0).
-    Integra el botón de redirección dinámico en vivo directamente en cada fila de la tabla.
+    Renderiza el catálogo de servidores en una tabla HTML pura y profesional.
+    Permite filtrar por un servidor o seleccionar la opción global para verlos todos.
     """
-    # INYECCIÓN DE ESTILOS PERFECCIONADA: ELIMINA LOS BOTONES + Y - DE LOS INPUTS NUMÉRICOS
+    # INYECCIÓN DE ESTILOS PERFECCIONADA: INTERFAZ LIMPIA
     st.markdown("""
         <style>
             div[data-testid="stForm"] label p {
@@ -78,10 +77,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 margin-top: 10px !important;
                 transition: all 0.3s ease !important;
             }
-            div[data-testid="stForm"] .stHorizontalBlock {
-                padding: 6px 0px !important;
-                gap: 12px !important;
-            }
         </style>
     """, unsafe_allow_html=True)
 
@@ -90,6 +85,17 @@ def mostrar_tabla_servidores(rol_usuario=None):
     
     rol_sanitizado = str(rol_usuario).strip().upper() if rol_usuario else ""
     es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
+
+    # ==========================================================================
+    # PROCESAR REDIRECCIÓN DESDE EL BOTÓN "VER EN VIVO"
+    # ==========================================================================
+    if "redirigir_servidor" in st.session_state and st.session_state["redirigir_servidor"]:
+        servidor = st.session_state["redirigir_servidor"]
+        st.session_state["redirigir_servidor"] = None
+        # Establecer los parámetros para monitoreo
+        st.query_params["p"] = "monitoreo"
+        st.query_params["srv"] = servidor
+        st.rerun()
 
     tab1, tab2 = st.tabs(["📊 Infraestructura y Sensores", "⚙️ Datos Adicionales"])
 
@@ -107,7 +113,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
 
         try:
             lista_nombres_bd = obtener_lista_nombres_servidores()
-            opciones_selectbox = ["-- Seleccione un Servidor --"] + lista_nombres_bd
+            opciones_selectbox = ["-- Seleccione un Servidor --", "-- Ver Todos los Servidores --"] + lista_nombres_bd
 
             idx_actual = 0
             if st.session_state["filtro_servidor_nombre"] in opciones_selectbox:
@@ -136,6 +142,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 st.rerun()
 
             hay_filtro = st.session_state["filtro_servidor_nombre"] != "-- Seleccione un Servidor --"
+            ver_todos = st.session_state["filtro_servidor_nombre"] == "-- Ver Todos los Servidores --"
             servidores_filtrados = []
 
             if not hay_filtro:
@@ -143,23 +150,38 @@ def mostrar_tabla_servidores(rol_usuario=None):
             else:
                 conn = conectar_bd()
                 cursor = conn.cursor(dictionary=True)
-                query = """
-                    SELECT id_servidor, ip, nombre_alias, sistema_operativo, tipo, servicios, estado_monitoreo, fecha_alta, 
-                           id_sensor_cpu, id_sensor_ram, 
-                           id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
-                           id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
-                           id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
-                           id_sensor_red_total, id_sensor_red_entrante, id_sensor_red_saliente, id_sensor_latencia 
-                    FROM servidores
-                    WHERE nombre_alias = %s
-                """
-                cursor.execute(query, (st.session_state["filtro_servidor_nombre"],))
+                
+                if ver_todos:
+                    query = """
+                        SELECT id_servidor, ip, nombre_alias, sistema_operativo, tipo, servicios, estado_monitoreo, fecha_alta, 
+                               id_sensor_cpu, id_sensor_ram, 
+                               id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
+                               id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
+                               id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
+                               id_sensor_red_total, id_sensor_red_entrante, id_sensor_red_saliente, id_sensor_latencia 
+                        FROM servidores
+                        ORDER BY nombre_alias ASC
+                    """
+                    cursor.execute(query)
+                else:
+                    query = """
+                        SELECT id_servidor, ip, nombre_alias, sistema_operativo, tipo, servicios, estado_monitoreo, fecha_alta, 
+                               id_sensor_cpu, id_sensor_ram, 
+                               id_sensor_disco_1, id_sensor_disco_2, id_sensor_disco_3, id_sensor_disco_4, id_sensor_disco_5, id_sensor_disco_6,
+                               id_sensor_servicio_1, id_sensor_servicio_2, id_sensor_servicio_3, id_sensor_servicio_4, id_sensor_servicio_5,
+                               id_sensor_servicio_6, id_sensor_servicio_7, id_sensor_servicio_8,
+                               id_sensor_red_total, id_sensor_red_entrante, id_sensor_red_saliente, id_sensor_latencia 
+                        FROM servidores
+                        WHERE nombre_alias = %s
+                    """
+                    cursor.execute(query, (st.session_state["filtro_servidor_nombre"],))
+                
                 servidores_filtrados = cursor.fetchall()
 
                 if not servidores_filtrados:
-                    st.warning("⚠️ No se encontraron registros detallados para el servidor seleccionado.")
+                    st.warning("⚠️ No se encontraron registros detallados para la selección actual.")
 
-            # Ocultación total: Solo renderizar tabla y controles si el filtro está activo
+            # RECONSTRUCCIÓN DE LA TABLA HTML CON BOTÓN EN TONO CORPORATIVO AZUL
             if hay_filtro and servidores_filtrados:
                 tiene_cpu = any(s['id_sensor_cpu'] != 0 for s in servidores_filtrados)
                 tiene_ram = any(s['id_sensor_ram'] != 0 for s in servidores_filtrados)
@@ -179,19 +201,21 @@ def mostrar_tabla_servidores(rol_usuario=None):
 
                 html_lineas = ["""
                 <style>
-                    .tabla-banco { width: 100%; table-layout: auto !important; border-collapse: collapse; font-family: Arial, sans-serif; }
+                    .tabla-banco { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
                     .tabla-banco th { background-color: #003366 !important; color: white !important; font-weight: bold !important; text-align: center !important; padding: 14px 16px; border: 1px solid #dee2e6 !important; font-size: 11px; text-transform: uppercase; white-space: nowrap !important; }
                     .tabla-banco td { color: #000000 !important; border: 1px solid #dee2e6 !important; padding: 12px 14px; text-align: left; font-size: 13px; white-space: nowrap !important; vertical-align: middle; }
                     .tabla-banco tr:nth-child(even) { background-color: #f8f9fa; }
+                    /* ESTILO DEL BOTÓN DE REDIRECCIÓN EN AZUL CORPORATIVO */
                     .btn-tabla-vivo {
-                        background-color: #003366; color: white !important; padding: 6px 12px; 
-                        text-decoration: none !important; border-radius: 4px; font-weight: bold; 
-                        font-size: 12px; display: inline-block; transition: background-color 0.2s;
+                        background-color: #003366 !important; color: white !important; padding: 8px 18px; 
+                        text-decoration: none !important; border-radius: 5px; font-weight: bold; 
+                        font-size: 13px; display: inline-block; transition: background-color 0.2s;
+                        border: none; cursor: pointer; outline: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                     }
-                    .btn-tabla-vivo:hover { background-color: #002244; }
+                    .btn-tabla-vivo:hover { background-color: #001F40 !important; }
                 </style>
+                <div style="overflow-x: auto;"><table class="tabla-banco"><thead><tr>
                 """]
-                html_lineas.append('<table class="tabla-banco"><thead><tr>')
                 html_lineas.append('<th>DIRECCIÓN IP</th>')
                 html_lineas.append('<th>NOMBRE</th>')
                 html_lineas.append('<th>SISTEMA OPERATIVO</th>')
@@ -218,18 +242,15 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 
                 lista_ips = []
                 mapeo_servidores = {}
+                servidores_para_botones = []
                 
                 for s in servidores_filtrados:
                     lista_ips.append(s['ip'])
                     mapeo_servidores[s['ip']] = s
+                    servidores_para_botones.append(s)
                     
-                    estado_html = '<span style="color: #2E7D32; font-weight: bold;">ACTIVO</span>' if s['estado_monitoreo'] == 1 else '<span style="color: #C62828; font-weight: bold;">INACTIVO</span>'
+                    estado_html = '<span style="color: #2E7D32; font-weight: bold;">🟢 ACTIVO</span>' if s['estado_monitoreo'] == 1 else '<span style="color: #C62828; font-weight: bold;">INACTIVO</span>'
                     fecha_formateada = s['fecha_alta'].strftime("%Y-%m-%d %H:%M") if s['fecha_alta'] else "N/A"
-                    
-                    # Urlencode seguro de los parámetros para evitar quiebres de caracteres raros o espacios
-                    p_param = urllib.parse.quote("🖥️ Monitoreo en vivo")
-                    srv_param = urllib.parse.quote(s["nombre_alias"])
-                    url_redireccion = f"/?p={p_param}&srv={srv_param}"
 
                     html_lineas.append('<tr>')
                     html_lineas.append(f'<td><b>{s["ip"]}</b></td>')
@@ -254,31 +275,51 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     html_lineas.append(f'<td style="text-align: center;">{estado_html}</td>')
                     html_lineas.append(f'<td>{fecha_formateada}</td>')
                     
-                    # BOTÓN EN FILA CON TARGET="_TOP" PARA CONTROLAR LA REDIRECCIÓN GLOBAL
-                    html_lineas.append(f'<td style="text-align: center;"><a href="{url_redireccion}" target="_top" class="btn-tabla-vivo">📊 Ver en Vivo</a></td>')
+                    # Botón temporal - se reemplazará después
+                    html_lineas.append(f'''
+                        <td style="text-align: center;">
+                            <button class="btn-tabla-vivo" id="btn_{s["nombre_alias"].replace(" ", "_")}">📊 Ver en Vivo</button>
+                        </td>
+                    ''')
                     html_lineas.append('</tr>')
                 
-                html_lineas.append('<tbody></table>')
+                html_lineas.append('<tbody></table></div>')
                 html_final = "".join(html_lineas)
                 
-                altura_vista = max(180, len(servidores_filtrados) * 85 + 70)
+                altura_vista = max(180, len(servidores_filtrados) * 55 + 85)
                 st.components.v1.html(html_final, height=altura_vista, scrolling=True)
+                
+                # ==============================================================
+                # BOTONES DE STREAMLIT NATIVOS DEBAJO DE LA TABLA
+                # ==============================================================
+                st.markdown("---")
+                st.markdown("### 📊 Acciones rápidas")
+                
+                # Crear botones nativos de Streamlit para cada servidor
+                cols_botones = st.columns(min(4, len(servidores_para_botones)))
+                for idx, s in enumerate(servidores_para_botones):
+                    col_idx = idx % len(cols_botones)
+                    with cols_botones[col_idx]:
+                        if st.button(f"📊 {s['nombre_alias']}", key=f"btn_vivo_{s['nombre_alias']}", use_container_width=True):
+                            st.session_state["redirigir_servidor"] = s["nombre_alias"]
+                            st.rerun()
 
                 st.markdown("---")
 
                 if not es_seguridad:
                     st.info("ℹ️ **Modo Consulta Activo:** Su perfil de Operador permite verificar la infraestructura pero no dispone de privilegios para modificar el catálogo.")
                 else:
-                    col_b1, col_b2 = st.columns(2)
-                    if col_b1.button("📝 Editar Servidor Filtrado", use_container_width=True, key="btn_crud_editar"):
-                        st.session_state.accion_infra = "editar"
-                        st.rerun()
-                    if col_b2.button("❌ Cambiar Estado / Desactivar", use_container_width=True, key="btn_crud_desactivar"):
-                        st.session_state.accion_infra = "desactivar"
-                        st.rerun()
+                    if not ver_todos:
+                        col_b1, col_b2 = st.columns(2)
+                        if col_b1.button("📝 Editar Servidor Filtrado", use_container_width=True, key="btn_crud_editar"):
+                            st.session_state.accion_infra = "editar"
+                            st.rerun()
+                        if col_b2.button("❌ Cambiar Estado / Desactivar", use_container_width=True, key="btn_crud_desactivar"):
+                            st.session_state.accion_infra = "desactivar"
+                            st.rerun()
 
                 # Formulario de Edición Servidores
-                if st.session_state.accion_infra == "editar" and hay_filtro:
+                if st.session_state.accion_infra == "editar" and hay_filtro and not ver_todos:
                     st.markdown("### ✏️ Modificación de Parámetros Técnicos")
                     ip_edit = st.selectbox("Seleccione la IP del Servidor a Modificar", lista_ips)
                     
@@ -372,7 +413,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 st.rerun()
 
                 # Formulario de Desactivación Servidores
-                elif st.session_state.accion_infra == "desactivar" and hay_filtro:
+                elif st.session_state.accion_infra == "desactivar" and hay_filtro and not ver_todos:
                     st.markdown("### ⚠️ Suspensión Lógica de Monitoreo")
                     with st.form("form_baja_srv"):
                         ip_des = st.selectbox("Seleccione Servidor a cambio de estado", lista_ips)
@@ -483,7 +524,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
         
         try:
             lista_nombres_bd_ad = obtener_lista_nombres_servidores()
-            opciones_selectbox_ad = ["-- Seleccione un Servidor Base --"] + lista_nombres_bd_ad
+            opciones_selectbox_ad = ["-- Seleccione un Servidor Base --", "-- Ver Todos los Servidores Base --"] + lista_nombres_bd_ad
 
             idx_actual_ad = 0
             if st.session_state["filtro_adicional_nombre"] in opciones_selectbox_ad:
@@ -511,6 +552,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 st.rerun()
 
             hay_filtro_ad = st.session_state["filtro_adicional_nombre"] != "-- Seleccione un Servidor Base --"
+            ver_todos_ad = st.session_state["filtro_adicional_nombre"] == "-- Ver Todos los Servidores Base --"
             registros_adicionales = []
 
             conn_ad = conectar_bd()
@@ -519,30 +561,42 @@ def mostrar_tabla_servidores(rol_usuario=None):
             cursor_ad.execute("SELECT id_servidor, ip, nombre_alias FROM servidores ORDER BY nombre_alias ASC")
             servidores_maestros = cursor_ad.fetchall()
             opciones_srv_map = {f"{s['nombre_alias']} ({s['ip']})": s['id_servidor'] for s in servidores_maestros}
-            opciones_srv_reverse = {s['id_servidor']: f"{s['nombre_alias']} ({s['ip']})" for s in servidores_maestros}
 
             if not hay_filtro_ad:
                 st.info("💡 Por favor, seleccione un servidor de la lista desplegable superior para visualizar sus máquinas virtuales y entornos adicionales.")
             else:
-                query_select_ad = """
-                    SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
-                           da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
-                           da.nombre_switch, da.direccion_mac, da.direcciones_ip, da.version, 
-                           da.tamano_gb, da.amount_vhd, da.funcion
-                    FROM datos_adicionales da
-                    INNER JOIN servidores s ON da.id_servidor = s.id_servidor
-                    WHERE s.nombre_alias = %s
-                    ORDER BY da.id DESC
-                """
-                cursor_ad.execute(query_select_ad, (st.session_state["filtro_adicional_nombre"],))
+                if ver_todos_ad:
+                    query_select_ad = """
+                        SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
+                               da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
+                               da.nombre_switch, da.direccion_mac, da.direcciones_ip, da.version, 
+                               da.tamano_gb, da.amount_vhd, da.funcion
+                        FROM datos_adicionales da
+                        INNER JOIN servidores s ON da.id_servidor = s.id_servidor
+                        ORDER BY s.nombre_alias ASC, da.id DESC
+                    """
+                    cursor_ad.execute(query_select_ad)
+                else:
+                    query_select_ad = """
+                        SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
+                               da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
+                               da.nombre_switch, da.direccion_mac, da.direcciones_ip, da.version, 
+                               da.tamano_gb, da.amount_vhd, da.funcion
+                        FROM datos_adicionales da
+                        INNER JOIN servidores s ON da.id_servidor = s.id_servidor
+                        WHERE s.nombre_alias = %s
+                        ORDER BY da.id DESC
+                    """
+                    cursor_ad.execute(query_select_ad, (st.session_state["filtro_adicional_nombre"],))
+                
                 registros_adicionales = cursor_ad.fetchall()
             
                 if not registros_adicionales:
-                    st.warning("⚠️ No se encuentran entornos o máquinas virtuales registradas para el servidor seleccionado.")
+                    st.warning("⚠️ No se encuentran entornos o máquinas virtuales registradas para la selección.")
                 else:
                     html_ad = ["""
                     <style>
-                        .tabla-banco { width: 100%; table-layout: auto !important; border-collapse: collapse; font-family: Arial, sans-serif; }
+                        .tabla-banco { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
                         .tabla-banco th { background-color: #003366 !important; color: white !important; font-weight: bold !important; text-align: center !important; padding: 14px 16px; border: 1px solid #dee2e6 !important; font-size: 11px; text-transform: uppercase; white-space: nowrap !important; }
                         .tabla-banco td { color: #000000 !important; border: 1px solid #dee2e6 !important; padding: 12px 14px; text-align: left; font-size: 13px; white-space: nowrap !important; }
                         .tabla-banco tr:nth-child(even) { background-color: #f8f9fa; }
@@ -578,16 +632,16 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         """)
                     html_ad.append("</tbody></table></div>")
                     
-                    altura_ad = max(180, len(registros_adicionales) * 60 + 70)
+                    altura_ad = max(180, len(registros_adicionales) * 55 + 75)
                     st.components.v1.html("".join(html_ad), height=altura_ad, scrolling=True)
 
                 st.markdown("---")
 
-                # ACCIONES CRUD PESTAÑA 2 (Solo si hay un filtro aplicado)
+                # ACCIONES CRUD PESTAÑA 2
                 if not es_seguridad:
                     st.info("ℹ️ **Modo Consulta Activo:** Su cuenta operativa actual no posee permisos para alterar la matriz de datos adicionales.")
                 else:
-                    if st.session_state.accion_adicional is None:
+                    if st.session_state.accion_adicional is None and not ver_todos_ad:
                         c_ab1, c_ab2 = st.columns(2)
                         if c_ab1.button("➕ Registrar Parámetro Adicional", use_container_width=True, key="btn_ad_crear"):
                             st.session_state.accion_adicional = "registrar"

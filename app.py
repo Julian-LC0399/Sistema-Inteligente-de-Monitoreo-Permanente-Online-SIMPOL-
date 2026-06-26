@@ -132,9 +132,9 @@ def gestionar_limpieza_filtros(seccion_destino):
     Controla los estados de los filtros de monitoreo, usuarios, servidores,
     reportes, capacity planning y alertas.
     """
-    # BLINDAJE CRÍTICO: Si venimos redireccionados por el botón "Ver Datos" (comprobando url o estado), 
-    # abortamos cualquier purga destructiva antes de pintar la pantalla destino.
-    if seccion_destino == "🖥️ Monitoreo en vivo" or st.query_params.get("p") == "🖥️ Monitoreo en vivo":
+    # BLINDAJE ULTRA-CRÍTICO: Si en la URL viene el parámetro "srv" o ya estamos en monitoreo, 
+    # abortamos cualquier purga destructiva para no romper la redirección activa.
+    if "srv" in st.query_params or seccion_destino == "🖥️ Monitoreo en vivo" or st.query_params.get("p") == "🖥️ Monitoreo en vivo":
         return
 
     if seccion_destino != "🖥️ Monitoreo en vivo":
@@ -144,9 +144,6 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
         if "servidor_seleccionado" in st.session_state:
             st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
-        if "srv" in st.query_params:
-            try: del st.query_params["srv"]
-            except KeyError: pass
 
     if seccion_destino != "👥 Gestión de usuarios":
         if "filtro_analista" in st.session_state:
@@ -203,6 +200,31 @@ def gestionar_limpieza_filtros(seccion_destino):
 def main():
     params = st.query_params
     
+    # =============================================================
+    # CAPTURAR PARÁMETRO SRV DE LA URL
+    # =============================================================
+    srv_desde_url = params.get("srv")
+    if srv_desde_url:
+        # Guardar en session_state para persistencia
+        st.session_state["_srv_redirect"] = srv_desde_url
+        st.session_state["_srv_captured"] = True
+        logging.info(f"🔴 SRV capturado desde URL: {srv_desde_url}")
+        
+        # FORZAR LA SECCIÓN DE MONITOREO INMEDIATAMENTE
+        st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+        st.session_state["nav_radio"] = "🖥️ Monitoreo en vivo"
+        # Guardar el servidor en el filtro de monitoreo
+        st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
+        # También en el filtro alternativo
+        st.session_state["servidor_seleccionado"] = srv_desde_url
+        
+        # Limpiar el parámetro de la URL después de capturarlo
+        # pero mantenerlo en session_state
+        try:
+            del st.query_params["srv"]
+        except:
+            pass
+    
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = True if params.get("s") == "1" else False
     
@@ -231,13 +253,13 @@ def main():
     else:
         placeholder_principal = st.empty()
         
-        # --- LÓGICA DE RUTAS Y SINCRONIZACIÓN PERFECCIONADA ---
+        # --- LÓGICA DE RUTAS Y SINCRONIZACIÓN ---
         url_pestaña = params.get("p")
         
         if "navegacion_principal" in st.session_state:
             destino = st.session_state["navegacion_principal"]
             st.session_state["seccion_actual"] = destino
-            st.session_state["nav_radio"] = destino  # Alínea el widget de la barra lateral de menu.py antes de renderizar
+            st.session_state["nav_radio"] = destino  
             del st.session_state["navegacion_principal"] 
         elif "seccion_actual" not in st.session_state:
             st.session_state["seccion_actual"] = url_pestaña if url_pestaña else "🏠 Inicio"
@@ -246,14 +268,28 @@ def main():
                 st.session_state["seccion_actual"] = url_pestaña
                 st.session_state["nav_radio"] = url_pestaña
 
-        # Evita que el menú lateral pise la selección manual del usuario
         if st.session_state.get("nav_radio") and st.session_state["nav_radio"] != st.session_state["seccion_actual"]:
             st.session_state["seccion_actual"] = st.session_state["nav_radio"]
+        
+        # =============================================================
+        # VERIFICAR REDIRECCIÓN PENDIENTE
+        # =============================================================
+        if "_srv_redirect" in st.session_state and st.session_state["_srv_redirect"]:
+            # Si la sección actual es monitoreo, asegurar que el filtro esté configurado
+            if st.session_state["seccion_actual"] == "🖥️ Monitoreo en vivo":
+                if not st.session_state.get("_srv_processed", False):
+                    st.session_state["filtro_monitoreo_nombre"] = st.session_state["_srv_redirect"]
+                    st.session_state["servidor_seleccionado"] = st.session_state["_srv_redirect"]
+                    st.session_state["_srv_processed"] = True
+                    logging.info(f"🟢 SRV aplicado a monitoreo: {st.session_state['_srv_redirect']}")
         
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         
         generar_menu()
         
+        # =============================================================
+        # SINCRONIZAR URL CON SESSION_STATE
+        # =============================================================
         if params.get("p") != st.session_state["seccion_actual"]:
             placeholder_principal.empty()  
             st.query_params["p"] = st.session_state["seccion_actual"]
@@ -264,6 +300,8 @@ def main():
         st.query_params["uid"] = str(st.session_state.get("user_id", 1))
         st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
         st.query_params["c"] = st.session_state.get("cargo", "Analista")
+        
+        # Ya no mantenemos srv en query_params porque ya fue capturado y procesado
         
         seleccion = st.session_state["seccion_actual"]
 

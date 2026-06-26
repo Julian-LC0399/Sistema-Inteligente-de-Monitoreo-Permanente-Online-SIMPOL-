@@ -315,7 +315,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         unsafe_allow_html=True
     )
 
-    # Inicializadores base de controles de estado
+    # =========================================================================
+    # INICIALIZAR ESTADOS BASE - SIEMPRE PRIMERO
+    # =========================================================================
     if "sb_srv_tab1" not in st.session_state:
         st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
     if "sb_metrica_tab1" not in st.session_state:
@@ -326,21 +328,66 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
 
     # =========================================================================
-    # INTERCEPTOR DE REDIRECCIÓN EXCLUSIVO DESDE SERVIDORES.PY
+    # INTERCEPTOR DE REDIRECCIÓN - PROCESAR DESPUÉS DE INICIALIZAR
     # =========================================================================
-    if "filtro_monitoreo_nombre" in st.session_state and st.session_state["filtro_monitoreo_nombre"]:
-        srv_redireccionado = st.session_state["filtro_monitoreo_nombre"]
+    srv_redireccionado = None
+    redireccion_procesada = False
+    
+    # Prioridad 1: Leer desde filtro_monitoreo_nombre (app.py lo establece)
+    if "filtro_monitoreo_nombre" in st.session_state:
+        valor_filtro = st.session_state["filtro_monitoreo_nombre"]
+        if valor_filtro and valor_filtro != "-- Seleccione un Servidor--":
+            srv_redireccionado = valor_filtro
+            redireccion_procesada = True
+            # Limpiar para evitar procesamiento repetido
+            del st.session_state["filtro_monitoreo_nombre"]
+            # Guardar en _srv_redireccion para persistencia
+            st.session_state["_srv_redireccion"] = srv_redireccionado
+    
+    # Prioridad 2: Leer desde Query Params de la URL
+    elif "srv" in st.query_params:
+        srv_redireccionado = st.query_params.get("srv")
+        redireccion_procesada = True
+        # Guardar en session_state para persistencia
+        st.session_state["_srv_redireccion"] = srv_redireccionado
+        # Eliminar de query_params
+        try: 
+            del st.query_params["srv"] 
+        except KeyError: 
+            pass
         
-        # Sincronizamos los selectboxes globales con el servidor solicitado
-        st.session_state["sb_srv_tab1"] = srv_redireccionado
-        st.session_state["sb_graf_srv"] = srv_redireccionado
+    # Prioridad 3: Leer desde session_state (si ya fue procesado pero necesitamos mantenerlo)
+    elif "_srv_redireccion" in st.session_state and not st.session_state.get("_srv_procesado", False):
+        srv_redireccionado = st.session_state["_srv_redireccion"]
+        redireccion_procesada = True
+
+    # Si se detectó una redirección válida, forzamos los valores
+    if srv_redireccionado and redireccion_procesada:
+        # Verificar que el servidor existe en la base de datos
+        servidores_temp = obtener_lista_servidores()
+        nombres_validos = [s['nombre_alias'] for s in servidores_temp if s.get('nombre_alias')]
         
-        # Opcional: Activamos la métrica inicial de RAM para mostrar telemetría de inmediato
-        st.session_state["sb_graf_sensor"] = "🧠 Memoria (RAM)"
-        st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-        
-        # Consumimos la variable para que no bloquee elecciones futuras en el dashboard
-        del st.session_state["filtro_monitoreo_nombre"]
+        if srv_redireccionado in nombres_validos:
+            # Forzar los valores en session_state
+            st.session_state["sb_srv_tab1"] = srv_redireccionado
+            st.session_state["sb_graf_srv"] = srv_redireccionado
+            st.session_state["sb_graf_sensor"] = "🧠 Memoria (RAM)"
+            st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+            
+            # Marcar como procesado
+            st.session_state["_srv_procesado"] = True
+            
+            # Mostrar mensaje de éxito (solo una vez)
+            if not st.session_state.get("_srv_mensaje_mostrado", False):
+                st.success(f"✅ Redirigido al servidor: **{srv_redireccionado}**")
+                st.session_state["_srv_mensaje_mostrado"] = True
+        else:
+            # El servidor no existe, limpiar la redirección
+            if "_srv_redireccion" in st.session_state:
+                del st.session_state["_srv_redireccion"]
+            if "_srv_procesado" in st.session_state:
+                del st.session_state["_srv_procesado"]
+            st.warning(f"⚠️ El servidor '{srv_redireccionado}' no existe en la base de datos.")
 
     servidores_activos = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores_activos if s.get('nombre_alias')])))
@@ -402,6 +449,13 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab1", use_container_width=True):
                     st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
                     st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+                    # Limpiar también la redirección si existe
+                    if "_srv_redireccion" in st.session_state:
+                        del st.session_state["_srv_redireccion"]
+                    if "_srv_procesado" in st.session_state:
+                        del st.session_state["_srv_procesado"]
+                    if "_srv_mensaje_mostrado" in st.session_state:
+                        del st.session_state["_srv_mensaje_mostrado"]
                     st.rerun()
 
             if not servidor_seleccionado_tab1:
