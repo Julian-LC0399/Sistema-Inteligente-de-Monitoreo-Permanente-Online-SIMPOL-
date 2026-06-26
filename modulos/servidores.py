@@ -77,6 +77,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 margin-top: 10px !important;
                 transition: all 0.3s ease !important;
             }
+            /* Ocultar mensaje de "Press Enter" */
+            [data-testid="stTextInputInstructions"] {
+                display: none !important;
+            }
         </style>
     """, unsafe_allow_html=True)
 
@@ -87,7 +91,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
     es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
 
     # ==========================================================================
-    # PROCESAR REDIRECCIÓN DESDE EL BOTÓN "VER EN VIVO"
+    # PROCESAR REDIRECCIÓN DESDE LOS BOTONES NATIVOS DE STREAMLIT
     # ==========================================================================
     if "redirigir_servidor" in st.session_state and st.session_state["redirigir_servidor"]:
         servidor = st.session_state["redirigir_servidor"]
@@ -181,7 +185,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 if not servidores_filtrados:
                     st.warning("⚠️ No se encontraron registros detallados para la selección actual.")
 
-            # RECONSTRUCCIÓN DE LA TABLA HTML CON BOTÓN EN TONO CORPORATIVO AZUL
+            # RECONSTRUCCIÓN DE LA TABLA HTML (SIN BOTÓN DE ACCIÓN)
             if hay_filtro and servidores_filtrados:
                 tiene_cpu = any(s['id_sensor_cpu'] != 0 for s in servidores_filtrados)
                 tiene_ram = any(s['id_sensor_ram'] != 0 for s in servidores_filtrados)
@@ -205,14 +209,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     .tabla-banco th { background-color: #003366 !important; color: white !important; font-weight: bold !important; text-align: center !important; padding: 14px 16px; border: 1px solid #dee2e6 !important; font-size: 11px; text-transform: uppercase; white-space: nowrap !important; }
                     .tabla-banco td { color: #000000 !important; border: 1px solid #dee2e6 !important; padding: 12px 14px; text-align: left; font-size: 13px; white-space: nowrap !important; vertical-align: middle; }
                     .tabla-banco tr:nth-child(even) { background-color: #f8f9fa; }
-                    /* ESTILO DEL BOTÓN DE REDIRECCIÓN EN AZUL CORPORATIVO */
-                    .btn-tabla-vivo {
-                        background-color: #003366 !important; color: white !important; padding: 8px 18px; 
-                        text-decoration: none !important; border-radius: 5px; font-weight: bold; 
-                        font-size: 13px; display: inline-block; transition: background-color 0.2s;
-                        border: none; cursor: pointer; outline: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    }
-                    .btn-tabla-vivo:hover { background-color: #001F40 !important; }
                 </style>
                 <div style="overflow-x: auto;"><table class="tabla-banco"><thead><tr>
                 """]
@@ -237,7 +233,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 
                 html_lineas.append('<th>ESTADO</th>')
                 html_lineas.append('<th>FECHA REGISTRO</th>')
-                html_lineas.append('<th style="text-align: center;">ACCIONES</th>')
                 html_lineas.append('</tr></thead><tbody>')
                 
                 lista_ips = []
@@ -274,13 +269,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     html_lineas.append(f'<td style="text-align: center;">{estado_html}</td>')
                     html_lineas.append(f'<td>{fecha_formateada}</td>')
-                    
-                    # Botón temporal - se reemplazará después
-                    html_lineas.append(f'''
-                        <td style="text-align: center;">
-                            <button class="btn-tabla-vivo" id="btn_{s["nombre_alias"].replace(" ", "_")}">📊 Ver en Vivo</button>
-                        </td>
-                    ''')
                     html_lineas.append('</tr>')
                 
                 html_lineas.append('<tbody></table></div>')
@@ -290,17 +278,23 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 st.components.v1.html(html_final, height=altura_vista, scrolling=True)
                 
                 # ==============================================================
-                # BOTONES DE STREAMLIT NATIVOS DEBAJO DE LA TABLA
+                # BOTONES NATIVOS DE STREAMLIT PARA "VER EN VIVO"
                 # ==============================================================
                 st.markdown("---")
-                st.markdown("### 📊 Acciones rápidas")
+                st.markdown("### 📊 Ver en Vivo - Seleccione un Servidor")
                 
                 # Crear botones nativos de Streamlit para cada servidor
-                cols_botones = st.columns(min(4, len(servidores_para_botones)))
+                num_columnas = min(4, len(servidores_para_botones))
+                cols_botones = st.columns(num_columnas)
                 for idx, s in enumerate(servidores_para_botones):
-                    col_idx = idx % len(cols_botones)
+                    col_idx = idx % num_columnas
                     with cols_botones[col_idx]:
-                        if st.button(f"📊 {s['nombre_alias']}", key=f"btn_vivo_{s['nombre_alias']}", use_container_width=True):
+                        # Botón con el nombre del servidor y estilo personalizado
+                        if st.button(
+                            f"📊 {s['nombre_alias']}", 
+                            key=f"btn_vivo_{s['nombre_alias']}", 
+                            use_container_width=True
+                        ):
                             st.session_state["redirigir_servidor"] = s["nombre_alias"]
                             st.rerun()
 
