@@ -185,15 +185,22 @@ def ejecutar_motor_agente():
                     status_cpu = "ESTABLE"
                     status_ram = "ESTABLE"
                     status_latencia = "ESTABLE"
-                    status_discos_lista = []
+                    status_discos = {}
                     
                     log_items_consola = []
 
-                    # --- CPU ---
+                    # =============================================================
+                    # CPU - Estados correctos (valores más altos = peor)
+                    # =============================================================
                     if id_cpu > 0:
-                        v_cpu = safe_float(telemetria.get("cpu") or telemetria.get("CPU"))
-                        if v_cpu >= umbrales["cpu_critico"]: status_cpu = "CRÍTICO"
-                        elif v_cpu >= umbrales["cpu_advertencia"]: status_cpu = "PRECAUCIÓN"
+                        v_cpu = safe_float(telemetria.get("cpu") or telemetria.get("CPU", 0.0))
+                        
+                        if v_cpu >= umbrales["cpu_critico"]:
+                            status_cpu = "CRÍTICO"
+                        elif v_cpu >= umbrales["cpu_advertencia"]:
+                            status_cpu = "PRECAUCIÓN"
+                        else:
+                            status_cpu = "ESTABLE"
                         
                         registrar_o_resolver_alerta(ip, "CPU", status_cpu, 100, 100 - v_cpu, v_cpu, id_cpu)
                         columnas_sql.append("val_cpu")
@@ -205,23 +212,31 @@ def ejecutar_motor_agente():
                             columnas_sql.append(f"val_cpu_p{idx}")
                             parametros_sql.append(v_core)
                             cores_txt.append(f"P{idx}: {v_core}%")
-                        log_items_consola.append(f"• CPU Global: {v_cpu}% [{', '.join(cores_txt)}]")
+                        log_items_consola.append(f"• CPU Global: {v_cpu}% [{', '.join(cores_txt)}] -> [{status_cpu}]")
 
-                    # --- RAM ---
+                    # =============================================================
+                    # RAM - Estados correctos (valores más bajos = peor - porcentaje libre)
+                    # =============================================================
                     if id_ram > 0:
                         v_ram_total = safe_float(telemetria.get("ram_total_gb") or telemetria.get("RAM_TOTAL_GB", 0.0))
                         v_ram_pct = safe_float(telemetria.get("ram_pct") or telemetria.get("ram_disponible_pct") or telemetria.get("RAM_PCT", 100.0))
                         v_ram_gb = safe_float(telemetria.get("ram_gb") or telemetria.get("ram_disponible_gb") or telemetria.get("RAM_GB", 0.0))
                         
-                        if v_ram_pct <= umbrales["ram_critico"]: status_ram = "CRÍTICO"
-                        elif v_ram_pct <= umbrales["ram_advertencia"]: status_ram = "PRECAUCIÓN"
+                        if v_ram_pct <= umbrales["ram_critico"]:
+                            status_ram = "CRÍTICO"
+                        elif v_ram_pct <= umbrales["ram_advertencia"]:
+                            status_ram = "PRECAUCIÓN"
+                        else:
+                            status_ram = "ESTABLE"
                         
                         registrar_o_resolver_alerta(ip, "RAM", status_ram, v_ram_total, v_ram_gb, v_ram_pct, id_ram)
                         columnas_sql.extend(["val_ram_total_gb", "val_ram_disponible_pct", "val_ram_disponible_gb"])
                         parametros_sql.extend([v_ram_total, v_ram_pct, v_ram_gb])
                         log_items_consola.append(f"• RAM Libre: {v_ram_pct}% ({v_ram_gb}/{v_ram_total} GB) -> [{status_ram}]")
 
-                    # --- TRÁFICO RED ---
+                    # =============================================================
+                    # RED - Solo registro de datos
+                    # =============================================================
                     v_red_tot = safe_float(telemetria.get("red_total") or telemetria.get("RED_TOTAL", 0.0))
                     v_red_ent = safe_float(telemetria.get("red_entrante") or telemetria.get("RED_ENTRANTE", 0.0))
                     v_red_sal = safe_float(telemetria.get("red_saliente") or telemetria.get("RED_SALIENTE", 0.0))
@@ -239,7 +254,9 @@ def ejecutar_motor_agente():
                     if id_red_total > 0 or id_red_entrante > 0 or id_red_saliente > 0:
                         log_items_consola.append(f"• Red Tráfico: Total {v_red_tot} Mbps | Entrante: {v_red_ent} Mbps | Saliente: {v_red_sal} Mbps")
 
-                    # --- DISCOS ---
+                    # =============================================================
+                    # DISCOS - Estados correctos (valores más bajos = peor - porcentaje libre)
+                    # =============================================================
                     for i in range(1, 7):
                         id_sensor_disco = ids_discos[i-1]
                         if id_sensor_disco > 0:
@@ -252,18 +269,30 @@ def ejecutar_motor_agente():
                             clave_critico = "disco_critico" if i == 1 else f"disco_{i}_critico"
                             clave_advertencia = "disco_advertencia" if i == 1 else f"disco_{i}_advertencia"
                             
-                            st_disco = "ESTABLE"
-                            if status_prtg == 4 or pct_libre <= umbrales[clave_advertencia]: st_disco = "PRECAUCIÓN"
-                            if status_prtg == 3 or pct_libre <= umbrales[clave_critico]: st_disco = "CRÍTICO"
+                            # Disco: valores más bajos = peor (porcentaje libre)
+                            if pct_libre <= umbrales[clave_critico]:
+                                st_disco = "CRÍTICO"
+                            elif pct_libre <= umbrales[clave_advertencia]:
+                                st_disco = "PRECAUCIÓN"
+                            else:
+                                st_disco = "ESTABLE"
+                            
+                            if status_prtg in [2, 3]:
+                                st_disco = "CRÍTICO"
+                            elif status_prtg == 4:
+                                if st_disco == "ESTABLE":
+                                    st_disco = "PRECAUCIÓN"
                                 
-                            status_discos_lista.append(st_disco)
+                            status_discos[i] = st_disco
                             registrar_o_resolver_alerta(ip, letra_unidad, st_disco, total_gb, libres_gb, pct_libre, id_sensor_disco)
                             
                             columnas_sql.extend([f"val_disco_{i}_total_gb", f"val_disco_{i}_pct_libre", f"val_disco_{i}_libres_gb"])
                             parametros_sql.extend([total_gb, pct_libre, libres_gb])
                             log_items_consola.append(f"• {letra_unidad}: {pct_libre}% Libre ({libres_gb}/{total_gb} GB) -> [{st_disco}]")
 
-                    # --- SERVICIOS ---
+                    # =============================================================
+                    # SERVICIOS
+                    # =============================================================
                     for j in range(1, 9):
                         id_sensor_servicio = ids_servicios[j-1]
                         if id_sensor_servicio > 0:
@@ -271,8 +300,12 @@ def ejecutar_motor_agente():
                             status_prtg_srv = telemetria.get(f"servicio_{j}_prtg_status")
                             
                             if status_prtg_srv:
-                                if int(status_prtg_srv) == 3: st_servicio = "DOWN"
-                                elif int(status_prtg_srv) == 4: st_servicio = "PRECAUCIÓN"
+                                if int(status_prtg_srv) in [2, 3]:
+                                    st_servicio = "CRÍTICO"
+                                elif int(status_prtg_srv) == 4:
+                                    st_servicio = "PRECAUCIÓN"
+                                elif int(status_prtg_srv) == 1:
+                                    st_servicio = "ACTIVO"
                             
                             nivel_alerta = "CRÍTICO" if st_servicio in ["DOWN", "CRÍTICO", "INACTIVO"] else ("PRECAUCIÓN" if st_servicio == "PRECAUCIÓN" else "ACTIVO")
                             registrar_o_resolver_alerta(ip, f"Servicio_{j}", nivel_alerta, 0, 0, 0, id_sensor_servicio)
@@ -281,17 +314,21 @@ def ejecutar_motor_agente():
                             parametros_sql.append(st_servicio)
                             log_items_consola.append(f"• Servicio {j}: -> [{st_servicio}]")
 
-                    # --- LATENCIA ---
+                    # =============================================================
+                    # LATENCIA - Estados correctos (valores más altos = peor)
+                    # =============================================================
                     if id_latencia > 0:
                         v_ping = safe_float(telemetria.get("latencia_ping") or telemetria.get("LATENCIA_PING", 0.0))
                         v_max = safe_float(telemetria.get("latencia_max") or telemetria.get("LATENCIA_MAX", 0.0))
                         v_min = safe_float(telemetria.get("latencia_min") or telemetria.get("LATENCIA_MIN", 0.0))
-                        v_loss = safe_float(telemetria.get("latencia_loss") or telemetria.get("LATENCIA_LOSS", 0.0))
+                        v_loss = safe_float(telemetria.get("latencia_perdida") or telemetria.get("LATENCIA_LOSS", 0.0))
 
-                        if v_ping >= safe_float(umbrales.get("latencia_limite_ms", 150.0)) or v_loss >= safe_float(umbrales.get("perdida_limite_pct", 5.0)):
+                        if v_ping >= umbrales["latencia_limite_ms"] or v_loss >= umbrales["perdida_limite_pct"]:
                             status_latencia = "CRÍTICO"
                         elif v_ping >= 50.0 or v_loss > 0.0:
                             status_latencia = "PRECAUCIÓN"
+                        else:
+                            status_latencia = "ESTABLE"
                         
                         registrar_o_resolver_alerta(ip, "LATENCIA", status_latencia, 0, 0, v_ping, id_latencia)
                         
@@ -299,17 +336,43 @@ def ejecutar_motor_agente():
                         parametros_sql.extend([v_ping, v_max, v_min, v_loss])
                         log_items_consola.append(f"• Latencia Ping: Avg {v_ping}ms | Max {v_max}ms | Pérdida: {v_loss}% -> [{status_latencia}]")
 
-                    # --- SEMÁFORO DE SALUD ---
-                    estado_sistema_code = "3"
-                    if "CRÍTICO" in [status_cpu, status_ram, status_latencia] or "CRÍTICO" in status_discos_lista: 
-                        estado_sistema_code = "5"
-                    elif "PRECAUCIÓN" in [status_cpu, status_ram, status_latencia] or "PRECAUCIÓN" in status_discos_lista: 
-                        estado_sistema_code = "4"
+                    # =============================================================
+                    # SEMÁFORO DE SALUD - Estado general del sistema
+                    # =============================================================
+                    tiene_critico = False
+                    tiene_precaucion = False
+                    
+                    if status_cpu == "CRÍTICO":
+                        tiene_critico = True
+                    elif status_cpu == "PRECAUCIÓN":
+                        tiene_precaucion = True
+                    
+                    if status_ram == "CRÍTICO":
+                        tiene_critico = True
+                    elif status_ram == "PRECAUCIÓN":
+                        tiene_precaucion = True
+                    
+                    if status_latencia == "CRÍTICO":
+                        tiene_critico = True
+                    elif status_latencia == "PRECAUCIÓN":
+                        tiene_precaucion = True
+                    
+                    for st_d in status_discos.values():
+                        if st_d == "CRÍTICO":
+                            tiene_critico = True
+                        elif st_d == "PRECAUCIÓN":
+                            tiene_precaucion = True
+                    
+                    if tiene_critico:
+                        estado_sistema = "5"
+                    elif tiene_precaucion:
+                        estado_sistema = "4"
+                    else:
+                        estado_sistema = "3"
 
                     columnas_sql.extend(["estado_sistema", "fecha_registro"])
-                    parametros_sql.extend([str(estado_sistema_code), datetime.now()])
+                    parametros_sql.extend([estado_sistema, datetime.now()])
 
-                    # Inserción a la BD
                     placeholders = ", ".join(["%s"] * len(parametros_sql))
                     query = f"INSERT INTO monitoreo ({', '.join(columnas_sql)}) VALUES ({placeholders})"
                     cursor_write = conn.cursor()
@@ -319,14 +382,19 @@ def ejecutar_motor_agente():
 
                     modo_conexion = telemetria.get("modo_conexion", "MODO PRTG")
 
-                    # Renderizado del Log en Consola
                     print(f"\n🖥️  [NODO PROCESADO]: '{nombre}' ({ip}) | 🌐 Conexión: {modo_conexion}")
                     print(f"   ├─📊 [TELEMETRÍA REGISTRADA]:")
                     for line in log_items_consola:
                         print(f"   │  {line}")
-                    print(f"   │  • CÓDIGO DE SALUD REGISTRADO: {estado_sistema_code}")
                     
-                    # Alertas vigentes reales de la BD
+                    if estado_sistema == "5":
+                        estado_color = "🔴 CRÍTICO"
+                    elif estado_sistema == "4":
+                        estado_color = "🟡 PRECAUCIÓN"
+                    else:
+                        estado_color = "🟢 ESTABLE"
+                    print(f"   │  • ESTADO DEL SISTEMA: {estado_color}")
+                    
                     cursor_alertas = conn.cursor(dictionary=True)
                     cursor_alertas.execute("SELECT componente, tipo_alerta, comentario FROM alertas WHERE ip_servidor = %s AND estado_alerta = 'ACTIVA'", (ip,))
                     alertas_vigentes = cursor_alertas.fetchall()
@@ -335,13 +403,21 @@ def ejecutar_motor_agente():
                     print(f"   └─🚨 [ALERTAS ACTIVAS BD]:")
                     if alertas_vigentes:
                         for al in alertas_vigentes:
-                            print(f"      ⚠️  -> [{al['componente']}] | Nivel: {al['tipo_alerta']} | Info: {al['comentario']}")
+                            if al['tipo_alerta'] == "CRÍTICO":
+                                alert_color = "🔴"
+                            elif al['tipo_alerta'] == "PRECAUCIÓN":
+                                alert_color = "🟡"
+                            else:
+                                alert_color = "🟢"
+                            print(f"      {alert_color} -> [{al['componente']}] | Nivel: {al['tipo_alerta']} | Info: {al['comentario']}")
                     else:
                         print(f"      ✅ Nodo limpio. Sin anomalías vigentes.")
                     print("-" * 95, flush=True)
 
             except Exception as e_ciclo:
                 print(f"❌ Fallo crítico en el bucle: {str(e_ciclo)}", flush=True)
+                import traceback
+                traceback.print_exc()
             finally:
                 if conn and conn.is_connected(): conn.close()
 
