@@ -16,21 +16,16 @@ def callback_cambio_servidor_tab2():
 # =========================================================================
 # PESTAÑA 2 ENCAPSULADA EN UN FRAGMENTO (TIEMPO REAL DINÁMICO)
 # =========================================================================
-@st.fragment()  
+@st.fragment(run_every=30)
 def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_componentes, servidores_activos):
     # =============================================================
-    # VERIFICAR FLAG DE LIMPIEZA EN QUERY_PARAMS
+    # PROCESAR LIMPIEZA INMEDIATA DESDE SESSION_STATE
     # =============================================================
-    if st.query_params.get("limpiar_tab2") == "1":
-        # Limpiar los valores en session_state
+    if st.session_state.get("_limpiar_tab2", False):
         st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
         st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
-        # Eliminar el flag de la URL
-        try:
-            del st.query_params["limpiar_tab2"]
-        except:
-            pass
-        # Recargar el fragment
+        st.session_state["_limpiar_tab2"] = False
+        # Recargar el fragment para mostrar los cambios
         st.rerun(scope="fragment")
         return
 
@@ -58,14 +53,11 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         )
     with col_g_limpiar_2:
         if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab2_inner", use_container_width=True):
-            # Establecer flag de limpieza en query_params
-            st.query_params["limpiar_tab2"] = "1"
+            # Establecer flag de limpieza en session_state
+            st.session_state["_limpiar_tab2"] = True
             st.rerun(scope="fragment")
             return
 
-    # =============================================================
-    # SI NO HAY SERVIDOR SELECCIONADO, NO MOSTRAR GRÁFICAS
-    # =============================================================
     if not servidor_seleccionado_tab2:
         st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">🖥️ Por favor, seleccione primero un <b>Servidor Bajo Análisis</b> para habilitar la selección de componentes.</p>', unsafe_allow_html=True)
         return
@@ -216,7 +208,7 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     cols_dashboard = st.columns(num_sensores)
     
     if agente_activo:
-        st.markdown('<p style="font-size: 11px; color: #47a323; margin-bottom: 5px; text-align: right;">🟢 <b>Live Feed Activo</b> — Actualizando datos cada 15s</p>', unsafe_allow_html=True)
+        st.markdown('<p style="font-size: 11px; color: #47a323; margin-bottom: 5px; text-align: right;">🟢 <b>Live Feed Activo</b> — Actualizando datos cada 30s</p>', unsafe_allow_html=True)
     else:
         st.markdown(f'<p style="font-size: 11px; color: #d40000; margin-bottom: 5px; text-align: right;">⚠️ <b>Agente Desconectado (Offline)</b> — Mostrando últimos datos estáticos ({ultima_fecha.strftime("%Y-%m-%d %H:%M:%S")})</p>', unsafe_allow_html=True)
 
@@ -321,17 +313,13 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     st.markdown("---")
     st.info(explicacion_comun)
 
-    if agente_activo:
-        time.sleep(15)
-        st.rerun(scope="fragment")
-
 
 # =========================================================================
 # FUNCIÓN PARA RENDERIZAR LA TABLA DE HISTÓRICO CON AUTO-REFRESH
 # =========================================================================
-@st.fragment(run_every=15)
+@st.fragment(run_every=30)
 def renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas):
-    """Renderiza la tabla de histórico con auto-refresh cada 15 segundos"""
+    """Renderiza la tabla de histórico con auto-refresh cada 30 segundos"""
     
     info_srv_actual = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
     es_vista_global = (seleccion_srv == "-- Todos los Servidores --")
