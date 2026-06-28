@@ -18,6 +18,22 @@ def callback_cambio_servidor_tab2():
 # =========================================================================
 @st.fragment()  
 def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_componentes, servidores_activos):
+    # =============================================================
+    # VERIFICAR FLAG DE LIMPIEZA EN QUERY_PARAMS
+    # =============================================================
+    if st.query_params.get("limpiar_tab2") == "1":
+        # Limpiar los valores en session_state
+        st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
+        st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
+        # Eliminar el flag de la URL
+        try:
+            del st.query_params["limpiar_tab2"]
+        except:
+            pass
+        # Recargar el fragment
+        st.rerun(scope="fragment")
+        return
+
     nombre_srv = st.session_state["sb_graf_srv"]
     componente_sel = st.session_state["sb_graf_sensor"]
     servidor_seleccionado_tab2 = (nombre_srv != "-- Seleccione un Servidor --")
@@ -42,10 +58,14 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         )
     with col_g_limpiar_2:
         if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab2_inner", use_container_width=True):
-            st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
-            st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
+            # Establecer flag de limpieza en query_params
+            st.query_params["limpiar_tab2"] = "1"
             st.rerun(scope="fragment")
+            return
 
+    # =============================================================
+    # SI NO HAY SERVIDOR SELECCIONADO, NO MOSTRAR GRÁFICAS
+    # =============================================================
     if not servidor_seleccionado_tab2:
         st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">🖥️ Por favor, seleccione primero un <b>Servidor Bajo Análisis</b> para habilitar la selección de componentes.</p>', unsafe_allow_html=True)
         return
@@ -68,13 +88,19 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
 
     conexion = conectar_bd()
     datos_raw = []
+    ultimo_registro = None
     if conexion:
         rango_desde = datetime.now() - timedelta(hours=4)
         cursor = None
         try:
             cursor = conexion.cursor(dictionary=True)
             
-            # Intento 1: Traer datos recientes de las últimas 4 horas
+            cursor.execute(
+                "SELECT fecha_registro FROM monitoreo WHERE ip_servidor = %s ORDER BY fecha_registro DESC LIMIT 1",
+                (info_srv['ip'],)
+            )
+            ultimo_registro = cursor.fetchone()
+            
             query_graficas = (
                 "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
                 "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
@@ -88,7 +114,6 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             cursor.execute(query_graficas, (info_srv['ip'], rango_desde))
             datos_raw = cursor.fetchall()
             
-            # Intento 2 (COMPORTAMIENTO FUERA DE LÍNEA)
             if not datos_raw:
                 query_historico_graficas = (
                     "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
@@ -112,10 +137,16 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         st.warning("⚠️ Sin registros de telemetría disponibles en la base de datos para este servidor.")
         return
 
-    # DETECCIÓN DE ESTADO DEL AGENTE
-    ultima_fecha_registro = datos_raw[-1]["fecha_registro"]
-    diferencia_tiempo = datetime.now() - ultima_fecha_registro
-    agente_activo = diferencia_tiempo.total_seconds() <= 45  
+    agente_activo = False
+    if ultimo_registro and ultimo_registro.get('fecha_registro'):
+        if isinstance(ultimo_registro['fecha_registro'], datetime):
+            diferencia_tiempo = datetime.now() - ultimo_registro['fecha_registro']
+            agente_activo = diferencia_tiempo.total_seconds() <= 60
+            ultima_fecha = ultimo_registro['fecha_registro']
+        else:
+            ultima_fecha = datetime.now()
+    else:
+        ultima_fecha = datetime.now()
 
     config_sensores = []
     explicacion_comun = ""
@@ -187,7 +218,7 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     if agente_activo:
         st.markdown('<p style="font-size: 11px; color: #47a323; margin-bottom: 5px; text-align: right;">🟢 <b>Live Feed Activo</b> — Actualizando datos cada 15s</p>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<p style="font-size: 11px; color: #d40000; margin-bottom: 5px; text-align: right;">⚠️ <b>Agente Desconectado (Offline)</b> — Mostrando últimos datos estáticos ({ultima_fecha_registro.strftime("%Y-%m-%d %H:%M:%S")})</p>', unsafe_allow_html=True)
+        st.markdown(f'<p style="font-size: 11px; color: #d40000; margin-bottom: 5px; text-align: right;">⚠️ <b>Agente Desconectado (Offline)</b> — Mostrando últimos datos estáticos ({ultima_fecha.strftime("%Y-%m-%d %H:%M:%S")})</p>', unsafe_allow_html=True)
 
     for idx_sensor, cfg in enumerate(config_sensores):
         with cols_dashboard[idx_sensor]:
@@ -242,7 +273,6 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             )
             st.components.v1.html(html_sensor_box, height=310, scrolling=False)
 
-    # --- REJILLA MULTICORE ---
     if componente_sel == "⚙️ Procesamiento (Solo CPU)" and id_cpu > 0:
         st.markdown('<h4 style="color:#003366; font-size:15px; margin-top:20px; margin-bottom:10px; border-bottom:1px solid #ddd; padding-bottom:4px;">🎛️ Desglose de Rendimiento por Procesador (8 Cores)</h4>', unsafe_allow_html=True)
         
@@ -293,7 +323,117 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
 
     if agente_activo:
         time.sleep(15)
-        st.rerun(scope="fragment")  
+        st.rerun(scope="fragment")
+
+
+# =========================================================================
+# FUNCIÓN PARA RENDERIZAR LA TABLA DE HISTÓRICO CON AUTO-REFRESH
+# =========================================================================
+@st.fragment(run_every=15)
+def renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas):
+    """Renderiza la tabla de histórico con auto-refresh cada 15 segundos"""
+    
+    info_srv_actual = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
+    es_vista_global = (seleccion_srv == "-- Todos los Servidores --")
+    
+    conexion = conectar_bd()
+    registros_dinamicos = []
+    if conexion:
+        cursor = None
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            query_base = (
+                "SELECT ip_servidor, fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
+                "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
+                "val_red_total, val_red_entrante, val_red_saliente, "
+                "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
+                "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 FROM monitoreo "
+                "WHERE val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
+            )
+            if es_vista_global:
+                cursor.execute(query_base + "ORDER BY fecha_registro DESC LIMIT 150;")
+            else:
+                if info_srv_actual:
+                    cursor.execute(query_base + "AND ip_servidor = %s ORDER BY fecha_registro DESC LIMIT 150;", (info_srv_actual['ip'],))
+            registros_dinamicos = cursor.fetchall()
+        finally:
+            if cursor:
+                cursor.close()
+            conexion.close()
+
+    if registros_dinamicos:
+        columnas_base = []
+        if es_vista_global:
+            columnas_base.append("identificador_servidor")
+        
+        columnas_base.append("fecha_registro")
+        columnas_mostrar = []
+        
+        if seleccion_metrica == "🧠 Variables de Memoria (RAM)":
+            if info_srv_actual and int(info_srv_actual.get('id_sensor_ram', 0)) > 0:
+                columnas_mostrar.extend(["val_ram_disponible_pct", "val_ram_disponible_gb", "val_ram_total_gb"])
+        
+        elif seleccion_metrica == "⚙️ Variables de Procesamiento (CPU Cores)":
+            if info_srv_actual and int(info_srv_actual.get('id_sensor_cpu', 0)) > 0:
+                columnas_mostrar.extend(["val_cpu", "val_cpu_p1", "val_cpu_p2", "val_cpu_p3", "val_cpu_p4", 
+                                        "val_cpu_p5", "val_cpu_p6", "val_cpu_p7", "val_cpu_p8"])
+        
+        elif seleccion_metrica == "🌐 Variables de Red":
+            if info_srv_actual and int(info_srv_actual.get('id_sensor_red_total', 0)) > 0:
+                columnas_mostrar.append("val_red_total")
+            if info_srv_actual and int(info_srv_actual.get('id_sensor_red_entrante', 0)) > 0:
+                columnas_mostrar.append("val_red_entrante")
+            if info_srv_actual and int(info_srv_actual.get('id_sensor_red_saliente', 0)) > 0:
+                columnas_mostrar.append("val_red_saliente")
+        
+        elif seleccion_metrica == "⏱️ Variables de Ping/Latencia":
+            if info_srv_actual and int(info_srv_actual.get('id_sensor_latencia', 0)) > 0:
+                columnas_mostrar.extend(["val_latencia_ping", "val_latencia_perdida"])
+        
+        elif seleccion_metrica == "💽 Variables de Almacenamiento (Disco C)":
+            if info_srv_actual and int(info_srv_actual.get('id_sensor_disco_1', 0)) > 0:
+                columnas_mostrar.extend(["val_disco_1_pct_libre", "val_disco_1_libres_gb", "val_disco_1_total_gb"])
+        
+        if not columnas_mostrar:
+            st.warning("⚠️ No hay sensores registrados para las métricas seleccionadas en este servidor.")
+        else:
+            columnas_db = columnas_base + columnas_mostrar
+
+            html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;"><table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;"><thead><tr>"""
+            for col in columnas_db:
+                html_tabla += f'<th style="position: sticky; top: 0; background-color: #002244; padding: 11px 14px; color: #ffffff; text-align: left; font-weight: 600; font-size: 11px; white-space: nowrap; z-index: 10; border-bottom: 2px solid #001122;">{mapa_columnas.get(col, col.upper())}</th>'
+            html_tabla += "</tr></thead><tbody>"
+            
+            for idx, fila in enumerate(registros_dinamicos):
+                bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
+                html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
+                for col in columnas_db:
+                    if col == "identificador_servidor":
+                        ip_raw = fila.get("ip_servidor", "-")
+                        alias_srv = dict_ip_a_nombre.get(ip_raw, "Desconocido")
+                        val = f"🖥️ {alias_srv} ({ip_raw})"
+                    else:
+                        val = fila.get(col)
+                        
+                    try:
+                        if val is not None and isinstance(val, (int, float)):
+                            txt = f"{float(val):.2f}" if "pct" in col or "gb" in col or "red" in col or "_p" in col or "latencia" in col else f"{int(val)}"
+                        else:
+                            txt = val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(val, "strftime") else str(val if val is not None else "-")
+                    except (ValueError, TypeError):
+                        txt = "-"
+                    
+                    align_style = 'text-align: left;'
+                    if val is not None and isinstance(val, (int, float)):
+                        align_style = 'text-align: right; font-family: monospace;'
+                    elif col == "identificador_servidor":
+                        align_style = 'text-align: left; font-weight: bold; color: #003366;'
+                    
+                    html_tabla += f'<td style="padding: 9px 14px; color: #333333; white-space: nowrap; {align_style}">{txt}</td>'
+                html_tabla += "</tr>"
+            st.markdown(html_tabla + "</tbody></table></div>", unsafe_allow_html=True)
+    else:
+        st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
 
 
 # =========================================================================
@@ -328,66 +468,30 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
 
     # =========================================================================
-    # INTERCEPTOR DE REDIRECCIÓN - PROCESAR DESPUÉS DE INICIALIZAR
+    # PROCESAR REDIRECCIÓN DESDE QUERY_PARAMS
     # =========================================================================
-    srv_redireccionado = None
-    redireccion_procesada = False
-    
-    # Prioridad 1: Leer desde filtro_monitoreo_nombre (app.py lo establece)
-    if "filtro_monitoreo_nombre" in st.session_state:
-        valor_filtro = st.session_state["filtro_monitoreo_nombre"]
-        if valor_filtro and valor_filtro != "-- Seleccione un Servidor--":
-            srv_redireccionado = valor_filtro
-            redireccion_procesada = True
-            # Limpiar para evitar procesamiento repetido
-            del st.session_state["filtro_monitoreo_nombre"]
-            # Guardar en _srv_redireccion para persistencia
-            st.session_state["_srv_redireccion"] = srv_redireccionado
-    
-    # Prioridad 2: Leer desde Query Params de la URL
-    elif "srv" in st.query_params:
+    if "srv" in st.query_params:
         srv_redireccionado = st.query_params.get("srv")
-        redireccion_procesada = True
-        # Guardar en session_state para persistencia
-        st.session_state["_srv_redireccion"] = srv_redireccionado
-        # Eliminar de query_params
-        try: 
-            del st.query_params["srv"] 
-        except KeyError: 
+        try:
+            del st.query_params["srv"]
+        except:
             pass
         
-    # Prioridad 3: Leer desde session_state (si ya fue procesado pero necesitamos mantenerlo)
-    elif "_srv_redireccion" in st.session_state and not st.session_state.get("_srv_procesado", False):
-        srv_redireccionado = st.session_state["_srv_redireccion"]
-        redireccion_procesada = True
-
-    # Si se detectó una redirección válida, forzamos los valores
-    if srv_redireccionado and redireccion_procesada:
-        # Verificar que el servidor existe en la base de datos
-        servidores_temp = obtener_lista_servidores()
-        nombres_validos = [s['nombre_alias'] for s in servidores_temp if s.get('nombre_alias')]
-        
-        if srv_redireccionado in nombres_validos:
-            # Forzar los valores en session_state
-            st.session_state["sb_srv_tab1"] = srv_redireccionado
-            st.session_state["sb_graf_srv"] = srv_redireccionado
-            st.session_state["sb_graf_sensor"] = "🧠 Memoria (RAM)"
-            st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+        if srv_redireccionado:
+            servidores_temp = obtener_lista_servidores()
+            nombres_validos = [s['nombre_alias'] for s in servidores_temp if s.get('nombre_alias')]
             
-            # Marcar como procesado
-            st.session_state["_srv_procesado"] = True
-            
-            # Mostrar mensaje de éxito (solo una vez)
-            if not st.session_state.get("_srv_mensaje_mostrado", False):
-                st.success(f"✅ Redirigido al servidor: **{srv_redireccionado}**")
-                st.session_state["_srv_mensaje_mostrado"] = True
-        else:
-            # El servidor no existe, limpiar la redirección
-            if "_srv_redireccion" in st.session_state:
-                del st.session_state["_srv_redireccion"]
-            if "_srv_procesado" in st.session_state:
-                del st.session_state["_srv_procesado"]
-            st.warning(f"⚠️ El servidor '{srv_redireccionado}' no existe en la base de datos.")
+            if srv_redireccionado in nombres_validos:
+                st.session_state["sb_srv_tab1"] = srv_redireccionado
+                st.session_state["sb_graf_srv"] = srv_redireccionado
+                st.session_state["sb_graf_sensor"] = "🧠 Memoria (RAM)"
+                st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+                
+                if not st.session_state.get("_srv_mensaje_mostrado", False):
+                    st.success(f"✅ Redirigido al servidor: **{srv_redireccionado}**")
+                    st.session_state["_srv_mensaje_mostrado"] = True
+            else:
+                st.warning(f"⚠️ El servidor '{srv_redireccionado}' no existe en la base de datos.")
 
     servidores_activos = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores_activos if s.get('nombre_alias')])))
@@ -399,23 +503,30 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 
     mapa_columnas = {
         "identificador_servidor": "SERVIDOR (ALIAS / IP)",
-        "fecha_registro": "FECHA REGISTRO", "val_cpu": "USO CPU GLOBAL (%)", "val_ram_total_gb": "RAM TOTAL (GB)",
-        "val_ram_disponible_pct": "RAM DISPONIBLE (%)", "val_ram_disponible_gb": "RAM LIBRE (GB)",
-        "val_disco_1_pct_libre": "DISCO C LIBRE (%)", "val_disco_1_libres_gb": "DISCO C LIBRE (GB)",
+        "fecha_registro": "FECHA REGISTRO", 
+        "val_cpu": "USO CPU GLOBAL (%)",
+        "val_ram_total_gb": "RAM TOTAL (GB)",
+        "val_ram_disponible_pct": "RAM DISPONIBLE (%)",
+        "val_ram_disponible_gb": "RAM LIBRE (GB)",
+        "val_disco_1_pct_libre": "DISCO C LIBRE (%)",
+        "val_disco_1_libres_gb": "DISCO C LIBRE (GB)",
         "val_disco_1_total_gb": "DISCO C TOTAL (GB)", 
-        "val_red_total": "RED TOTAL (Mbps)", "val_red_entrante": "RED ENTRANTE (Mbps)", "val_red_saliente": "RED SALIENTE (Mbps)",
-        "val_latencia_ping": "LATENCIA PROMEDIO (ms)", "val_latencia_max": "LATENCIA MAXIMA (ms)", "val_latencia_min": "LATENCIA MINIMA (ms)", "val_latencia_perdida": "PERDIDA PAQUETES (%)",
-        "val_cpu_p1": "CPU CORE 1 (%)", "val_cpu_p2": "CPU CORE 2 (%)", "val_cpu_p3": "CPU CORE 3 (%)", "val_cpu_p4": "CPU CORE 4 (%)",
-        "val_cpu_p5": "CPU CORE 5 (%)", "val_cpu_p6": "CPU CORE 6 (%)", "val_cpu_p7": "CPU CORE 7 (%)", "val_cpu_p8": "CPU CORE 8 (%)"
+        "val_red_total": "RED TOTAL (Mbps)",
+        "val_red_entrante": "RED ENTRANTE (Mbps)",
+        "val_red_saliente": "RED SALIENTE (Mbps)",
+        "val_latencia_ping": "LATENCIA PROMEDIO (ms)",
+        "val_latencia_max": "LATENCIA MAXIMA (ms)",
+        "val_latencia_min": "LATENCIA MINIMA (ms)",
+        "val_latencia_perdida": "PERDIDA PAQUETES (%)",
+        "val_cpu_p1": "CPU CORE 1 (%)",
+        "val_cpu_p2": "CPU CORE 2 (%)",
+        "val_cpu_p3": "CPU CORE 3 (%)",
+        "val_cpu_p4": "CPU CORE 4 (%)",
+        "val_cpu_p5": "CPU CORE 5 (%)",
+        "val_cpu_p6": "CPU CORE 6 (%)",
+        "val_cpu_p7": "CPU CORE 7 (%)",
+        "val_cpu_p8": "CPU CORE 8 (%)"
     }
-
-    opciones_metricas_tab1 = [
-        "📊 Todas las Métricas", 
-        "🧠 Variables de Memoria (RAM)",
-        "⚙️ Variables de Procesamiento (CPU Cores)", 
-        "🌐 Variables de Conectividad (Red y Ping)",
-        "💽 Variables de Almacenamiento (Disco C)"
-    ]
 
     opciones_componentes = [
         "-- Seleccione un Componente --", 
@@ -435,122 +546,87 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         if not servidores_activos:
             st.info("💡 No hay servidores activos mapeados en la base de datos.")
         else:
-            seleccion_srv = st.session_state["sb_srv_tab1"]
-            seleccion_metrica = st.session_state["sb_metrica_tab1"]
-            servidor_seleccionado_tab1 = (seleccion_srv != "-- Seleccione un Servidor para empezar --")
-            es_vista_global = (seleccion_srv == "-- Todos los Servidores --")
-            
             col_srv, col_metrica, col_limpiar = st.columns([3, 2, 1])
+            
             with col_srv:
-                st.selectbox("Filtrar Servidor Historial", options=opciones_servidores_tab1, key="sb_srv_tab1", on_change=callback_cambio_servidor_tab1, label_visibility="collapsed")
-            with col_metrica:
-                st.selectbox("Filtrar Métrica Rejilla", options=opciones_metricas_tab1, key="sb_metrica_tab1", label_visibility="collapsed", disabled=not servidor_seleccionado_tab1)
+                st.selectbox(
+                    "Filtrar Servidor Historial", 
+                    options=opciones_servidores_tab1, 
+                    key="sb_srv_tab1", 
+                    on_change=callback_cambio_servidor_tab1, 
+                    label_visibility="collapsed"
+                )
+            
             with col_limpiar:
                 if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab1", use_container_width=True):
-                    st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
-                    st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-                    # Limpiar también la redirección si existe
-                    if "_srv_redireccion" in st.session_state:
-                        del st.session_state["_srv_redireccion"]
-                    if "_srv_procesado" in st.session_state:
-                        del st.session_state["_srv_procesado"]
                     if "_srv_mensaje_mostrado" in st.session_state:
                         del st.session_state["_srv_mensaje_mostrado"]
                     st.rerun()
-
-            if not servidor_seleccionado_tab1:
-                st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">🔍 Por favor, elija un servidor del listado para desplegar la rejilla de datos.</p>', unsafe_allow_html=True)
-            else:
-                conexion = conectar_bd()
-                registros_dinamicos = []
-                if conexion:
-                    cursor = None
-                    try:
-                        cursor = conexion.cursor(dictionary=True)
-                        query_base = (
-                            "SELECT ip_servidor, fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                            "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
-                            "val_red_total, val_red_entrante, val_red_saliente, "
-                            "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
-                            "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 FROM monitoreo "
-                            "WHERE val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
+            
+            seleccion_srv = st.session_state["sb_srv_tab1"]
+            servidor_seleccionado_tab1 = (seleccion_srv != "-- Seleccione un Servidor para empezar --")
+            
+            with col_metrica:
+                if servidor_seleccionado_tab1:
+                    info_srv_metricas = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
+                    
+                    opciones_metricas_disponibles = []
+                    
+                    if info_srv_metricas:
+                        if int(info_srv_metricas.get('id_sensor_ram', 0)) > 0:
+                            opciones_metricas_disponibles.append("🧠 Variables de Memoria (RAM)")
+                        if int(info_srv_metricas.get('id_sensor_cpu', 0)) > 0:
+                            opciones_metricas_disponibles.append("⚙️ Variables de Procesamiento (CPU Cores)")
+                        if int(info_srv_metricas.get('id_sensor_red_total', 0)) > 0 or \
+                           int(info_srv_metricas.get('id_sensor_red_entrante', 0)) > 0 or \
+                           int(info_srv_metricas.get('id_sensor_red_saliente', 0)) > 0:
+                            opciones_metricas_disponibles.append("🌐 Variables de Red")
+                        if int(info_srv_metricas.get('id_sensor_latencia', 0)) > 0:
+                            opciones_metricas_disponibles.append("⏱️ Variables de Ping/Latencia")
+                        if int(info_srv_metricas.get('id_sensor_disco_1', 0)) > 0:
+                            opciones_metricas_disponibles.append("💽 Variables de Almacenamiento (Disco C)")
+                    
+                    if not opciones_metricas_disponibles:
+                        st.selectbox(
+                            "Filtrar Métrica Rejilla", 
+                            options=["-- Sin sensores registrados --"], 
+                            key="sb_metrica_tab1", 
+                            disabled=True,
+                            label_visibility="collapsed"
                         )
-                        if es_vista_global:
-                            cursor.execute(query_base + "ORDER BY fecha_registro DESC LIMIT 150;")
-                        else:
-                            info_srv = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
-                            if info_srv:
-                                cursor.execute(query_base + "AND ip_servidor = %s ORDER BY fecha_registro DESC LIMIT 150;", (info_srv['ip'],))
-                        registros_dinamicos = cursor.fetchall()
-                    finally:
-                        if cursor:
-                            cursor.close()
-                        conexion.close()
-
-                if registros_dinamicos:
-                    columnas_db = []
-                    if es_vista_global:
-                        columnas_db.append("identificador_servidor")
-                    
-                    columnas_db.append("fecha_registro")
-                    
-                    if seleccion_metrica == "📊 Todas las Métricas":
-                        columnas_db += ["val_cpu", "val_ram_disponible_pct", "val_disco_1_pct_libre", "val_red_total", "val_latencia_ping"]
-                    elif seleccion_metrica == "🧠 Variables de Memoria (RAM)":
-                        columnas_db += ["val_ram_disponible_pct", "val_ram_disponible_gb", "val_ram_total_gb"]
-                    elif seleccion_metrica == "⚙️ Variables de Procesamiento (CPU Cores)":
-                        columnas_db += ["val_cpu", "val_cpu_p1", "val_cpu_p2", "val_cpu_p3", "val_cpu_p4", "val_cpu_p5", "val_cpu_p6", "val_cpu_p7", "val_cpu_p8"]
-                    elif seleccion_metrica == "🌐 Variables de Conectividad (Red y Ping)":
-                        columnas_db += ["val_red_total", "val_red_entrante", "val_red_saliente", "val_latencia_ping", "val_latencia_perdida"]
-                    elif seleccion_metrica == "💽 Variables de Almacenamiento (Disco C)":
-                        columnas_db += ["val_disco_1_pct_libre", "val_disco_1_libres_gb", "val_disco_1_total_gb"]
-
-                    suma_total_metricas = 0.0
-                    for fila in registros_dinamicos:
-                        for col in columnas_db:
-                            if col not in ["fecha_registro", "identificador_servidor"]:
-                                val_f = fila.get(col)
-                                if val_f is not None:
-                                    suma_total_metricas += abs(float(val_f))
-                    
-                    if suma_total_metricas == 0.0:
-                        st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
                     else:
-                        html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;"><table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;"><thead><tr>"""
-                        for col in columnas_db:
-                            html_tabla += f'<th style="position: sticky; top: 0; background-color: #002244; padding: 11px 14px; color: #ffffff; text-align: left; font-weight: 600; font-size: 11px; white-space: nowrap; z-index: 10; border-bottom: 2px solid #001122;">{mapa_columnas.get(col, col.upper())}</th>'
-                        html_tabla += "</tr></thead><tbody>"
-                        
-                        for idx, fila in enumerate(registros_dinamicos):
-                            bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
-                            html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
-                            for col in columnas_db:
-                                if col == "identificador_servidor":
-                                    ip_raw = fila.get("ip_servidor", "-")
-                                    alias_srv = dict_ip_a_nombre.get(ip_raw, "Desconocido")
-                                    val = f"🖥️ {alias_srv} ({ip_raw})"
-                                else:
-                                    val = fila.get(col)
-                                    
-                                try:
-                                    if val is not None and isinstance(val, (int, float)):
-                                        txt = f"{float(val):.2f}" if "pct" in col or "gb" in col or "red" in col or "_p" in col or "latencia" in col else f"{int(val)}"
-                                    else:
-                                        txt = val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(val, "strftime") else str(val if val is not None else "-")
-                                except (ValueError, TypeError):
-                                    txt = "-"
-                                
-                                align_style = 'text-align: left;'
-                                if val is not None and isinstance(val, (int, float)):
-                                    align_style = 'text-align: right; font-family: monospace;'
-                                elif col == "identificador_servidor":
-                                    align_style = 'text-align: left; font-weight: bold; color: #003366;'
-                                
-                                html_tabla += f'<td style="padding: 9px 14px; color: #333333; white-space: nowrap; {align_style}">{txt}</td>'
-                            html_tabla += "</tr>"
-                        st.markdown(html_tabla + "</tbody></table></div>", unsafe_allow_html=True)
+                        opciones_metricas_con_placeholder = ["📊 Todas las Métricas"] + opciones_metricas_disponibles
+                        st.selectbox(
+                            "Filtrar Métrica Rejilla", 
+                            options=opciones_metricas_con_placeholder, 
+                            key="sb_metrica_tab1", 
+                            label_visibility="collapsed"
+                        )
                 else:
-                    st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
+                    st.selectbox(
+                        "Filtrar Métrica Rejilla", 
+                        options=["-- Seleccione un Servidor primero --"], 
+                        key="sb_metrica_tab1", 
+                        disabled=True,
+                        label_visibility="collapsed"
+                    )
+
+            seleccion_metrica = st.session_state["sb_metrica_tab1"]
+            metrica_seleccionada = (seleccion_metrica != "📊 Todas las Métricas" and 
+                                   seleccion_metrica != "-- Seleccione un Servidor primero --" and
+                                   seleccion_metrica != "-- Sin sensores registrados --")
+            
+            if not servidor_seleccionado_tab1:
+                st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">🔍 Por favor, seleccione un servidor del listado para habilitar los filtros de métricas.</p>', unsafe_allow_html=True)
+            
+            elif seleccion_metrica == "-- Sin sensores registrados --":
+                st.warning("⚠️ Este servidor no tiene sensores registrados en la base de datos.")
+            
+            elif not metrica_seleccionada:
+                st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">📊 Por favor, seleccione una métrica específica para desplegar la rejilla de datos.</p>', unsafe_allow_html=True)
+            
+            else:
+                renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas)
 
     with tab_graficas:
         renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_componentes, servidores_activos)
