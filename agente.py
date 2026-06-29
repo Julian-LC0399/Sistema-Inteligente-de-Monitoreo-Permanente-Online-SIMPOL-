@@ -235,7 +235,7 @@ def ejecutar_motor_agente():
                         log_items_consola.append(f"• RAM Libre: {v_ram_pct}% ({v_ram_gb}/{v_ram_total} GB) -> [{status_ram}]")
 
                     # =============================================================
-                    # RED - Solo registro de datos
+                    # RED - Solo registro de datos (CORREGIDO)
                     # =============================================================
                     v_red_tot = safe_float(telemetria.get("red_total") or telemetria.get("RED_TOTAL", 0.0))
                     v_red_ent = safe_float(telemetria.get("red_entrante") or telemetria.get("RED_ENTRANTE", 0.0))
@@ -252,7 +252,7 @@ def ejecutar_motor_agente():
                         parametros_sql.append(v_red_sal)
                         
                     if id_red_total > 0 or id_red_entrante > 0 or id_red_saliente > 0:
-                        log_items_consola.append(f"• Red Tráfico: Total {v_red_tot} Mbps | Entrante: {v_red_ent} Mbps | Saliente: {v_red_sal} Mbps")
+                        log_items_consola.append(f"• Red Tráfico: Total {v_red_tot} Mbit/s | Entrante: {v_red_ent} Mbit/s | Saliente: {v_red_sal} Mbit/s")
 
                     # =============================================================
                     # DISCOS - Estados correctos (valores más bajos = peor - porcentaje libre)

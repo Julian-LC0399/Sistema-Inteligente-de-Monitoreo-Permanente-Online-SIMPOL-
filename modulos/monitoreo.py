@@ -14,6 +14,149 @@ def callback_cambio_servidor_tab2():
 
 
 # =========================================================================
+# FUNCIÓN PARA OBTENER SENSORES DISPONIBLES DE UN SERVIDOR
+# =========================================================================
+def obtener_sensores_disponibles(info_srv):
+    """
+    Retorna un diccionario con todos los sensores disponibles para un servidor.
+    Solo incluye sensores con ID > 0.
+    """
+    sensores = {}
+    
+    # CPU
+    if int(info_srv.get('id_sensor_cpu', 0) or 0) > 0:
+        sensores['id_sensor_cpu'] = {'nombre': 'CPU', 'columna': 'val_cpu', 'id': int(info_srv.get('id_sensor_cpu', 0))}
+    
+    # RAM
+    if int(info_srv.get('id_sensor_ram', 0) or 0) > 0:
+        sensores['id_sensor_ram'] = {'nombre': 'RAM', 'columna': 'val_ram_disponible_pct', 'id': int(info_srv.get('id_sensor_ram', 0))}
+    
+    # RED - Total
+    if int(info_srv.get('id_sensor_red_total', 0) or 0) > 0:
+        sensores['id_sensor_red_total'] = {'nombre': 'Red Total', 'columna': 'val_red_total', 'id': int(info_srv.get('id_sensor_red_total', 0))}
+    
+    # RED - Entrante
+    if int(info_srv.get('id_sensor_red_entrante', 0) or 0) > 0:
+        sensores['id_sensor_red_entrante'] = {'nombre': 'Red Entrante', 'columna': 'val_red_entrante', 'id': int(info_srv.get('id_sensor_red_entrante', 0))}
+    
+    # RED - Saliente
+    if int(info_srv.get('id_sensor_red_saliente', 0) or 0) > 0:
+        sensores['id_sensor_red_saliente'] = {'nombre': 'Red Saliente', 'columna': 'val_red_saliente', 'id': int(info_srv.get('id_sensor_red_saliente', 0))}
+    
+    # LATENCIA
+    if int(info_srv.get('id_sensor_latencia', 0) or 0) > 0:
+        sensores['id_sensor_latencia'] = {'nombre': 'Latencia', 'columna': 'val_latencia_ping', 'id': int(info_srv.get('id_sensor_latencia', 0))}
+    
+    # DISCOS (C, D, E, F, G, Y)
+    discos = ['disco_1', 'disco_2', 'disco_3', 'disco_4', 'disco_5', 'disco_6']
+    letras_discos = ['C', 'D', 'E', 'F', 'G', 'Y']
+    for idx, (disco, letra) in enumerate(zip(discos, letras_discos), 1):
+        id_sensor = int(info_srv.get(f'id_sensor_{disco}', 0) or 0)
+        if id_sensor > 0:
+            sensores[f'id_sensor_{disco}'] = {
+                'nombre': f'Disco {letra}',
+                'columna': f'val_{disco}_pct_libre',
+                'id': id_sensor,
+                'letra': letra
+            }
+    
+    # SERVICIOS (1-8)
+    for i in range(1, 9):
+        id_sensor = int(info_srv.get(f'id_sensor_servicio_{i}', 0) or 0)
+        if id_sensor > 0:
+            sensores[f'id_sensor_servicio_{i}'] = {
+                'nombre': f'Servicio {i}',
+                'columna': f'estado_servicio_{i}',
+                'id': id_sensor
+            }
+    
+    return sensores
+
+
+# =========================================================================
+# FUNCIÓN PARA OBTENER OPCIONES DE MÉTRICAS DISPONIBLES
+# =========================================================================
+def obtener_opciones_metricas(info_srv):
+    """Retorna una lista de opciones de métricas disponibles para un servidor"""
+    opciones = []
+    
+    if not info_srv:
+        return opciones
+    
+    # RAM
+    if int(info_srv.get('id_sensor_ram', 0) or 0) > 0:
+        opciones.append("🧠 Variables de Memoria (RAM)")
+    
+    # CPU
+    if int(info_srv.get('id_sensor_cpu', 0) or 0) > 0:
+        opciones.append("⚙️ Variables de Procesamiento (CPU Cores)")
+    
+    # RED - si tiene al menos uno de los tres sensores
+    if (int(info_srv.get('id_sensor_red_total', 0) or 0) > 0 or
+        int(info_srv.get('id_sensor_red_entrante', 0) or 0) > 0 or
+        int(info_srv.get('id_sensor_red_saliente', 0) or 0) > 0):
+        opciones.append("🌐 Variables de Red")
+    
+    # LATENCIA
+    if int(info_srv.get('id_sensor_latencia', 0) or 0) > 0:
+        opciones.append("⏱️ Variables de Ping/Latencia")
+    
+    # DISCOS (C, D, E, F, G, Y) - cada disco es una opción separada
+    discos = ['disco_1', 'disco_2', 'disco_3', 'disco_4', 'disco_5', 'disco_6']
+    letras_discos = ['C', 'D', 'E', 'F', 'G', 'Y']
+    for disco, letra in zip(discos, letras_discos):
+        if int(info_srv.get(f'id_sensor_{disco}', 0) or 0) > 0:
+            opciones.append(f"💽 Variables de Almacenamiento (Disco {letra})")
+    
+    return opciones
+
+
+# =========================================================================
+# FUNCIÓN PARA OBTENER COLUMNAS DE UNA MÉTRICA
+# =========================================================================
+def obtener_columnas_metrica(info_srv, seleccion_metrica):
+    """Retorna la lista de columnas a mostrar para una métrica seleccionada"""
+    columnas = []
+    
+    if seleccion_metrica == "🧠 Variables de Memoria (RAM)":
+        if int(info_srv.get('id_sensor_ram', 0) or 0) > 0:
+            columnas = ["val_ram_disponible_pct", "val_ram_disponible_gb", "val_ram_total_gb"]
+    
+    elif seleccion_metrica == "⚙️ Variables de Procesamiento (CPU Cores)":
+        if int(info_srv.get('id_sensor_cpu', 0) or 0) > 0:
+            columnas = ["val_cpu", "val_cpu_p1", "val_cpu_p2", "val_cpu_p3", "val_cpu_p4", 
+                       "val_cpu_p5", "val_cpu_p6", "val_cpu_p7", "val_cpu_p8"]
+    
+    elif seleccion_metrica == "🌐 Variables de Red":
+        # Mostrar TODOS los sensores de red registrados
+        if int(info_srv.get('id_sensor_red_total', 0) or 0) > 0:
+            columnas.append("val_red_total")
+        if int(info_srv.get('id_sensor_red_entrante', 0) or 0) > 0:
+            columnas.append("val_red_entrante")
+        if int(info_srv.get('id_sensor_red_saliente', 0) or 0) > 0:
+            columnas.append("val_red_saliente")
+    
+    elif seleccion_metrica == "⏱️ Variables de Ping/Latencia":
+        if int(info_srv.get('id_sensor_latencia', 0) or 0) > 0:
+            columnas = ["val_latencia_ping", "val_latencia_max", "val_latencia_min", "val_latencia_perdida"]
+    
+    elif seleccion_metrica.startswith("💽 Variables de Almacenamiento (Disco"):
+        # Extraer la letra del disco de la selección
+        import re
+        match = re.search(r'Disco ([A-Z])', seleccion_metrica)
+        if match:
+            letra = match.group(1)
+            # Mapear letra a índice de disco
+            discos_map = {'C': 'disco_1', 'D': 'disco_2', 'E': 'disco_3', 
+                         'F': 'disco_4', 'G': 'disco_5', 'Y': 'disco_6'}
+            disco_key = discos_map.get(letra)
+            if disco_key and int(info_srv.get(f'id_sensor_{disco_key}', 0) or 0) > 0:
+                columnas = [f"val_{disco_key}_pct_libre", f"val_{disco_key}_libres_gb", f"val_{disco_key}_total_gb"]
+    
+    return columnas
+
+
+# =========================================================================
 # PESTAÑA 2 ENCAPSULADA EN UN FRAGMENTO (TIEMPO REAL DINÁMICO)
 # =========================================================================
 @st.fragment(run_every=30)
@@ -25,7 +168,6 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
         st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
         st.session_state["_limpiar_tab2"] = False
-        # Recargar el fragment para mostrar los cambios
         st.rerun(scope="fragment")
         return
 
@@ -53,7 +195,6 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
         )
     with col_g_limpiar_2:
         if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab2_inner", use_container_width=True):
-            # Establecer flag de limpieza en session_state
             st.session_state["_limpiar_tab2"] = True
             st.rerun(scope="fragment")
             return
@@ -69,14 +210,20 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     if not info_srv:
         return
 
-    # Extracción de la configuración de sensores
+    # Obtener todos los sensores disponibles
+    sensores = obtener_sensores_disponibles(info_srv)
+    
     id_cpu = int(info_srv.get("id_sensor_cpu") or 0)
     id_ram = int(info_srv.get("id_sensor_ram") or 0)
     id_red_total = int(info_srv.get("id_sensor_red_total") or info_srv.get("id_sensor_red") or 0)
     id_red_entrante = int(info_srv.get("id_sensor_red_entrante") or 0)
     id_red_saliente = int(info_srv.get("id_sensor_red_saliente") or 0)
     id_latencia = int(info_srv.get("id_sensor_latencia") or 0)
-    id_disco_1 = int(info_srv.get("id_sensor_disco_1") or 0)
+    
+    # Obtener IDs de discos
+    discos_ids = {}
+    for i in range(1, 7):
+        discos_ids[f'disco_{i}'] = int(info_srv.get(f'id_sensor_disco_{i}') or 0)
 
     conexion = conectar_bd()
     datos_raw = []
@@ -93,14 +240,23 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             )
             ultimo_registro = cursor.fetchone()
             
+            # Construir query dinámica para incluir todas las columnas de discos
+            columnas_discos = []
+            for i in range(1, 7):
+                if discos_ids.get(f'disco_{i}', 0) > 0:
+                    columnas_discos.extend([
+                        f'val_disco_{i}_total_gb',
+                        f'val_disco_{i}_pct_libre',
+                        f'val_disco_{i}_libres_gb'
+                    ])
+            
             query_graficas = (
                 "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
+                + (", ".join(columnas_discos) if columnas_discos else "") +
                 "val_red_total, val_red_entrante, val_red_saliente, "
                 "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
                 "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
                 "FROM monitoreo WHERE ip_servidor = %s AND fecha_registro >= %s "
-                "AND val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
                 "ORDER BY fecha_registro ASC LIMIT 50;"
             )
             cursor.execute(query_graficas, (info_srv['ip'], rango_desde))
@@ -109,11 +265,11 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             if not datos_raw:
                 query_historico_graficas = (
                     "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                    "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
+                    + (", ".join(columnas_discos) if columnas_discos else "") +
                     "val_red_total, val_red_entrante, val_red_saliente, "
                     "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
                     "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
-                    "FROM monitoreo WHERE ip_servidor = %s AND val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
+                    "FROM monitoreo WHERE ip_servidor = %s "
                     "ORDER BY fecha_registro DESC LIMIT 50;"
                 )
                 cursor.execute(query_historico_graficas, (info_srv['ip'],))
@@ -168,14 +324,18 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     elif componente_sel == "🌐 Tráfico de Red":
         explicacion_comun = (
             "💡 **¿Qué estamos midiendo aquí?** Rendimiento e intensidad del flujo de datos en las interfaces del servidor.\n\n"
-            "* Muestra el desglose de velocidad y carga de paquetes según los sensores registrados (Total, Entrante o Saliente) en Mbps."
+            "* Muestra el desglose de velocidad y carga de paquetes según los sensores registrados (Total, Entrante o Saliente) en Mbit/s."
         )
         if id_red_total > 0:
-            config_sensores.append({"col": "val_red_total", "titulo": "Tráfico Red Total", "sufijo": " Mbps", "max_y": 120, "umbral": 90, "color_u": "#ffb600", "color_linea": "#00b2b2"})
+            config_sensores.append({"col": "val_red_total", "titulo": "Tráfico Red Total", "sufijo": " Mbit/s", "max_y": 120, "umbral": 90, "color_u": "#ffb600", "color_linea": "#00b2b2"})
         if id_red_entrante > 0:
-            config_sensores.append({"col": "val_red_entrante", "titulo": "Tráfico Entrante (RX)", "sufijo": " Mbps", "max_y": 120, "umbral": 90, "color_u": "#ffb600", "color_linea": "#32cd32"})
+            config_sensores.append({"col": "val_red_entrante", "titulo": "Tráfico Entrante (RX)", "sufijo": " Mbit/s", "max_y": 120, "umbral": 90, "color_u": "#ffb600", "color_linea": "#32cd32"})
         if id_red_saliente > 0:
-            config_sensores.append({"col": "val_red_saliente", "titulo": "Tráfico Saliente (TX)", "sufijo": " Mbps", "max_y": 120, "umbral": 90, "color_u": "#ffb600", "color_linea": "#1e90ff"})
+            config_sensores.append({"col": "val_red_saliente", "titulo": "Tráfico Saliente (TX)", "sufijo": " Mbit/s", "max_y": 120, "umbral": 90, "color_u": "#ffb600", "color_linea": "#1e90ff"})
+        
+        if not config_sensores:
+            st.warning("📴 No hay sensores de red registrados para este servidor.")
+            return
 
     elif componente_sel == "⏳ Latencia de Respuesta (Ping)" and id_latencia > 0:
         explicacion_comun = (
@@ -189,16 +349,28 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             {"col": "val_latencia_perdida", "titulo": "Pérdida de Paquetes", "sufijo": "%", "max_y": 100, "umbral": 5, "color_u": "#d40000", "color_linea": "#ff4500"}
         ]
 
-    elif componente_sel == "💽 Almacenamiento (Disco C)" and id_disco_1 > 0:
-        explicacion_comun = (
-            "💡 **¿Qué estamos midiendo aquí?** Estado del disco de arranque del sistema operativo.\n\n"
-            "* **Gráfica 1 (Disco C: Espacio Libre %):** Cuota disponible de forma porcentual.\n"
-            "* **Gráfica 2 (Disco C: Gigabytes Libres):** Almacenamiento físico bruto disponible."
-        )
-        config_sensores = [
-            {"col": "val_disco_1_pct_libre", "titulo": "Disco C: Espacio Libre %", "sufijo": "%", "max_y": 100, "umbral": 20, "color_u": "#ffb600", "color_linea": "#712cb0"},
-            {"col": "val_disco_1_libres_gb", "titulo": "Disco C: Gigabytes Libres", "sufijo": " GB", "max_y": int(float(datos_raw[-1].get("val_disco_1_total_gb") or 100)) + 20, "umbral": 15, "color_u": "#d40000", "color_linea": "#d40000"}
-        ]
+    elif componente_sel.startswith("💽 Almacenamiento (Disco"):
+        # Extraer la letra del disco
+        import re
+        match = re.search(r'Disco ([A-Z])', componente_sel)
+        if match:
+            letra = match.group(1)
+            discos_map = {'C': 'disco_1', 'D': 'disco_2', 'E': 'disco_3', 
+                         'F': 'disco_4', 'G': 'disco_5', 'Y': 'disco_6'}
+            disco_key = discos_map.get(letra)
+            id_disco = int(info_srv.get(f'id_sensor_{disco_key}', 0) or 0)
+            
+            if id_disco > 0:
+                explicacion_comun = (
+                    f"💡 **¿Qué estamos midiendo aquí?** Estado del disco {letra} del servidor.\n\n"
+                    f"* **Gráfica 1 (Disco {letra}: Espacio Libre %):** Cuota disponible de forma porcentual.\n"
+                    f"* **Gráfica 2 (Disco {letra}: Gigabytes Libres):** Almacenamiento físico bruto disponible."
+                )
+                total_gb = float(datos_raw[-1].get(f'val_{disco_key}_total_gb') or 100)
+                config_sensores = [
+                    {"col": f"val_{disco_key}_pct_libre", "titulo": f"Disco {letra}: Espacio Libre %", "sufijo": "%", "max_y": 100, "umbral": 20, "color_u": "#ffb600", "color_linea": "#712cb0"},
+                    {"col": f"val_{disco_key}_libres_gb", "titulo": f"Disco {letra}: Gigabytes Libres", "sufijo": " GB", "max_y": int(total_gb) + 20, "umbral": 15, "color_u": "#d40000", "color_linea": "#d40000"}
+                ]
 
     num_sensores = len(config_sensores)
     if num_sensores == 0:
@@ -324,102 +496,89 @@ def renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_acti
     info_srv_actual = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
     es_vista_global = (seleccion_srv == "-- Todos los Servidores --")
     
+    if not info_srv_actual and not es_vista_global:
+        st.warning("⚠️ Servidor no encontrado.")
+        return
+    
+    # Obtener columnas a mostrar según la métrica seleccionada
+    columnas_mostrar = obtener_columnas_metrica(info_srv_actual, seleccion_metrica)
+    
+    if not columnas_mostrar:
+        st.warning("⚠️ No hay sensores registrados para las métricas seleccionadas en este servidor.")
+        return
+    
     conexion = conectar_bd()
     registros_dinamicos = []
     if conexion:
         cursor = None
         try:
             cursor = conexion.cursor(dictionary=True)
-            query_base = (
-                "SELECT ip_servidor, fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                "val_disco_1_total_gb, val_disco_1_pct_libre, val_disco_1_libres_gb, "
-                "val_red_total, val_red_entrante, val_red_saliente, "
-                "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
-                "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 FROM monitoreo "
-                "WHERE val_cpu IS NOT NULL AND val_ram_disponible_pct IS NOT NULL "
-            )
+            
+            # Construir la consulta SQL
+            columnas_sql = ["fecha_registro"]
             if es_vista_global:
-                cursor.execute(query_base + "ORDER BY fecha_registro DESC LIMIT 150;")
+                columnas_sql.insert(0, "ip_servidor")
+            
+            columnas_sql.extend(columnas_mostrar)
+            
+            query = f"SELECT {', '.join(columnas_sql)} FROM monitoreo "
+            
+            if es_vista_global:
+                query += "ORDER BY fecha_registro DESC LIMIT 150;"
             else:
-                if info_srv_actual:
-                    cursor.execute(query_base + "AND ip_servidor = %s ORDER BY fecha_registro DESC LIMIT 150;", (info_srv_actual['ip'],))
+                query += "WHERE ip_servidor = %s ORDER BY fecha_registro DESC LIMIT 150;"
+                cursor.execute(query, (info_srv_actual['ip'],))
+            
             registros_dinamicos = cursor.fetchall()
+            
+        except Exception as e:
+            st.error(f"❌ Error al consultar la base de datos: {str(e)}")
         finally:
             if cursor:
                 cursor.close()
             conexion.close()
 
     if registros_dinamicos:
-        columnas_base = []
+        # Construir columnas para la tabla
+        columnas_tabla = []
         if es_vista_global:
-            columnas_base.append("identificador_servidor")
-        
-        columnas_base.append("fecha_registro")
-        columnas_mostrar = []
-        
-        if seleccion_metrica == "🧠 Variables de Memoria (RAM)":
-            if info_srv_actual and int(info_srv_actual.get('id_sensor_ram', 0)) > 0:
-                columnas_mostrar.extend(["val_ram_disponible_pct", "val_ram_disponible_gb", "val_ram_total_gb"])
-        
-        elif seleccion_metrica == "⚙️ Variables de Procesamiento (CPU Cores)":
-            if info_srv_actual and int(info_srv_actual.get('id_sensor_cpu', 0)) > 0:
-                columnas_mostrar.extend(["val_cpu", "val_cpu_p1", "val_cpu_p2", "val_cpu_p3", "val_cpu_p4", 
-                                        "val_cpu_p5", "val_cpu_p6", "val_cpu_p7", "val_cpu_p8"])
-        
-        elif seleccion_metrica == "🌐 Variables de Red":
-            if info_srv_actual and int(info_srv_actual.get('id_sensor_red_total', 0)) > 0:
-                columnas_mostrar.append("val_red_total")
-            if info_srv_actual and int(info_srv_actual.get('id_sensor_red_entrante', 0)) > 0:
-                columnas_mostrar.append("val_red_entrante")
-            if info_srv_actual and int(info_srv_actual.get('id_sensor_red_saliente', 0)) > 0:
-                columnas_mostrar.append("val_red_saliente")
-        
-        elif seleccion_metrica == "⏱️ Variables de Ping/Latencia":
-            if info_srv_actual and int(info_srv_actual.get('id_sensor_latencia', 0)) > 0:
-                columnas_mostrar.extend(["val_latencia_ping", "val_latencia_perdida"])
-        
-        elif seleccion_metrica == "💽 Variables de Almacenamiento (Disco C)":
-            if info_srv_actual and int(info_srv_actual.get('id_sensor_disco_1', 0)) > 0:
-                columnas_mostrar.extend(["val_disco_1_pct_libre", "val_disco_1_libres_gb", "val_disco_1_total_gb"])
-        
-        if not columnas_mostrar:
-            st.warning("⚠️ No hay sensores registrados para las métricas seleccionadas en este servidor.")
-        else:
-            columnas_db = columnas_base + columnas_mostrar
+            columnas_tabla.append("identificador_servidor")
+        columnas_tabla.append("fecha_registro")
+        columnas_tabla.extend(columnas_mostrar)
 
-            html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;"><table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;"><thead><tr>"""
-            for col in columnas_db:
-                html_tabla += f'<th style="position: sticky; top: 0; background-color: #002244; padding: 11px 14px; color: #ffffff; text-align: left; font-weight: 600; font-size: 11px; white-space: nowrap; z-index: 10; border-bottom: 2px solid #001122;">{mapa_columnas.get(col, col.upper())}</th>'
-            html_tabla += "</tr></thead><tbody>"
-            
-            for idx, fila in enumerate(registros_dinamicos):
-                bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
-                html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
-                for col in columnas_db:
-                    if col == "identificador_servidor":
-                        ip_raw = fila.get("ip_servidor", "-")
-                        alias_srv = dict_ip_a_nombre.get(ip_raw, "Desconocido")
-                        val = f"🖥️ {alias_srv} ({ip_raw})"
-                    else:
-                        val = fila.get(col)
-                        
-                    try:
-                        if val is not None and isinstance(val, (int, float)):
-                            txt = f"{float(val):.2f}" if "pct" in col or "gb" in col or "red" in col or "_p" in col or "latencia" in col else f"{int(val)}"
-                        else:
-                            txt = val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(val, "strftime") else str(val if val is not None else "-")
-                    except (ValueError, TypeError):
-                        txt = "-"
+        html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;"><table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;"><thead><tr>"""
+        for col in columnas_tabla:
+            html_tabla += f'<th style="position: sticky; top: 0; background-color: #002244; padding: 11px 14px; color: #ffffff; text-align: left; font-weight: 600; font-size: 11px; white-space: nowrap; z-index: 10; border-bottom: 2px solid #001122;">{mapa_columnas.get(col, col.upper())}</th>'
+        html_tabla += "</tr></thead><tbody>"
+        
+        for idx, fila in enumerate(registros_dinamicos):
+            bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
+            html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
+            for col in columnas_tabla:
+                if col == "identificador_servidor":
+                    ip_raw = fila.get("ip_servidor", "-")
+                    alias_srv = dict_ip_a_nombre.get(ip_raw, "Desconocido")
+                    val = f"🖥️ {alias_srv} ({ip_raw})"
+                else:
+                    val = fila.get(col)
                     
-                    align_style = 'text-align: left;'
+                try:
                     if val is not None and isinstance(val, (int, float)):
-                        align_style = 'text-align: right; font-family: monospace;'
-                    elif col == "identificador_servidor":
-                        align_style = 'text-align: left; font-weight: bold; color: #003366;'
-                    
-                    html_tabla += f'<td style="padding: 9px 14px; color: #333333; white-space: nowrap; {align_style}">{txt}</td>'
-                html_tabla += "</tr>"
-            st.markdown(html_tabla + "</tbody></table></div>", unsafe_allow_html=True)
+                        txt = f"{float(val):.2f}" if "pct" in col or "gb" in col or "red" in col or "_p" in col or "latencia" in col else f"{int(val)}"
+                    else:
+                        txt = val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(val, "strftime") else str(val if val is not None else "-")
+                except (ValueError, TypeError):
+                    txt = "-"
+                
+                align_style = 'text-align: left;'
+                if val is not None and isinstance(val, (int, float)):
+                    align_style = 'text-align: right; font-family: monospace;'
+                elif col == "identificador_servidor":
+                    align_style = 'text-align: left; font-weight: bold; color: #003366;'
+                
+                html_tabla += f'<td style="padding: 9px 14px; color: #333333; white-space: nowrap; {align_style}">{txt}</td>'
+            html_tabla += "</tr>"
+        st.markdown(html_tabla + "</tbody></table></div>", unsafe_allow_html=True)
     else:
         st.warning("🚫 No hay datos de telemetría registrados para este servidor.")
 
@@ -498,10 +657,25 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         "val_ram_disponible_gb": "RAM LIBRE (GB)",
         "val_disco_1_pct_libre": "DISCO C LIBRE (%)",
         "val_disco_1_libres_gb": "DISCO C LIBRE (GB)",
-        "val_disco_1_total_gb": "DISCO C TOTAL (GB)", 
-        "val_red_total": "RED TOTAL (Mbps)",
-        "val_red_entrante": "RED ENTRANTE (Mbps)",
-        "val_red_saliente": "RED SALIENTE (Mbps)",
+        "val_disco_1_total_gb": "DISCO C TOTAL (GB)",
+        "val_disco_2_pct_libre": "DISCO D LIBRE (%)",
+        "val_disco_2_libres_gb": "DISCO D LIBRE (GB)",
+        "val_disco_2_total_gb": "DISCO D TOTAL (GB)",
+        "val_disco_3_pct_libre": "DISCO E LIBRE (%)",
+        "val_disco_3_libres_gb": "DISCO E LIBRE (GB)",
+        "val_disco_3_total_gb": "DISCO E TOTAL (GB)",
+        "val_disco_4_pct_libre": "DISCO F LIBRE (%)",
+        "val_disco_4_libres_gb": "DISCO F LIBRE (GB)",
+        "val_disco_4_total_gb": "DISCO F TOTAL (GB)",
+        "val_disco_5_pct_libre": "DISCO G LIBRE (%)",
+        "val_disco_5_libres_gb": "DISCO G LIBRE (GB)",
+        "val_disco_5_total_gb": "DISCO G TOTAL (GB)",
+        "val_disco_6_pct_libre": "DISCO Y LIBRE (%)",
+        "val_disco_6_libres_gb": "DISCO Y LIBRE (GB)",
+        "val_disco_6_total_gb": "DISCO Y TOTAL (GB)",
+        "val_red_total": "RED TOTAL (Mbit/s)",
+        "val_red_entrante": "RED ENTRANTE (Mbit/s)",
+        "val_red_saliente": "RED SALIENTE (Mbit/s)",
         "val_latencia_ping": "LATENCIA PROMEDIO (ms)",
         "val_latencia_max": "LATENCIA MAXIMA (ms)",
         "val_latencia_min": "LATENCIA MINIMA (ms)",
@@ -516,14 +690,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         "val_cpu_p8": "CPU CORE 8 (%)"
     }
 
-    opciones_componentes = [
+    # Opciones de componentes para la pestaña de gráficas
+    opciones_componentes_base = [
         "-- Seleccione un Componente --", 
         "🧠 Memoria (RAM)", 
         "⚙️ Procesamiento (Solo CPU)", 
         "🌐 Tráfico de Red",
-        "⏳ Latencia de Respuesta (Ping)",
-        "💽 Almacenamiento (Disco C)"
+        "⏳ Latencia de Respuesta (Ping)"
     ]
+    
+    # Agregar discos dinámicamente según el servidor seleccionado
+    # Esto se hace en la pestaña de gráficas directamente
 
     tab_historico, tab_graficas = st.tabs(
         ["📊 Histórico Telemetría", "📈 Variables por Componente"],
@@ -558,21 +735,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 if servidor_seleccionado_tab1:
                     info_srv_metricas = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
                     
-                    opciones_metricas_disponibles = []
-                    
-                    if info_srv_metricas:
-                        if int(info_srv_metricas.get('id_sensor_ram', 0)) > 0:
-                            opciones_metricas_disponibles.append("🧠 Variables de Memoria (RAM)")
-                        if int(info_srv_metricas.get('id_sensor_cpu', 0)) > 0:
-                            opciones_metricas_disponibles.append("⚙️ Variables de Procesamiento (CPU Cores)")
-                        if int(info_srv_metricas.get('id_sensor_red_total', 0)) > 0 or \
-                           int(info_srv_metricas.get('id_sensor_red_entrante', 0)) > 0 or \
-                           int(info_srv_metricas.get('id_sensor_red_saliente', 0)) > 0:
-                            opciones_metricas_disponibles.append("🌐 Variables de Red")
-                        if int(info_srv_metricas.get('id_sensor_latencia', 0)) > 0:
-                            opciones_metricas_disponibles.append("⏱️ Variables de Ping/Latencia")
-                        if int(info_srv_metricas.get('id_sensor_disco_1', 0)) > 0:
-                            opciones_metricas_disponibles.append("💽 Variables de Almacenamiento (Disco C)")
+                    opciones_metricas_disponibles = obtener_opciones_metricas(info_srv_metricas)
                     
                     if not opciones_metricas_disponibles:
                         st.selectbox(
@@ -617,4 +780,23 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas)
 
     with tab_graficas:
-        renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_componentes, servidores_activos)
+        # Construir opciones de componentes incluyendo discos detectados
+        opciones_componentes_dinamicas = opciones_componentes_base.copy()
+        
+        # Si hay un servidor seleccionado, agregar sus discos
+        nombre_srv_graf = st.session_state.get("sb_graf_srv", "-- Seleccione un Servidor --")
+        if nombre_srv_graf != "-- Seleccione un Servidor --":
+            info_srv_graf = next((s for s in servidores_activos if s['nombre_alias'] == nombre_srv_graf), None)
+            if info_srv_graf:
+                # Agregar discos disponibles
+                discos_map = {'disco_1': 'C', 'disco_2': 'D', 'disco_3': 'E', 
+                             'disco_4': 'F', 'disco_5': 'G', 'disco_6': 'Y'}
+                for disco_key, letra in discos_map.items():
+                    if int(info_srv_graf.get(f'id_sensor_{disco_key}', 0) or 0) > 0:
+                        opciones_componentes_dinamicas.append(f"💽 Almacenamiento (Disco {letra})")
+        
+        renderizar_pestaña_analitica_completa(
+            opciones_servidores_tab2, 
+            opciones_componentes_dinamicas, 
+            servidores_activos
+        )

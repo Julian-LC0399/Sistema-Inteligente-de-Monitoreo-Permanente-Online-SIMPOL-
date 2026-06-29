@@ -5,6 +5,7 @@ import requests
 import urllib3
 import psutil
 import random
+import re
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -150,7 +151,7 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
             return v_cpu or 0.0, cores_data, True, None
 
         # =====================================================================
-        # DISCO - CORREGIDO
+        # DISCO
         # =====================================================================
         if tipo_metrica == "disco":
             val_libre_gb = None
@@ -161,30 +162,24 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                 name = str(channel.get("name", "")).lower().strip()
                 raw_val = safe_float(channel.get("lastvalue_raw", 0))
                 
-                # Detectar porcentaje libre
                 if any(k in name for k in ["%", "percent", "pct", "libre", "free"]):
                     if any(k in name for k in ["%", "percent", "pct"]):
                         if 0 <= raw_val <= 100:
                             pct_libre = raw_val
                 
-                # Detectar "Espacio libre" - puede ser porcentaje o GB
                 if "espacio libre" in name or "free space" in name:
-                    # Si el valor es <= 100, es porcentaje
                     if 0 <= raw_val <= 100:
                         pct_libre = raw_val
                     else:
-                        # Si es > 100, puede ser GB o bytes
                         if raw_val > 1000000.0:
                             val_libre_gb = raw_val / 1073741824.0
                         else:
                             val_libre_gb = raw_val
                 
-                # Detectar "Bytes libres" - siempre en bytes
                 if "bytes libres" in name or "free bytes" in name:
                     if raw_val > 0:
                         val_libre_gb = raw_val / 1073741824.0
                 
-                # Detectar espacio total
                 if any(k in name for k in ["total", "size", "capacidad", "capacity"]):
                     if "%" not in name and "percent" not in name:
                         if raw_val > 0:
@@ -193,12 +188,10 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                             else:
                                 val_total_directo = raw_val
 
-            # Si no se detectó porcentaje, calcularlo
             if pct_libre is None:
                 if val_libre_gb is not None and val_total_directo is not None and val_total_directo > 0:
                     pct_libre = (val_libre_gb / val_total_directo) * 100.0
 
-            # Validar
             if pct_libre is None:
                 pct_libre = 50.0
             if pct_libre > 100.0:
@@ -209,30 +202,26 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
             return safe_float(val_libre_gb), safe_float(pct_libre), True, safe_float(val_total_directo)
 
         # =====================================================================
-        # RAM - CORREGIDO
+        # RAM
         # =====================================================================
         if tipo_metrica == "ram":
             ram_used_percent = None
             ram_free_percent = None
             ram_free_bytes = None
             ram_total_bytes = None
-            ram_used_bytes = None
             
             for channel in channels:
                 name = str(channel.get("name", "")).lower().strip()
                 raw_val = safe_float(channel.get("lastvalue_raw", 0))
                 
-                # Detectar porcentaje usado
                 if any(k in name for k in ["used", "uso", "utilizado", "consumido"]):
                     if any(k in name for k in ["%", "percent", "pct"]):
                         ram_used_percent = raw_val
                 
-                # Detectar porcentaje libre
                 if any(k in name for k in ["free", "libre", "disponible", "available"]):
                     if any(k in name for k in ["%", "percent", "pct"]):
                         ram_free_percent = raw_val
                 
-                # Detectar bytes libres
                 if any(k in name for k in ["free", "libre", "disponible", "available"]):
                     if not any(k in name for k in ["%", "percent", "pct"]):
                         if raw_val > 1000000.0:
@@ -240,7 +229,6 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                         else:
                             ram_free_bytes = raw_val * 1073741824.0
                 
-                # Detectar bytes totales
                 if any(k in name for k in ["total", "installed", "instalada"]):
                     if not any(k in name for k in ["%", "percent", "pct"]):
                         if raw_val > 1000000.0:
@@ -248,10 +236,8 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                         else:
                             ram_total_bytes = raw_val * 1073741824.0
 
-            # Cálculo del porcentaje libre
             if ram_free_percent is not None:
                 pct_libre = ram_free_percent
-                # Calcular GB libre a partir del porcentaje y total
                 if ram_total_bytes is not None and ram_total_bytes > 0:
                     val_libre_gb = (ram_free_percent / 100.0) * (ram_total_bytes / 1073741824.0)
                 else:
@@ -275,13 +261,11 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
                 pct_libre = 50.0
                 val_libre_gb = 8.0
 
-            # Calcular total si no se tiene
             if ram_total_bytes is None or ram_total_bytes == 0:
-                ram_total_bytes = 16.0 * 1073741824.0  # 16GB por defecto
+                ram_total_bytes = 16.0 * 1073741824.0
 
             val_total_directo = ram_total_bytes / 1073741824.0
 
-            # Validar
             if pct_libre > 100.0:
                 pct_libre = 100.0
             if pct_libre < 0:
@@ -292,28 +276,50 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
             return val_libre_gb or 0.0, pct_libre or 100.0, True, val_total_directo
 
         # =====================================================================
-        # RED
+        # RED - CORRECCIÓN DEFINITIVA (MB/s → Mbit/s)
         # =====================================================================
         if tipo_metrica == "red":
             v_red_total = None
             red_dict = {"red_entrante": 0.0, "red_saliente": 0.0}
             
             for channel in channels:
-                name = str(channel.get("name", "")).lower().strip()
-                raw_val = safe_float(channel.get("lastvalue_raw", 0))
+                name = str(channel.get("name", "")).strip()
+                name_lower = name.lower()
                 
-                val_mbps = raw_val / 125000.0 if raw_val > 10000.0 else raw_val
+                # PRTG devuelve lastvalue como "X MB" (MegaBytes por segundo)
+                lastvalue = channel.get("lastvalue", "0")
                 
-                if any(k in name for k in ["total", "traffic", "tráfico", "overall"]):
-                    v_red_total = val_mbps
-                elif any(k in name for k in ["in", "entrante", "download", "recibido", "rx", "receiving"]):
-                    red_dict["red_entrante"] = round(val_mbps, 2)
-                elif any(k in name for k in ["out", "saliente", "upload", "transmitido", "tx", "sending"]):
-                    red_dict["red_saliente"] = round(val_mbps, 2)
+                # Extraer el número de "6.12 MB" o "628 MB"
+                valor_mb = 0.0
+                if isinstance(lastvalue, str):
+                    # Limpiar y extraer el número
+                    match = re.search(r"([\d.]+)", lastvalue)
+                    if match:
+                        valor_mb = float(match.group(1))
+                else:
+                    valor_mb = safe_float(lastvalue)
+                
+                # Si no se pudo extraer de lastvalue, usar lastvalue_raw como fallback
+                if valor_mb == 0:
+                    lastvalue_raw = safe_float(channel.get("lastvalue_raw", 0))
+                    # Convertir bytes a MB: bytes / 1,000,000
+                    valor_mb = lastvalue_raw / 1000000.0
+                
+                # Convertir MB/s a Mbit/s: MB * 8
+                valor_mbps = valor_mb * 8
+                
+                # Asignar según el nombre del canal
+                if any(k in name_lower for k in ["entrante", "in", "rx", "recibido", "download"]):
+                    red_dict["red_entrante"] = round(valor_mbps, 2)
+                elif any(k in name_lower for k in ["saliente", "out", "tx", "transmitido", "upload"]):
+                    red_dict["red_saliente"] = round(valor_mbps, 2)
+                elif any(k in name_lower for k in ["total", "traffic", "tráfico", "overall"]):
+                    v_red_total = round(valor_mbps, 2)
             
-            if v_red_total is None:
+            # Si no se encontró total, calcularlo como suma
+            if v_red_total is None or v_red_total == 0:
                 v_red_total = red_dict["red_entrante"] + red_dict["red_saliente"]
-                
+            
             return round(v_red_total, 2), red_dict, True, None
 
         # =====================================================================
@@ -345,6 +351,7 @@ def obtener_valor_prtg(id_sensor, tipo_metrica):
         return 0.0, None, False, None
         
     except Exception as e:
+        logging.error(f"Error en obtener_valor_prtg: {str(e)}")
         if tipo_metrica == "cpu": return (0.0, {}, False, None)
         if tipo_metrica == "red": return (0.0, {"red_entrante": 0.0, "red_saliente": 0.0}, False, None)
         if tipo_metrica == "latencia": return (0.0, {"latencia_max": 0.0, "latencia_min": 0.0, "latencia_perdida": 0.0}, False, None)
@@ -468,7 +475,6 @@ def obtener_telemetria_total(config_servidor):
                 data[f"disco_{i}_total_gb"] = round(val_total_directo, 2) if val_total_directo > 0 else 30.0
                 data[f"disco_{i}_pct"] = round(pct_libre, 2) if pct_libre > 0 else 0.0
                 
-                # Si el porcentaje es > 50 pero el espacio libre es muy pequeño, recalcular
                 if data[f"disco_{i}_pct"] > 50.0 and data[f"disco_{i}_gb"] > 0 and data[f"disco_{i}_total_gb"] > 0:
                     pct_calc = (data[f"disco_{i}_gb"] / data[f"disco_{i}_total_gb"]) * 100.0
                     if pct_calc < 30.0:
