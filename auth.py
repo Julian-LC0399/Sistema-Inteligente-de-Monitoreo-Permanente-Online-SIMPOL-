@@ -32,20 +32,44 @@ def mostrar_login():
 
         with col2:
             st.markdown('<div class="login-container">', unsafe_allow_html=True)
+            
+            # TÍTULO PRINCIPAL - Más grande y destacado
             st.markdown(
-                "<h1 style='text-align: center; color: #003366;'>SIMPOL</h1>",
+                """
+                <div style='text-align: center; padding: 10px 0 5px 0;'>
+                    <h1 style='color: #003366; font-size: 52px; font-weight: 900; margin-bottom: 5px; letter-spacing: 2px;'>
+                        🏦 SIMPOL
+                    </h1>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
+            
+            # SUBTÍTULO - Más grande, visible y con estilo corporativo
             st.markdown(
-                "<h4 style='text-align: center; color: #333333; font-size: 14px;'>Sistema Inteligente de Monitoreo Permanente Online</h4>",
+                """
+                <div style='text-align: center; padding: 0 0 15px 0;'>
+                    <h3 style='color: #1a5276; font-size: 22px; font-weight: 600; margin: 0; 
+                               background: linear-gradient(90deg, #003366, #1a6b8a);
+                               -webkit-background-clip: text;
+                               -webkit-text-fill-color: transparent;
+                               letter-spacing: 1px;'>
+                        Sistema Inteligente de Monitoreo Permanente Online
+                    </h3>
+                    <div style='width: 60%; height: 3px; background: linear-gradient(90deg, #003366, #3498db); 
+                                margin: 8px auto 0 auto; border-radius: 2px;'>
+                    </div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
+            
             st.write("---")
 
             # Mantenemos el formulario seguro con Key única para el subproceso .exe
             with st.form("login_form", clear_on_submit=False):
                 st.markdown(
-                    "<p style='color: #003366; font-weight: bold;'>🔐 Acceso al Sistema</p>",
+                    "<p style='color: #003366; font-weight: bold; font-size: 16px;'>🔐 Acceso al Sistema</p>",
                     unsafe_allow_html=True,
                 )
                 usuario = st.text_input("Usuario", key="input_user_login")
