@@ -3,6 +3,8 @@ import os
 import sys
 import logging
 from datetime import datetime
+import webbrowser
+import base64
 
 # === 1. CONFIGURACIÓN DE LOGS ===
 logging.basicConfig(
@@ -27,12 +29,41 @@ def get_resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
+def get_favicon_base64():
+    """Genera un favicon en base64 desde un archivo o crea uno por defecto"""
+    try:
+        favicon_path = get_resource_path("favicon.ico")
+        if os.path.exists(favicon_path):
+            with open(favicon_path, "rb") as f:
+                icon_data = f.read()
+                return base64.b64encode(icon_data).decode()
+    except Exception as e:
+        logging.error(f"Error cargando favicon: {e}")
+    
+    # Si no existe el archivo, creamos un icono simple en base64
+    # Este es un icono de banco simple (🏦) convertido a SVG
+    svg_icon = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <rect width="100" height="100" rx="15" fill="#003366"/>
+        <text x="50" y="68" font-size="50" text-anchor="middle" fill="white">🏦</text>
+        <text x="50" y="90" font-size="12" text-anchor="middle" fill="#FFD700">SIMPOL</text>
+    </svg>'''
+    return base64.b64encode(svg_icon.encode()).decode()
+
 # === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
 st.set_page_config(
     page_title="SIMPOL - Banco Caroní",
+    page_icon="🏦",  # Emoji como respaldo
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# AGREGAR FAVICON PERSONALIZADO EN EL HEADER
+favicon_b64 = get_favicon_base64()
+st.markdown(f'''
+    <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
+    <link rel="shortcut icon" type="image/x-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
+    <link rel="apple-touch-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
+''', unsafe_allow_html=True)
 
 # SE GARANTIZA LA INYECCIÓN TEMPRANA: Forzar la carga de style.css antes de la lógica de ruteo
 css_path = get_resource_path("style.css")
@@ -104,6 +135,11 @@ st.markdown("""
             margin-left: 0px !important;
             padding-top: 20px !important;
         }
+        
+        /* Mejorar la barra de título del navegador */
+        title {
+            color: #003366 !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -119,9 +155,18 @@ st.markdown("""
                 }
             }
         }, true);
+        
+        // FORZAR QUE LOS ENLACES ABRAN EN EL NAVEGADOR
+        document.addEventListener('click', function(e) {
+            const target = e.target.closest('a');
+            if (target && target.href) {
+                if (target.target !== '_blank') {
+                    target.target = '_blank';
+                }
+            }
+        });
     </script>
 """, unsafe_allow_html=True)
-
 
 # === 5. FLUJO PRINCIPAL PROTEGIDO ===
 import auth

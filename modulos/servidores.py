@@ -81,10 +81,36 @@ def mostrar_tabla_servidores(rol_usuario=None):
             [data-testid="stTextInputInstructions"] {
                 display: none !important;
             }
+            /* Estilo para el texto del analista - MÁS GRANDE */
+            .info-analista {
+                color: #333333;
+                font-size: 20px;
+                font-weight: 500;
+                margin-bottom: 15px;
+                margin-top: 5px;
+                padding: 4px 0;
+            }
+            .info-analista span {
+                color: #003366;
+                font-weight: 700;
+            }
         </style>
     """, unsafe_allow_html=True)
 
     st.markdown('<h2 style="color:#003366;">🖥️ Gestión Servidores</h2>', unsafe_allow_html=True)
+    
+    # ==========================================================================
+    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
+    # ==========================================================================
+    cargo_actual = st.session_state.get("cargo", "Analista")
+    usuario_actual = st.session_state.get("user_actual", "Sistema")
+    
+    st.markdown(f"""
+        <div class="info-analista">
+            👤 <span>Analista:</span> {cargo_actual} ({usuario_actual})
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.markdown("---")
     
     rol_sanitizado = str(rol_usuario).strip().upper() if rol_usuario else ""
@@ -101,12 +127,32 @@ def mostrar_tabla_servidores(rol_usuario=None):
         st.query_params["srv"] = servidor
         st.rerun()
 
+    # ==========================================================================
+    # CONTROL DE PESTAÑA ACTIVA - USANDO session_state + query_params
+    # ==========================================================================
+    # Inicializar estado de pestaña si no existe
+    if "tab_servidores_activa" not in st.session_state:
+        st.session_state.tab_servidores_activa = 0  # 0 = pestaña 1, 1 = pestaña 2
+    
+    # Leer parámetro de la URL y actualizar session_state
+    tab_param = st.query_params.get("tab_servidores")
+    if tab_param == "2":
+        st.session_state.tab_servidores_activa = 1
+    elif tab_param == "1":
+        st.session_state.tab_servidores_activa = 0
+
+    # Crear las pestañas
     tab1, tab2 = st.tabs(["📊 Infraestructura y Sensores", "⚙️ Datos Adicionales"])
 
     # ==========================================================================
     # PESTAÑA 1: CONTROL TOTAL DE INFRAESTRUCTURA
     # ==========================================================================
     with tab1:
+        # Actualizar estado y URL
+        st.session_state.tab_servidores_activa = 0
+        if st.query_params.get("tab_servidores") != "1":
+            st.query_params["tab_servidores"] = "1"
+        
         if "filtro_servidor_nombre" not in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
         if "accion_infra" not in st.session_state:
@@ -135,6 +181,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             if seleccion != st.session_state["filtro_servidor_nombre"]:
                 st.session_state["filtro_servidor_nombre"] = seleccion
                 st.session_state.accion_infra = None
+                st.query_params["tab_servidores"] = "1"
                 st.rerun()
 
             col_f2.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
@@ -143,6 +190,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
                 st.session_state.accion_infra = None
                 st.query_params.clear() 
+                st.query_params["tab_servidores"] = "1"
                 st.rerun()
 
             hay_filtro = st.session_state["filtro_servidor_nombre"] != "-- Seleccione un Servidor --"
@@ -506,6 +554,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
     # PESTAÑA 2: GESTIÓN INTEGRAL Y EXACTA DE `datos_adicionales`
     # ==========================================================================
     with tab2:
+        # Actualizar estado y URL
+        st.session_state.tab_servidores_activa = 1
+        if st.query_params.get("tab_servidores") != "2":
+            st.query_params["tab_servidores"] = "2"
+        
         st.markdown('<h3 style="color:#003366;">📋 Control de Máquinas Virtuales y Parámetros Adicionales</h3>', unsafe_allow_html=True)
         
         if "filtro_adicional_nombre" not in st.session_state:
@@ -520,33 +573,37 @@ def mostrar_tabla_servidores(rol_usuario=None):
             lista_nombres_bd_ad = obtener_lista_nombres_servidores()
             opciones_selectbox_ad = ["-- Seleccione un Servidor Base --", "-- Ver Todos los Servidores Base --"] + lista_nombres_bd_ad
 
-            idx_actual_ad = 0
-            if st.session_state["filtro_adicional_nombre"] in opciones_selectbox_ad:
-                idx_actual_ad = opciones_selectbox_ad.index(st.session_state["filtro_adicional_nombre"])
-
+            # =============================================================
+            # FILTRO CON on_change que mantiene la pestaña
+            # =============================================================
             col_f_ad1, col_f_ad2 = st.columns([3, 1])
             
-            seleccion_ad = col_f_ad1.selectbox(
-                "Filtrar Entornos por Servidor Base",
-                options=opciones_selectbox_ad,
-                index=idx_actual_ad,
-                key="sb_filter_p2"
-            )
+            def on_change_filtro_ad():
+                # Esta función se ejecuta cuando cambia el selectbox
+                # No necesita hacer nada especial porque el valor ya está en session_state
+                pass
             
-            if seleccion_ad != st.session_state["filtro_adicional_nombre"]:
-                st.session_state["filtro_adicional_nombre"] = seleccion_ad
-                st.session_state.accion_adicional = None
-                st.rerun()
-
-            col_f_ad2.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
+            with col_f_ad1:
+                st.selectbox(
+                    "Filtrar Entornos por Servidor Base",
+                    options=opciones_selectbox_ad,
+                    key="filtro_adicional_nombre",
+                    on_change=on_change_filtro_ad,
+                    label_visibility="collapsed"
+                )
             
-            if col_f_ad2.button("🧹 Limpiar Filtro", use_container_width=True, key="btn_limpiar_filtro_ad"):
-                st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
-                st.session_state.accion_adicional = None
-                st.rerun()
+            with col_f_ad2:
+                if st.button("🧹 Limpiar", key="btn_limpiar_filtro_ad", use_container_width=True):
+                    st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+                    st.session_state.accion_adicional = None
+                    st.query_params["tab_servidores"] = "2"
+                    st.rerun()
 
-            hay_filtro_ad = st.session_state["filtro_adicional_nombre"] != "-- Seleccione un Servidor Base --"
-            ver_todos_ad = st.session_state["filtro_adicional_nombre"] == "-- Ver Todos los Servidores Base --"
+            # Obtener valor del filtro desde session_state
+            filtro_adicional = st.session_state["filtro_adicional_nombre"]
+            
+            hay_filtro_ad = filtro_adicional != "-- Seleccione un Servidor Base --"
+            ver_todos_ad = filtro_adicional == "-- Ver Todos los Servidores Base --"
             registros_adicionales = []
 
             conn_ad = conectar_bd()
@@ -581,7 +638,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         WHERE s.nombre_alias = %s
                         ORDER BY da.id DESC
                     """
-                    cursor_ad.execute(query_select_ad, (st.session_state["filtro_adicional_nombre"],))
+                    cursor_ad.execute(query_select_ad, (filtro_adicional,))
                 
                 registros_adicionales = cursor_ad.fetchall()
             

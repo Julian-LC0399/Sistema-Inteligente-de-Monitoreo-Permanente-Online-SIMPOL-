@@ -159,12 +159,39 @@ def reset_reporte():
 # VISTA Y CONTROLADOR PRINCIPAL DEL MÓDULO CAPACITY PLANNING
 # =====================================================================
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
-    st.markdown(
-        f'<h2 style="color:#003366; margin-bottom:0px;">📈 Planificacion de Capacidad (Capacity Planning)</h2>'
-        f'<p style="color:#555; font-size:14px; margin-top:5px;">'
-        f'Algoritmos de Tendencia Lineal e Infraestructura Virtual | <b>Analista:</b> {nombre_analista} ({usuario_login})</p>', 
-        unsafe_allow_html=True
-    )
+    # Estilos
+    st.markdown("""
+        <style>
+            /* Estilo para el texto del analista - MÁS GRANDE */
+            .info-analista-capacity {
+                color: #333333;
+                font-size: 20px;
+                font-weight: 500;
+                margin-bottom: 15px;
+                margin-top: 5px;
+                padding: 4px 0;
+            }
+            .info-analista-capacity span {
+                color: #003366;
+                font-weight: 700;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<h2 style="color:#003366; margin-bottom:0px;">📈 Planificacion de Capacidad (Capacity Planning)</h2>', unsafe_allow_html=True)
+    
+    # ==========================================================================
+    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
+    # ==========================================================================
+    cargo_actual = st.session_state.get("cargo", "Analista")
+    usuario_actual = st.session_state.get("user_actual", "Sistema")
+    
+    st.markdown(f"""
+        <div class="info-analista-capacity">
+            👤 <span>Analista:</span> {cargo_actual} ({usuario_actual})
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.markdown("---")
 
     if "sel_servidor" not in st.session_state:

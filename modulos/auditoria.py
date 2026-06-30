@@ -3,6 +3,41 @@ from database import conectar_bd
 from datetime import datetime, timedelta
 
 def mostrar_pantalla():
+    # Estilos
+    st.markdown("""
+        <style>
+            /* Estilo para el texto del analista - MÁS GRANDE */
+            .info-analista-auditoria {
+                color: #333333;
+                font-size: 20px;
+                font-weight: 500;
+                margin-bottom: 15px;
+                margin-top: 5px;
+                padding: 4px 0;
+            }
+            .info-analista-auditoria span {
+                color: #003366;
+                font-weight: 700;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<h2 style='color: #003366; font-family: sans-serif;'>🕵️ Control de Accesos y Auditoría</h2>", unsafe_allow_html=True)
+    
+    # ==========================================================================
+    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
+    # ==========================================================================
+    cargo_actual = st.session_state.get("cargo", "Analista")
+    usuario_actual = st.session_state.get("user_actual", "Sistema")
+    
+    st.markdown(f"""
+        <div class="info-analista-auditoria">
+            👤 <span>Analista:</span> {cargo_actual} ({usuario_actual})
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+
     # === INICIALIZAR ESTADOS ===
     if "filtro_usuario_auditoria" not in st.session_state:
         st.session_state["filtro_usuario_auditoria"] = "-- Seleccione un Usuario --"
@@ -12,9 +47,6 @@ def mostrar_pantalla():
         st.session_state["fecha_hasta_auditoria"] = datetime.now().date()
     if "mostrar_resultados" not in st.session_state:
         st.session_state["mostrar_resultados"] = False
-
-    st.markdown("<h2 style='color: #003366; font-family: sans-serif;'>🕵️ Control de Accesos y Auditoría</h2>", unsafe_allow_html=True)
-    st.markdown("---")
 
     try:
         conn = conectar_bd()

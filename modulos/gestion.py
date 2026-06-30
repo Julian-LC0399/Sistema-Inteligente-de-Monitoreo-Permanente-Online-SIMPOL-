@@ -14,14 +14,6 @@ def cb_limpiar_p1():
         del st.session_state["wb_filtro_analista"]
     st.session_state.accion_personal = None
 
-def cb_cambio_auditoria():
-    st.session_state.filtro_auditoria_usr = st.session_state.wb_filtro_auditoria
-    
-def cb_limpiar_p2():
-    st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
-    if "wb_filtro_auditoria" in st.session_state:
-        del st.session_state["wb_filtro_auditoria"]
-
 
 def mostrar_pantalla(user_actual, user_id):
     # ==========================================================================
@@ -60,6 +52,20 @@ def mostrar_pantalla(user_actual, user_id):
                 margin-bottom: 20px;
                 display: block;
                 line-height: 1.2;
+            }
+            
+            /* Estilo para el texto del analista - MÁS GRANDE */
+            .info-analista-gestion {
+                color: #333333;
+                font-size: 20px;
+                font-weight: 500;
+                margin-bottom: 15px;
+                margin-top: 5px;
+                padding: 4px 0;
+            }
+            .info-analista-gestion span {
+                color: #003366;
+                font-weight: 700;
             }
             
             div[data-testid="stInputInstructions"] {
@@ -114,15 +120,46 @@ def mostrar_pantalla(user_actual, user_id):
     """, unsafe_allow_html=True)
 
     st.markdown('<h2 style="color:#003366;">👥 Gestión de Personal</h2>', unsafe_allow_html=True)
+    
+    # ==========================================================================
+    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
+    # ==========================================================================
+    cargo_actual = st.session_state.get("cargo", "Analista")
+    usuario_actual = st.session_state.get("user_actual", "Sistema")
+    
+    st.markdown(f"""
+        <div class="info-analista-gestion">
+            👤 <span>Analista:</span> {cargo_actual} ({usuario_actual})
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.markdown('<div class="modulo-banco">', unsafe_allow_html=True)
-    st.markdown(f'<p class="analista-sesion-tag">Analista en sesión: <b>{user_actual}</b></p>', unsafe_allow_html=True)
 
+    # ==========================================================================
+    # CONTROL DE PESTAÑA ACTIVA VIA QUERY_PARAMS
+    # ==========================================================================
+    # Leer parámetro de pestaña desde la URL
+    tab_param = st.query_params.get("tab_gestion")
+    if tab_param == "2":
+        tab_index = 1
+    else:
+        tab_index = 0
+        # Si no hay parámetro o es 1, asegurar que la URL tenga tab=1
+        if tab_param != "1":
+            st.query_params["tab_gestion"] = "1"
+
+    # ==========================================================================
+    # TABS CON CONTROL DE PESTAÑA ACTIVA
+    # ==========================================================================
     tab1, tab2 = st.tabs(["👤 Gestión de Personal", "📋 Tabla Histórico Usuarios"], key="tabs_gestion")
 
     # ==========================================================================
     # PESTAÑA 1: GESTIÓN DE PERSONAL
     # ==========================================================================
     with tab1:
+        # Guardar que estamos en pestaña 1 en la URL
+        st.query_params["tab_gestion"] = "1"
+        
         conn = None
         cursor = None
 
@@ -174,7 +211,6 @@ def mostrar_pantalla(user_actual, user_id):
                         .tabla-banco-usr tr:nth-child(even) { background-color: #f8f9fa; }
                     </style>
                     """)
-                    # SE REMOVIÓ EL ENCABEZADO "ID" DE LA TABLA
                     html_lineas.append('<table class="tabla-banco-usr"><thead><tr><th style="width: 30%;">USUARIO</th><th style="width: 40%;">CARGO INSTITUCIONAL</th><th style="width: 15%;">ROL</th><th style="width: 15%;">ESTATUS</th></tr></thead><tbody>')
                     
                     lista_ids = []
@@ -186,7 +222,6 @@ def mostrar_pantalla(user_actual, user_id):
                         estado_html = '<span style="color: #2E7D32; font-weight: bold;">ACTIVO</span>' if u['estado'] == 1 else '<span style="color: #C62828; font-weight: bold;">SUSPENDIDO</span>'
                         
                         html_lineas.append('<tr>')
-                        # SE DETECTÓ Y REMOVIÓ LA CELDA QUE RENDERIZABA EL VALOR DEL ID
                         html_lineas.append(f'<td><code>{u["usuario"]}</code></td>')
                         html_lineas.append(f'<td><b>{u["cargo"]}</b></td>')
                         html_lineas.append(f'<td style="text-align: center;">{str(u["rol"]).upper()}</td>')
@@ -294,6 +329,9 @@ def mostrar_pantalla(user_actual, user_id):
     # PESTAÑA 2: TABLA HISTÓRICO USUARIOS
     # ==========================================================================
     with tab2:
+        # Guardar que estamos en pestaña 2 en la URL
+        st.query_params["tab_gestion"] = "2"
+        
         conn_p2 = None
         cursor_p2 = None
 
@@ -308,29 +346,35 @@ def mostrar_pantalla(user_actual, user_id):
                 
                 opciones_auditoria = ["-- Seleccione un Usuario --"] + [row['usuario'] for row in raw_usuarios_p2]
 
-                idx_auditoria = 0
-                if st.session_state.filtro_auditoria_usr in opciones_auditoria:
-                    idx_auditoria = opciones_auditoria.index(st.session_state.filtro_auditoria_usr)
-
+                # =============================================================
+                # FILTRO - ESTILO ALERTAS.PY
+                # =============================================================
                 col_aud1, col_aud2 = st.columns([3, 1])
-                col_aud1.selectbox(
-                    "Filtrar Registros de Auditoría por Nombre de Usuario:",
-                    options=opciones_auditoria,
-                    index=idx_auditoria,
-                    key="wb_filtro_auditoria",
-                    on_change=cb_cambio_auditoria
-                )
+                with col_aud1:
+                    st.selectbox(
+                        "Filtrar Registros de Auditoría por Nombre de Usuario:",
+                        options=opciones_auditoria,
+                        key="filtro_auditoria_usr",
+                        label_visibility="collapsed"
+                    )
                 
-                col_aud2.markdown('<div style="margin-top: 36px;"></div>', unsafe_allow_html=True)
-                col_aud2.button("🧹 Limpiar Filtro", use_container_width=True, key="btn_p2_limpiar", on_click=cb_limpiar_p2)
+                with col_aud2:
+                    if st.button("🧹 Limpiar", key="btn_p2_limpiar", use_container_width=True):
+                        st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
+                        # Asegurar que nos quedamos en pestaña 2
+                        st.query_params["tab_gestion"] = "2"
+                        st.rerun()
 
-                if st.session_state.filtro_auditoria_usr == "-- Seleccione un Usuario --":
+                # Obtener valor del filtro desde session_state
+                filtro_auditoria = st.session_state.filtro_auditoria_usr
+
+                if filtro_auditoria == "-- Seleccione un Usuario --":
                     st.info("💡 Por favor, seleccione un usuario para evaluar sus operaciones históricas de auditoría.")
                 else:
                     cursor_p2.execute(
                         "SELECT id_auditoria, fecha_evento, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario "
                         "FROM historico_usuarios WHERE usuario_afectado = %s ORDER BY fecha_evento DESC",
-                        (st.session_state.filtro_auditoria_usr,)
+                        (filtro_auditoria,)
                     )
                     datos_auditoria_filtrados = cursor_p2.fetchall()
 
@@ -344,7 +388,6 @@ def mostrar_pantalla(user_actual, user_id):
                             .tabla-banco-usr tr:nth-child(even) { background-color: #f8f9fa; }
                         </style>
                         """)
-                        # SE REMOVIÓ EL ENCABEZADO "ID" DE LA TABLA DE AUDITORÍA
                         html_lineas_aud.append('<table class="tabla-banco-usr"><thead><tr><th style="width: 22%;">FECHA EVENTO</th><th style="width: 18%;">AFECTADO</th><th style="width: 22%;">ACCCIÓN</th><th style="width: 11%;">ANTERIOR</th><th style="width: 11%;">NUEVO</th><th style="width: 16%;">JUSTIFICACIÓN</th></tr></thead><tbody>')
                         
                         for row in datos_auditoria_filtrados:
@@ -367,7 +410,6 @@ def mostrar_pantalla(user_actual, user_id):
                                 listado_texto = accion_raw.lower()
                             
                             html_lineas_aud.append('<tr>')
-                            # SE REMOVIÓ EL TD CORRESPONDIENTE AL ID_AUDITORIA
                             html_lineas_aud.append(f'<td style="font-size:12px; text-align: center;">{str(row["fecha_evento"])}</td>')
                             html_lineas_aud.append(f'<td><code>{row["usuario_afectado"]}</code></td>')
                             html_lineas_aud.append(f'<td style="text-align: center; font-weight: bold; color: #003366;">{listado_texto}</td>')
@@ -379,7 +421,7 @@ def mostrar_pantalla(user_actual, user_id):
                         html_lineas_aud.append('</tbody></table>')
                         st.components.v1.html("".join(html_lineas_aud), height=max(180, len(datos_auditoria_filtrados) * 45 + 65), scrolling=True)
                     else:
-                        st.warning(f"No se encontraron transacciones en el histórico para el usuario '{st.session_state.filtro_auditoria_usr}'.")
+                        st.warning(f"No se encontraron transacciones en el histórico para el usuario '{filtro_auditoria}'.")
 
         except Exception as e:
             st.error(f"Fallo técnico al procesar el histórico de auditoría: {e}")
