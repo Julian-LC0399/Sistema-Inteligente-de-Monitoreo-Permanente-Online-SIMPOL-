@@ -39,7 +39,7 @@ def obtener_datos_reporte(ip_servidor, fecha_inicio, fecha_fin):
         cursor.close()
         return resultados
     except Exception as e:
-        st.error(f"Error consultando registros para reporte: {e}")
+        st.error(f"❌ Error consultando registros para reporte: {e}")
         return []
     finally:
         if conn: conn.close()
@@ -64,7 +64,7 @@ def obtener_alertas_reporte(ip_servidor, fecha_inicio, fecha_fin):
         cursor.close()
         return alertas
     except Exception as e:
-        st.error(f"Error obteniendo alertas del servidor: {e}")
+        st.error(f"❌ Error obteniendo alertas del servidor: {e}")
         return []
     finally:
         if conn: conn.close()
@@ -112,7 +112,7 @@ def guardar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_bl
         cursor.close()
         return True
     except Exception as e:
-        st.error(f"Error persistiendo archivo en histórico: {e}")
+        st.error(f"❌ Error persistiendo archivo en histórico: {e}")
         return False
     finally:
         if conn: conn.close()
@@ -135,7 +135,7 @@ def listar_reportes_archivados_filtrado(ip_servidor, token_sensor):
         resultados = cursor.fetchall()
         cursor.close()
     except Exception as e:
-        st.error(f"Error listando histórico filtrado: {e}")
+        st.error(f"❌ Error listando histórico filtrado: {e}")
     finally:
         if conn: conn.close()
     return resultados
@@ -152,7 +152,7 @@ def descargar_contenido_blob(id_archivo):
         if row: blob_data = row['contenido']
         cursor.close()
     except Exception as e:
-        st.error(f"Error extrayendo binario: {e}")
+        st.error(f"❌ Error extrayendo binario: {e}")
     finally:
         if conn: conn.close()
     return blob_data
@@ -161,12 +161,39 @@ def descargar_contenido_blob(id_archivo):
 # VISTA Y CONTROLADOR PRINCIPAL DEL MÓDULO DE REPORTES
 # =====================================================================
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
-    st.markdown(
-        f'<h2 style="color:#003366; margin-bottom:0px;">📋 Módulo Operacional de Reportes</h2>'
-        f'<p style="color:#555; font-size:14px; margin-top:5px;">'
-        f'Consolidación y Almacenamiento | <b>Gestor:</b> {nombre_analista} ({usuario_login})</p>', 
-        unsafe_allow_html=True
-    )
+    # Estilos
+    st.markdown("""
+        <style>
+            /* Estilo para el texto del analista - MÁS GRANDE */
+            .info-analista-reportes {
+                color: #333333;
+                font-size: 20px;
+                font-weight: 500;
+                margin-bottom: 15px;
+                margin-top: 5px;
+                padding: 4px 0;
+            }
+            .info-analista-reportes span {
+                color: #003366;
+                font-weight: 700;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<h2 style="color:#003366; margin-bottom:0px;">📋 Módulo Operacional de Reportes</h2>', unsafe_allow_html=True)
+    
+    # ==========================================================================
+    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
+    # ==========================================================================
+    cargo_actual = st.session_state.get("cargo", "Analista")
+    usuario_actual = st.session_state.get("user_actual", "Sistema")
+    
+    st.markdown(f"""
+        <div class="info-analista-reportes">
+            👤 <span>Analista:</span> {cargo_actual} ({usuario_actual})
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.markdown("---")
 
     if "rep_listo" not in st.session_state: st.session_state["rep_listo"] = False
@@ -190,7 +217,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     from database import obtener_lista_servidores
     servidores = obtener_lista_servidores()
     if not servidores:
-        st.info("💡 No se registran nodos de infraestructura para compilar reportes.")
+        st.info("📭 No se registran nodos de infraestructura para compilar reportes.")
         return
 
     nombres_servidores = ["-- Seleccione un Servidor --"] + [s['nombre_alias'] for s in servidores]
@@ -209,7 +236,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     st.session_state["servidor_seleccionado_reporte"] = serv_seleccionado
 
     if serv_seleccionado == "-- Seleccione un Servidor --":
-        st.info("💡 Seleccione un nodo de la lista para activar las herramientas de reportes.")
+        st.info("🖥️ Seleccione un nodo de la lista para activar las herramientas de reportes.")
         return
 
     serv_info = next((s for s in servidores if s['nombre_alias'] == serv_seleccionado), None)
@@ -451,9 +478,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                 st.session_state["rep_name_pdf"], "PDF", ip_objetivo, bytes_pdf, 
                                 usuario_id, kb_size_pdf, ultima_muestra=ultima_muestra_obj, alerta_vinculada=alerta_detectada_global
                             )
-                            st.success(f"📦 **Reporte PDF generado y guardado exitosamente en el historial.**")
+                            st.success(f"✅ Reporte PDF generado y guardado exitosamente en el historial.")
                         except Exception as e_pdf:
-                            st.error(f"Error generando PDF: {e_pdf}")
+                            st.error(f"❌ Error generando PDF: {e_pdf}")
 
                     # --- OPCIÓN CSV ---
                     elif formato_sel == "CSV":
@@ -536,9 +563,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                 st.session_state["rep_name_csv"], "CSV", ip_objetivo, bytes_csv, 
                                 usuario_id, kb_size_csv, ultima_muestra=ultima_muestra_obj, alerta_vinculada=alerta_detectada_global
                             )
-                            st.success(f"📦 **Reporte CSV guardado y archivado con éxito.**")
+                            st.success(f"✅ Reporte CSV guardado y archivado con éxito.")
                         except Exception as e_csv:
-                            st.error(f"Error generando CSV: {e_csv}")
+                            st.error(f"❌ Error generando CSV: {e_csv}")
 
 # =====================================================================
 # PESTAÑA 2: REPOSITORIO HISTÓRICO FILTRADO
@@ -549,7 +576,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         lista_historica = listar_reportes_archivados_filtrado(ip_objetivo, s_prefix)
         
         if not lista_historica:
-            st.info(f"💡 No hay reportes archivados de la categoría `{sensor_general}` para este nodo de infraestructura.")
+            st.info(f"📭 No hay reportes archivados de la categoría `{sensor_general}` para este nodo de infraestructura.")
         else:
             st.markdown(
                 '<div style="background-color:#003366; color:white; padding:10px; border-radius:4px; font-weight:bold; font-size:13px; font-family:Arial; display:flex; align-items:center;">'
@@ -596,3 +623,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             key=f"dl_final_{item['id']}",
                             use_container_width=True
                         )
+
+if __name__ == "__main__":
+    cargo_usuario = st.session_state.get("cargo", "Analista de Infraestructura")
+    id_usuario = st.session_state.get("id", 1)
+    login_usuario = st.session_state.get("usuario", "admin")
+    mostrar_pantalla(nombre_analista=cargo_usuario, usuario_id=id_usuario, usuario_login=login_usuario)

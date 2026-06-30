@@ -198,7 +198,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             servidores_filtrados = []
 
             if not hay_filtro:
-                st.info("💡 Por favor, seleccione un servidor de la lista desplegable superior para visualizar sus parámetros técnicos.")
+                st.info("🖥️ Por favor, seleccione un servidor de la lista desplegable superior para visualizar sus parámetros técnicos.")
             else:
                 conn = conectar_bd()
                 cursor = conn.cursor(dictionary=True)
@@ -231,7 +231,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 servidores_filtrados = cursor.fetchall()
 
                 if not servidores_filtrados:
-                    st.warning("⚠️ No se encontraron registros detallados para la selección actual.")
+                    st.warning("📭 No se encontraron registros detallados para la selección actual.")
 
             # RECONSTRUCCIÓN DE LA TABLA HTML (SIN BOTÓN DE ACCIÓN)
             if hay_filtro and servidores_filtrados:
@@ -440,7 +440,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                         int(edit_red_tot), int(edit_red_ent), int(edit_red_sal), int(edit_lat), ip_edit
                                     ))
                                     conn_edit.commit()
-                                    st.success("🎉 Estructura modificada con éxito en la base de datos.")
+                                    st.success("✅ Estructura modificada con éxito en la base de datos.")
                                     st.session_state.accion_infra = None
                                     st.cache_data.clear()
                                     st.rerun()
@@ -462,7 +462,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         srv_baja = mapeo_servidores[ip_des]
                         estado_actual_str = "ACTIVO" if srv_baja['estado_monitoreo'] == 1 else "INACTIVO"
                         
-                        st.info(f"Estado de monitoreo actual en la granja: **{estado_actual_str}**")
+                        st.info(f"ℹ️ Estado de monitoreo actual en la granja: **{estado_actual_str}**")
                         nuevo_est_bit = st.selectbox("Seleccione Nuevo Estado Lógico", ["Desactivar Monitoreo", "Activar Monitoreo"])
                         
                         col_btn_des1, col_btn_des2 = st.columns(2)
@@ -473,7 +473,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 cursor_status = conn_status.cursor()
                                 cursor_status.execute("UPDATE servidores SET estado_monitoreo=%s WHERE ip=%s", (bit_val, ip_des))
                                 conn_status.commit()
-                                st.success(f"🚀 Nodo {ip_des} actualizado con éxito.")
+                                st.success(f"✅ Nodo {ip_des} actualizado con éxito.")
                                 st.session_state.accion_infra = None
                                 st.rerun()
                             except Exception as ex:
@@ -526,7 +526,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 """
                                 cursor_write.execute(ins_query, (reg_ip.strip(), reg_alias.strip(), reg_so, reg_tipo, reg_servicios_str.strip(), int(reg_cpu), int(reg_ram)))
                                 conn_write.commit()
-                                st.success("🎉 Servidor añadido al catálogo institucional con éxito.")
+                                st.success("✅ Servidor añadido al catálogo institucional con éxito.")
                                 st.session_state.accion_infra = None
                                 st.cache_data.clear()
                                 st.rerun()
@@ -541,7 +541,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         st.rerun()
                 
         except Exception as e:
-            st.error(f"Fallo técnico al procesar el módulo de servidores: {e}")
+            st.error(f"❌ Fallo técnico al procesar el módulo de servidores: {e}")
         finally:
             if cursor:
                 try: cursor.close()
@@ -614,7 +614,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
             opciones_srv_map = {f"{s['nombre_alias']} ({s['ip']})": s['id_servidor'] for s in servidores_maestros}
 
             if not hay_filtro_ad:
-                st.info("💡 Por favor, seleccione un servidor de la lista desplegable superior para visualizar sus máquinas virtuales y entornos adicionales.")
+                st.info("🖥️ Por favor, seleccione un servidor de la lista desplegable superior para visualizar sus máquinas virtuales y entornos adicionales.")
             else:
                 if ver_todos_ad:
                     query_select_ad = """
@@ -643,7 +643,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 registros_adicionales = cursor_ad.fetchall()
             
                 if not registros_adicionales:
-                    st.warning("⚠️ No se encuentran entornos o máquinas virtuales registradas para la selección.")
+                    st.warning("📭 No se encuentran entornos o máquinas virtuales registradas para la selección.")
                 else:
                     html_ad = ["""
                     <style>
@@ -725,7 +725,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                         query_ins = "INSERT INTO datos_adicionales (id_servidor, host, nombre_vm, estado, funcion) VALUES (%s, %s, %s, %s, %s)"
                                         cursor_ad.execute(query_ins, (id_srv_target, ad_host.strip(), ad_vm.strip(), ad_estado, ad_funcion.strip()))
                                         conn_ad.commit()
-                                        st.success("🎉 Mapeo adicional registrado exitosamente.")
+                                        st.success("✅ Mapeo adicional registrado exitosamente.")
                                         st.session_state.accion_adicional = None
                                         st.rerun()
                                     except Exception as ex_ins:
@@ -753,7 +753,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                         query_upd = "UPDATE datos_adicionales SET host=%s, nombre_vm=%s, funcion=%s WHERE id=%s"
                                         cursor_ad.execute(query_upd, (edit_host.strip(), edit_vm.strip(), edit_funcion.strip(), int(id_ad_edit)))
                                         conn_ad.commit()
-                                        st.success("🎉 Parámetro consolidado y actualizado de forma segura.")
+                                        st.success("✅ Parámetro consolidado y actualizado de forma segura.")
                                         st.session_state.accion_adicional = None
                                         st.rerun()
                                     except Exception as ex_upd:
@@ -764,7 +764,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                     st.rerun()
                                 
         except Exception as e_ad:
-            st.error(f"⚠️ Error al procesar la pestaña de datos adicionales: {e_ad}")
+            st.error(f"❌ Error al procesar la pestaña de datos adicionales: {e_ad}")
         finally:
             if cursor_ad: cursor_ad.close()
             if conn_ad: conn_ad.close()

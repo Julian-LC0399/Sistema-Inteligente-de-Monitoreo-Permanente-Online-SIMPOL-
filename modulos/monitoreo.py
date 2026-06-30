@@ -200,10 +200,10 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             return
 
     if not servidor_seleccionado_tab2:
-        st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">🖥️ Por favor, seleccione primero un <b>Servidor Bajo Análisis</b> para habilitar la selección de componentes.</p>', unsafe_allow_html=True)
+        st.info("🖥️ Por favor, seleccione primero un Servidor Bajo Análisis para habilitar la selección de componentes.")
         return
     elif componente_sel == "-- Seleccione un Componente --":
-        st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">📈 Servidor listo. Ahora elija un área o componente del listado para proyectar sus métricas analíticas.</p>', unsafe_allow_html=True)
+        st.info("📈 Servidor listo. Ahora elija un área o componente del listado para proyectar sus métricas analíticas.")
         return
 
     info_srv = next((s for s in servidores_activos if s['nombre_alias'] == nombre_srv), None)
@@ -587,20 +587,46 @@ def renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_acti
 # VISTA PRINCIPAL DEL MÓDULO
 # =========================================================================
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
+    # Estilos
+    st.markdown("""
+        <style>
+            /* Estilo para el texto del analista - MÁS GRANDE */
+            .info-analista-monitoreo {
+                color: #333333;
+                font-size: 20px;
+                font-weight: 500;
+                margin-bottom: 15px;
+                margin-top: 5px;
+                padding: 4px 0;
+            }
+            .info-analista-monitoreo span {
+                color: #003366;
+                font-weight: 700;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     if "usuario" in st.session_state:
         permisos_activos = st.session_state.get("permisos", [])
         if "VER_SISTEMA" not in permisos_activos:
             st.error("🚫 Acceso Denegado: Su cuenta no cuenta con el privilegio [VER_SISTEMA].")
             return
 
-    st.markdown(
-        f'<div style="background-color:#f8f9fa; padding:10px 15px; border-left:4px solid #003366; border-radius:4px; margin-bottom:10px;">'
-        f'<h3 style="color:#003366; margin:0px; font-size:20px;">🖥️ Centro de Control y Telemetría</h3>'
-        f'<p style="color:#555; font-size:12.5px; margin:2px 0px 0px 0px;">'
-        f'Plataforma Global de Observabilidad | <b>Analista:</b> {nombre_analista} ({usuario_login})</p>'
-        f'</div>', 
-        unsafe_allow_html=True
-    )
+    st.markdown('<h3 style="color:#003366; margin:0px; font-size:20px;">🖥️ Centro de Control y Telemetría</h3>', unsafe_allow_html=True)
+    
+    # ==========================================================================
+    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
+    # ==========================================================================
+    cargo_actual = st.session_state.get("cargo", "Analista")
+    usuario_actual = st.session_state.get("user_actual", "Sistema")
+    
+    st.markdown(f"""
+        <div class="info-analista-monitoreo">
+            👤 <span>Analista:</span> {cargo_actual} ({usuario_actual})
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
 
     # =========================================================================
     # INICIALIZAR ESTADOS BASE - SIEMPRE PRIMERO
@@ -768,13 +794,13 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                    seleccion_metrica != "-- Sin sensores registrados --")
             
             if not servidor_seleccionado_tab1:
-                st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">🔍 Por favor, seleccione un servidor del listado para habilitar los filtros de métricas.</p>', unsafe_allow_html=True)
+                st.info("🔍 Por favor, seleccione un servidor del listado para habilitar los filtros de métricas.")
             
             elif seleccion_metrica == "-- Sin sensores registrados --":
                 st.warning("⚠️ Este servidor no tiene sensores registrados en la base de datos.")
             
             elif not metrica_seleccionada:
-                st.markdown('<p style="color:#666; font-size:13px; margin-top:10px;">📊 Por favor, seleccione una métrica específica para desplegar la rejilla de datos.</p>', unsafe_allow_html=True)
+                st.info("📊 Por favor, seleccione una métrica específica para desplegar la rejilla de datos.")
             
             else:
                 renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas)

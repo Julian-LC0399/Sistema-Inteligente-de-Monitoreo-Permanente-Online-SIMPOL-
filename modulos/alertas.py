@@ -455,7 +455,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         filtro_umbral_servidor = st.session_state["filtro_umbral_servidor"]
 
         if filtro_umbral_servidor == VALOR_DEFECTO:
-            st.info("🔍 Seleccione un servidor para configurar sus umbrales.")
+            st.info("⚙️ Seleccione un servidor para configurar sus umbrales.")
         else:
             serv_info = next((s for s in servidores if s['nombre_alias'] == filtro_umbral_servidor), None)
             if not serv_info:

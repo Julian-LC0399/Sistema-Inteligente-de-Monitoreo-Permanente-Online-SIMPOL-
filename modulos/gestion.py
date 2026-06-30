@@ -195,7 +195,7 @@ def mostrar_pantalla(user_actual, user_id):
                 datos_filtrados = []
 
                 if not hay_filtro:
-                    st.info("💡 Por favor, seleccione un analista de la lista desplegable superior para evaluar sus credenciales y estatus corporativo.")
+                    st.info("👤 Por favor, seleccione un analista de la lista desplegable superior para evaluar sus credenciales y estatus corporativo.")
                 else:
                     id_seleccionado = mapeo_opciones[st.session_state.filtro_analista]
                     cursor.execute("SELECT id, usuario, cargo, rol, estado FROM usuarios WHERE id = %s", (id_seleccionado,))
@@ -262,7 +262,7 @@ def mostrar_pantalla(user_actual, user_id):
                             
                         if guardar_click:
                             if not f_user.strip() or not f_pass.strip() or not f_cargo.strip():
-                                st.error("Error: Todos los campos del formulario son obligatorios.")
+                                st.error("❌ Error: Todos los campos del formulario son obligatorios.")
                             else:
                                 crear_nuevo_usuario(f_user.strip(), f_pass, f_cargo.strip(), f_rol, user_id)
 
@@ -287,7 +287,7 @@ def mostrar_pantalla(user_actual, user_id):
                             
                         if aplicar_click:
                             if not nuevo_cargo.strip() or not justificacion.strip():
-                                st.error("Debe ingresar el nuevo cargo y la correspondiente justificación.")
+                                st.error("❌ Debe ingresar el nuevo cargo y la correspondiente justificación.")
                             else:
                                 ejecutar_update_nombre(usr_sel['usuario'], usr_sel['cargo'], nuevo_cargo.strip(), user_id, justificacion.strip())
 
@@ -297,7 +297,7 @@ def mostrar_pantalla(user_actual, user_id):
                     id_est = lista_ids[0]
                     usr_sel = mapeo_usuarios[id_est]
                     estado_actual_str = "ACTIVO" if usr_sel['estado'] == 1 else "SUSPENDIDO"
-                    st.info(f"Estatus actual del usuario en la base: **{estado_actual_str}**")
+                    st.info(f"ℹ️ Estatus actual del usuario en la base: **{estado_actual_str}**")
                     
                     with st.form("form_estatus_usr"):
                         nuevo_est_str = st.selectbox("Seleccione Nuevo Estatus Lógico", ["Activar Acceso", "Suspender Acceso"])
@@ -313,14 +313,14 @@ def mostrar_pantalla(user_actual, user_id):
                             
                         if confirmar_click:
                             if str(usr_sel['usuario']) == str(user_actual):
-                                st.error("Operación inválida: No puede alterar las propiedades de su propio usuario activo.")
+                                st.error("🚫 Operación inválida: No puede alterar las propiedades de su propio usuario activo.")
                             elif not justificacion_est.strip():
-                                st.error("Error: Requiere una justificación válida.")
+                                st.error("❌ Error: Requiere una justificación válida.")
                             else:
                                 ejecutar_update_estado(usr_sel['usuario'], usr_sel['estado'], user_id, user_actual, justificacion_est.strip())
 
         except Exception as e:
-            st.error(f"Fallo técnico en módulo de personal: {e}")
+            st.error(f"❌ Fallo técnico en módulo de personal: {e}")
         finally:
             if cursor is not None: cursor.close()
             if conn is not None: conn.close()
@@ -369,7 +369,7 @@ def mostrar_pantalla(user_actual, user_id):
                 filtro_auditoria = st.session_state.filtro_auditoria_usr
 
                 if filtro_auditoria == "-- Seleccione un Usuario --":
-                    st.info("💡 Por favor, seleccione un usuario para evaluar sus operaciones históricas de auditoría.")
+                    st.info("👤 Por favor, seleccione un usuario para evaluar sus operaciones históricas de auditoría.")
                 else:
                     cursor_p2.execute(
                         "SELECT id_auditoria, fecha_evento, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario "
@@ -421,10 +421,10 @@ def mostrar_pantalla(user_actual, user_id):
                         html_lineas_aud.append('</tbody></table>')
                         st.components.v1.html("".join(html_lineas_aud), height=max(180, len(datos_auditoria_filtrados) * 45 + 65), scrolling=True)
                     else:
-                        st.warning(f"No se encontraron transacciones en el histórico para el usuario '{filtro_auditoria}'.")
+                        st.warning(f"📭 No se encontraron transacciones en el histórico para el usuario '{filtro_auditoria}'.")
 
         except Exception as e:
-            st.error(f"Fallo técnico al procesar el histórico de auditoría: {e}")
+            st.error(f"❌ Fallo técnico al procesar el histórico de auditoría: {e}")
         finally:
             if cursor_p2 is not None: cursor_p2.close()
             if conn_p2 is not None: conn_p2.close()
@@ -443,7 +443,7 @@ def crear_nuevo_usuario(u, c, cargo_val, r, ejecutor_id):
         conn.commit()
         registrar_auditoria_usuario(u, "REGISTRO", "N/A", f"ROL:{r}", ejecutor_id, "Alta institucional en SIMPOL")
         conn.close()
-        st.success("Analista registrado exitosamente en el sistema.")
+        st.success("✅ Analista registrado exitosamente en el sistema.")
         
         st.session_state.filtro_analista = f"{cargo_val} [{u}]"
         st.session_state.accion_personal = None
@@ -451,7 +451,7 @@ def crear_nuevo_usuario(u, c, cargo_val, r, ejecutor_id):
             del st.session_state["wb_filtro_analista"]
         st.rerun()
     except Exception as e: 
-        st.error(f"Error de persistencia: {e}")
+        st.error(f"❌ Error de persistencia: {e}")
 
 def ejecutar_update_nombre(log, v, n, ejecutor_id, mot):
     try:
@@ -461,7 +461,7 @@ def ejecutar_update_nombre(log, v, n, ejecutor_id, mot):
         conn.commit()
         registrar_auditoria_usuario(log, "MOD_CARGO", v, n, ejecutor_id, mot)
         conn.close()
-        st.success("Cargo institucional actualizado correctamente.")
+        st.success("✅ Cargo institucional actualizado correctamente.")
         
         st.session_state.filtro_analista = f"{n} [{log}]"
         st.session_state.accion_personal = None
@@ -469,11 +469,11 @@ def ejecutar_update_nombre(log, v, n, ejecutor_id, mot):
             del st.session_state["wb_filtro_analista"]
         st.rerun()
     except Exception as e: 
-        st.error(f"Error al actualizar: {e}")
+        st.error(f"❌ Error al actualizar: {e}")
 
 def ejecutar_update_estado(log, est_v, ejecutor_id, ejecutor_log, mot):
     if str(log) == str(ejecutor_log): 
-        st.error("Operación inválida: No puede alterar las propiedades de su propio usuario activo.")
+        st.error("🚫 Operación inválida: No puede alterar las propiedades de su propio usuario activo.")
         return
     n_est = 0 if est_v == 1 else 1
     v_v, v_n = ("ACTIVO", "SUSPENDIDO") if est_v == 1 else ("SUSPENDIDO", "ACTIVO")
@@ -487,7 +487,7 @@ def ejecutar_update_estado(log, est_v, ejecutor_id, ejecutor_log, mot):
         cursor.execute("SELECT cargo FROM usuarios WHERE usuario=%s", (log,))
         cargo_actual = cursor.fetchone()
         conn.close()
-        st.success(f"Estatus del analista {log} actualizado con éxito.")
+        st.success(f"✅ Estatus del analista {log} actualizado con éxito.")
         
         if cargo_actual:
             st.session_state.filtro_analista = f"{cargo_actual['cargo']} [{log}]"
@@ -499,4 +499,4 @@ def ejecutar_update_estado(log, est_v, ejecutor_id, ejecutor_log, mot):
             del st.session_state["wb_filtro_analista"]
         st.rerun()
     except Exception as e: 
-        st.error(f"Error al conmutar estatus: {e}")
+        st.error(f"❌ Error al conmutar estatus: {e}")

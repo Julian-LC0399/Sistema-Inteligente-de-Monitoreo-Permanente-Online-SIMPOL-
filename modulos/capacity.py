@@ -72,7 +72,7 @@ def registrar_proyeccion_v398(usuario_id, ip_servidor, metrica, t_gb, act_gb, ac
         conn.close()
         return True
     except Exception as e:
-        st.error(f"Error registrando proyeccion en tabla nucleo: {e}")
+        st.error(f"❌ Error registrando proyeccion en tabla nucleo: {e}")
         if conn: conn.close()
         return False
 
@@ -108,7 +108,7 @@ def guardar_reporte_capacity_bd(nombre_archivo, formato, metrica, ip_servidor, c
         conn.close()
         return True
     except Exception as e:
-        st.error(f"Error registrando archivo analitico en BD: {e}")
+        st.error(f"❌ Error registrando archivo analitico en BD: {e}")
         if conn: conn.close()
         return False
 
@@ -129,7 +129,7 @@ def listar_reportes_capacity_bd(ip_servidor):
             cursor.close()
             conn.close()
         except Exception as e:
-            st.error(f"Error listando historico de capacity: {e}")
+            st.error(f"❌ Error listando historico de capacity: {e}")
     return resultados
 
 def descargar_blob_capacity(id_archivo):
@@ -149,7 +149,7 @@ def descargar_blob_capacity(id_archivo):
             cursor.close()
             conn.close()
         except Exception as e:
-            st.error(f"Error descargando binario de base de datos: {e}")
+            st.error(f"❌ Error descargando binario de base de datos: {e}")
     return blob_data
 
 def reset_reporte():
@@ -207,7 +207,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         servidores_activos = obtener_lista_servidores()
         if not servidores_activos:
             with pestana_analisis:
-                st.info("💡 No hay servidores virtuales mapeados para realizar modelos de proyeccion.")
+                st.info("📭 No hay servidores virtuales mapeados para realizar modelos de proyeccion.")
             return
 
         opciones_servidores = ["-- Seleccione un Servidor --"] + [s['nombre_alias'] for s in servidores_activos]
@@ -230,7 +230,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.rerun()
 
             if servidor_sel == "-- Seleccione un Servidor --":
-                st.info("💡 Por favor, elija un servidor de la infraestructura para desplegar sus métricas disponibles.")
+                st.info("🖥️ Por favor, elija un servidor de la infraestructura para desplegar sus métricas disponibles.")
                 return
 
             info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_sel), None)
@@ -294,7 +294,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     cursor_temp.close()
                     conn_temp.close()
                 except Exception as e_sql:
-                    st.error(f"Fallo en la query analitica de agrupacion: {e_sql}")
+                    st.error(f"❌ Fallo en la query analitica de agrupacion: {e_sql}")
                     if conn_temp: conn_temp.close()
 
             CON_DATOS_SUFICIENTES = True
@@ -395,7 +395,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             if st.session_state.reporte_generado:
                 st.markdown("---")
                 if not CON_DATOS_SUFICIENTES:
-                    st.warning(f"⚠️ **Modo de Proyección Estática Normativa Activo:** Muestras históricas insuficientes.")
+                    st.warning("⚠️ **Modo de Proyección Estática Normativa Activo:** Muestras históricas insuficientes.")
 
                 st.markdown(
                     f'<div style="background-color:#f8f9fa; border:1px solid #ddd; border-left:6px solid {color_alert}; padding:15px; border-radius:4px; margin-top:10px;">'
@@ -483,7 +483,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.markdown(f"#### 📜 Repositorio de Informes Archivados para `{servidor_sel}`")
                 items_historicos = listar_reportes_capacity_bd(ip_objetivo)
                 if not items_historicos:
-                    st.caption("No se registran informes técnicos de capacity auto-archivados para este nodo.")
+                    st.caption("📭 No se registran informes técnicos de capacity auto-archivados para este nodo.")
                 else:
                     for item in items_historicos:
                         st.write(f"📄 {item['nombre_archivo']} | Métrica: {item['metrica_analizada']} ({item['formato']})")
@@ -492,7 +492,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             st.download_button(label=f"📥 Descargar {item['nombre_archivo']}", data=datos_binarios, file_name=item['nombre_archivo'], key=f"btn_dl_{item['id']}")
 
     except Exception as e_main:
-        st.error(f"Fallo general critico en la ejecucion de la vista analitica: {e_main}")
+        st.error(f"❌ Fallo general critico en la ejecucion de la vista analitica: {e_main}")
         traceback.print_exc()
 
 if __name__ == "__main__":
