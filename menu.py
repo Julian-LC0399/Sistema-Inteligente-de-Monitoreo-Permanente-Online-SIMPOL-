@@ -26,12 +26,21 @@ def cambiar_pagina():
             # 1. Purga de Alertas
             if seccion_anterior == "🔔 Alertas":
                 claves_alertas = [
-                    "sb_alerta_srv", "sb_conf_umbrales", 
-                    "p2_cpu_ok", "p2_cpu_adv", "p2_cpu_crit",
-                    "p2_ram_ok", "p2_ram_adv", "p2_ram_crit",
-                    "p2_justificacion", "p2_btn_salvar"
+                    "sb_alerta_srv", "filtro_alerta_servidor",
+                    "filtro_alerta_criticidad"
                 ]
                 for clave in claves_alertas:
+                    if clave in st.session_state:
+                        del st.session_state[clave]
+            
+            # 🔥 NUEVO: Purga de Umbrales
+            if seccion_anterior == "⚙️ Umbrales":
+                claves_umbrales = [
+                    "filtro_umbral_servidor", 
+                    "filtro_umbral_componente",
+                    "justificacion_umbrales"
+                ]
+                for clave in claves_umbrales:
                     if clave in st.session_state:
                         del st.session_state[clave]
             
@@ -114,7 +123,16 @@ def generar_menu():
         # ==========================================================================
         # 2. FILTRADO DINÁMICO DE OPCIONES SEGÚN ROL DE SEGURIDAD
         # ==========================================================================
-        opciones = ["🏠 Inicio", "🖥️ Servidores", "🖥️ Monitoreo en vivo", "📈 Capacity planning", "🔔 Alertas", "📄 Reportes"]
+        # 🔥 NUEVO: Agregar "⚙️ Umbrales" como opción independiente
+        opciones = [
+            "🏠 Inicio", 
+            "🖥️ Servidores", 
+            "🖥️ Monitoreo en vivo", 
+            "📈 Capacity planning", 
+            "🔔 Alertas",
+            "⚙️ Umbrales",  # NUEVA OPCIÓN
+            "📄 Reportes"
+        ]
         
         rol_usuario = str(st.session_state.get("rol", "operador")).strip().lower()
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
@@ -129,7 +147,6 @@ def generar_menu():
         st.session_state["nav_radio"] = seccion_persistente
 
         # Componente de navegación por Radio Nativo
-        # (Se elimina el parámetro index para que no colisione con el Session State API)
         seleccion = st.radio(
             "Navegación del Sistema", 
             opciones, 

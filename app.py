@@ -41,7 +41,6 @@ def get_favicon_base64():
         logging.error(f"Error cargando favicon: {e}")
     
     # Si no existe el archivo, creamos un icono simple en base64
-    # Este es un icono de banco simple (🏦) convertido a SVG
     svg_icon = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
         <rect width="100" height="100" rx="15" fill="#003366"/>
         <text x="50" y="68" font-size="50" text-anchor="middle" fill="white">🏦</text>
@@ -52,7 +51,7 @@ def get_favicon_base64():
 # === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
 st.set_page_config(
     page_title="SIMPOL - Banco Caroní",
-    page_icon="🏦",  # Emoji como respaldo
+    page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -175,7 +174,7 @@ from menu import generar_menu
 def gestionar_limpieza_filtros(seccion_destino):
     """
     Controla los estados de los filtros de monitoreo, usuarios, servidores,
-    reportes, capacity planning y alertas.
+    reportes, capacity planning, alertas y umbrales.
     """
     # BLINDAJE ULTRA-CRÍTICO: Si en la URL viene el parámetro "srv" o ya estamos en monitoreo, 
     # abortamos cualquier purga destructiva para no romper la redirección activa.
@@ -225,22 +224,22 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["dias_prediccion_capacity"] = 30
 
     if seccion_destino != "🔔 Alertas":
-        st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
-        st.session_state["sb_conf_umbrales"] = "-- Seleccione un Servidor --"
-        
-        claves_a_purgar = [
-            "p2_cpu_ok", "p2_cpu_adv", "p2_cpu_crit",
-            "p2_ram_ok", "p2_ram_adv", "p2_ram_crit",
-            "p2_justificacion", "p2_btn_salvar"
-        ]
-        for c in claves_a_purgar:
-            if c in st.session_state:
-                del st.session_state[c]
-                
+        if "sb_alerta_srv" in st.session_state:
+            st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
         if "filtro_alerta_criticidad" in st.session_state:
             st.session_state["filtro_alerta_criticidad"] = "-- Todas --"
         if "filtro_alerta_estado" in st.session_state:
             st.session_state["filtro_alerta_estado"] = "No Resueltas"
+
+    # 🔥 NUEVO: Limpieza de filtros de Umbrales al salir
+    if seccion_destino != "⚙️ Umbrales":
+        if "filtro_umbral_servidor" in st.session_state:
+            st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
+        if "filtro_umbral_componente" in st.session_state:
+            st.session_state["filtro_umbral_componente"] = "-- Seleccione un Componente --"
+        if "justificacion_umbrales" in st.session_state:
+            # No eliminamos, solo reseteamos
+            pass
 
 def main():
     params = st.query_params
@@ -250,21 +249,15 @@ def main():
     # =============================================================
     srv_desde_url = params.get("srv")
     if srv_desde_url:
-        # Guardar en session_state para persistencia
         st.session_state["_srv_redirect"] = srv_desde_url
         st.session_state["_srv_captured"] = True
         logging.info(f"🔴 SRV capturado desde URL: {srv_desde_url}")
         
-        # FORZAR LA SECCIÓN DE MONITOREO INMEDIATAMENTE
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         st.session_state["nav_radio"] = "🖥️ Monitoreo en vivo"
-        # Guardar el servidor en el filtro de monitoreo
         st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
-        # También en el filtro alternativo
         st.session_state["servidor_seleccionado"] = srv_desde_url
         
-        # Limpiar el parámetro de la URL después de capturarlo
-        # pero mantenerlo en session_state
         try:
             del st.query_params["srv"]
         except:
@@ -320,7 +313,6 @@ def main():
         # VERIFICAR REDIRECCIÓN PENDIENTE
         # =============================================================
         if "_srv_redirect" in st.session_state and st.session_state["_srv_redirect"]:
-            # Si la sección actual es monitoreo, asegurar que el filtro esté configurado
             if st.session_state["seccion_actual"] == "🖥️ Monitoreo en vivo":
                 if not st.session_state.get("_srv_processed", False):
                     st.session_state["filtro_monitoreo_nombre"] = st.session_state["_srv_redirect"]
@@ -345,8 +337,6 @@ def main():
         st.query_params["uid"] = str(st.session_state.get("user_id", 1))
         st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
         st.query_params["c"] = st.session_state.get("cargo", "Analista")
-        
-        # Ya no mantenemos srv en query_params porque ya fue capturado y procesado
         
         seleccion = st.session_state["seccion_actual"]
 
@@ -375,6 +365,14 @@ def main():
                 elif seleccion == "🔔 Alertas":
                     from modulos import alertas
                     alertas.mostrar_pantalla(
+                        nombre_analista=st.session_state.get("cargo", "Analista"),
+                        usuario_id=st.session_state.get("user_id", 1),
+                        usuario_login=st.session_state.get("user_actual", "Sistema")
+                    )
+                # 🔥 NUEVO: Sección de Umbrales
+                elif seleccion == "⚙️ Umbrales":
+                    from modulos import umbrales
+                    umbrales.mostrar_pantalla(
                         nombre_analista=st.session_state.get("cargo", "Analista"),
                         usuario_id=st.session_state.get("user_id", 1),
                         usuario_login=st.session_state.get("user_actual", "Sistema")
