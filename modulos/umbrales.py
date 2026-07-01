@@ -162,10 +162,10 @@ def guardar_nuevos_umbrales(ip, dict_umbrales, usuario_id, justificacion):
         return False
 
 # =====================================================================
-# FUNCION PARA RENDERIZAR TABLA HISTORICO (PESTAÑA 2)
+# FUNCION PARA RENDERIZAR TABLA HISTORICO - SOLO COLUMNAS ASOCIADAS
 # =====================================================================
 def renderizar_tabla_historico_umbrales(filtro_servidor):
-    """Renderiza la tabla de histórico de umbrales"""
+    """Renderiza la tabla de histórico mostrando solo columnas asociadas al servidor"""
     
     if filtro_servidor == "-- Seleccione un Servidor --":
         st.info("🔍 Seleccione un servidor para visualizar su historial de umbrales.")
@@ -173,14 +173,19 @@ def renderizar_tabla_historico_umbrales(filtro_servidor):
     
     if filtro_servidor == "-- Todos los Servidores --":
         registros = obtener_historico_umbrales(limite=150)
+        es_vista_global = True
+        serv_info = None
     else:
         registros = obtener_historico_umbrales(filtro_servidor, limite=150)
+        es_vista_global = False
+        servidores = obtener_lista_servidores()
+        serv_info = next((s for s in servidores if s['nombre_alias'] == filtro_servidor), None)
     
     if not registros:
         st.warning(f"🚫 No hay registros de umbrales para '{filtro_servidor}'.")
         return
     
-    # Mapa de columnas para mostrar nombres amigables
+    # Mapa de columnas
     mapa_columnas = {
         "id_historico": "ID",
         "ip_servidor": "IP SERVIDOR",
@@ -222,27 +227,45 @@ def renderizar_tabla_historico_umbrales(filtro_servidor):
         "justificacion": "JUSTIFICACION"
     }
     
-    # Definir columnas a mostrar (las más relevantes)
-    columnas_mostrar = [
-        "fecha_change",
-        "nombre_alias",
-        "cpu_critico",
-        "ram_critico",
-        "disco_1_critico",
-        "disco_2_critico",
-        "disco_3_critico",
-        "disco_4_critico",
-        "disco_5_critico",
-        "disco_6_critico",
-        "justificacion"
-    ]
+    # Columnas base
+    columnas_base = ["fecha_change", "nombre_alias"]
+    columnas_dinamicas = []
+    
+    if es_vista_global or not serv_info:
+        # Vista global: mostrar columnas principales
+        columnas_dinamicas = [
+            "cpu_critico",
+            "ram_critico",
+            "disco_1_critico",
+            "disco_2_critico",
+            "disco_3_critico",
+            "disco_4_critico",
+            "disco_5_critico",
+            "disco_6_critico"
+        ]
+    else:
+        # Verificar sensores del servidor
+        tiene_cpu = int(serv_info.get('id_sensor_cpu') or 0) > 0
+        tiene_ram = int(serv_info.get('id_sensor_ram') or 0) > 0
+        
+        if tiene_cpu:
+            columnas_dinamicas.append("cpu_critico")
+        
+        if tiene_ram:
+            columnas_dinamicas.append("ram_critico")
+        
+        for d in range(1, 7):
+            if int(serv_info.get(f'id_sensor_disco_{d}') or 0) > 0:
+                columnas_dinamicas.append(f"disco_{d}_critico")
+    
+    columnas_final = columnas_base + columnas_dinamicas + ["justificacion"]
     
     # Construir tabla HTML
     html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;">
         <table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;">
         <thead><tr>"""
     
-    for col in columnas_mostrar:
+    for col in columnas_final:
         html_tabla += f'<th style="position: sticky; top: 0; background-color: #002244; padding: 11px 14px; color: #ffffff; text-align: left; font-weight: 600; font-size: 11px; white-space: nowrap; z-index: 10; border-bottom: 2px solid #001122;">{mapa_columnas.get(col, col.upper())}</th>'
     
     html_tabla += "</tr></thead><tbody>"
@@ -251,7 +274,7 @@ def renderizar_tabla_historico_umbrales(filtro_servidor):
         bg = "#ffffff" if idx % 2 == 0 else "#fcfdfe"
         html_tabla += f'<tr style="background-color: {bg}; border-bottom: 1px solid #ebf0f5;">'
         
-        for col in columnas_mostrar:
+        for col in columnas_final:
             val = fila.get(col)
             
             if col == "nombre_alias" and not val:
@@ -278,7 +301,11 @@ def renderizar_tabla_historico_umbrales(filtro_servidor):
     html_tabla += "</tbody></table></div>"
     
     st.markdown(html_tabla, unsafe_allow_html=True)
-    st.caption(f"📊 Mostrando {len(registros)} registros de umbrales")
+    
+    if es_vista_global:
+        st.caption(f"📊 Mostrando {len(registros)} registros de umbrales (vista global)")
+    else:
+        st.caption(f"📊 Mostrando {len(registros)} registros - {len(columnas_dinamicas)} sensores activos")
 
 
 # =====================================================================
@@ -337,68 +364,14 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     servidores = obtener_lista_servidores()
     
     # =========================================================================
-    # INICIALIZAR ESTADOS - PESTAÑA 1
+    # INICIALIZAR ESTADOS
     # =========================================================================
     VALOR_DEFECTO = "-- Seleccione un Servidor --"
     VALOR_COMP_DEFECTO = "-- Seleccione un Componente --"
 
-    if "filtro_umbral_servidor" not in st.session_state:
-        st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
-    if "filtro_umbral_componente" not in st.session_state:
-        st.session_state["filtro_umbral_componente"] = VALOR_COMP_DEFECTO
-    if "umbrales_modificados" not in st.session_state:
-        st.session_state["umbrales_modificados"] = False
-    
-    # =========================================================================
-    # INICIALIZAR ESTADOS - PESTAÑA 2 (INDEPENDIENTE)
-    # =========================================================================
-    if "filtro_historico_umbrales" not in st.session_state:
-        st.session_state["filtro_historico_umbrales"] = VALOR_DEFECTO
-
-    # =========================================================================
-    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS - PESTAÑA 1
-    # =========================================================================
-    if "_limpiar_config" in st.query_params and st.query_params["_limpiar_config"] == "1":
-        st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
-        st.session_state["filtro_umbral_componente"] = VALOR_COMP_DEFECTO
-        st.session_state["umbrales_modificados"] = False
-        del st.query_params["_limpiar_config"]
-        st.query_params["tab_umbrales"] = "1"
-        st.rerun()
-    
-    # =========================================================================
-    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS - PESTAÑA 2
-    # =========================================================================
-    if "_limpiar_historico" in st.query_params and st.query_params["_limpiar_historico"] == "1":
-        st.session_state["filtro_historico_umbrales"] = VALOR_DEFECTO
-        del st.query_params["_limpiar_historico"]
-        st.query_params["tab_umbrales"] = "2"
-        st.rerun()
-
-    # =========================================================================
-    # CONTROL DE PESTAÑA ACTIVA
-    # =========================================================================
-    tab_param = st.query_params.get("tab_umbrales", "1")
-    pestana_actual = 2 if tab_param == "2" else 1
-    
-    # Inicializar estado de pestaña anterior si no existe
-    if "pestana_anterior_umbrales" not in st.session_state:
-        st.session_state["pestana_anterior_umbrales"] = pestana_actual
-    
-    # Si cambió la pestaña, limpiar la anterior (pero NO recargar para evitar conflictos)
-    if st.session_state["pestana_anterior_umbrales"] != pestana_actual:
-        if st.session_state["pestana_anterior_umbrales"] == 1:
-            # Limpiar pestaña 1 (Configuración)
-            st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
-            st.session_state["filtro_umbral_componente"] = VALOR_COMP_DEFECTO
-            st.session_state["umbrales_modificados"] = False
-        elif st.session_state["pestana_anterior_umbrales"] == 2:
-            # Limpiar pestaña 2 (Histórico)
-            st.session_state["filtro_historico_umbrales"] = VALOR_DEFECTO
-        
-        st.session_state["pestana_anterior_umbrales"] = pestana_actual
-        st.query_params["tab_umbrales"] = str(pestana_actual)
-        st.rerun()
+    # Usar claves únicas basadas en un contador para forzar recreación de widgets
+    if "widget_counter" not in st.session_state:
+        st.session_state["widget_counter"] = 0
 
     # =========================================================================
     # TABS
@@ -412,7 +385,24 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     # PESTAÑA 1: CONFIGURACIÓN
     # =========================================================================
     with tab1:
-        st.query_params["tab_umbrales"] = "1"
+        # Procesar limpieza de configuración ANTES de crear los widgets
+        if "_limpiar_config" in st.query_params:
+            # Incrementar contador para forzar recreación de widgets
+            st.session_state["widget_counter"] += 1
+            # Limpiar estados
+            for key in ["filtro_umbral_servidor", "filtro_umbral_componente", "umbrales_modificados"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            del st.query_params["_limpiar_config"]
+            st.rerun()
+        
+        # Inicializar estados si no existen (después de la limpieza)
+        if "filtro_umbral_servidor" not in st.session_state:
+            st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
+        if "filtro_umbral_componente" not in st.session_state:
+            st.session_state["filtro_umbral_componente"] = VALOR_COMP_DEFECTO
+        if "umbrales_modificados" not in st.session_state:
+            st.session_state["umbrales_modificados"] = False
         
         lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores if s.get('nombre_alias')])))
         opciones_servidores = [VALOR_DEFECTO] + lista_nombres_bd
@@ -427,25 +417,32 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 
         col_u1, col_u2, col_u3 = st.columns([2, 2, 1])
         with col_u1:
+            # Usar una clave única para forzar recreación del widget
+            widget_key = f"filtro_umbral_servidor_{st.session_state['widget_counter']}"
             st.selectbox(
                 "Servidor", 
                 options=opciones_servidores, 
-                key="filtro_umbral_servidor",
+                key=widget_key,
                 label_visibility="collapsed"
             )
+            # Sincronizar el valor con el estado principal
+            st.session_state["filtro_umbral_servidor"] = st.session_state[widget_key]
+            
         with col_u2:
             servidor_seleccionado = st.session_state.get("filtro_umbral_servidor", VALOR_DEFECTO) != VALOR_DEFECTO
+            widget_key_comp = f"filtro_umbral_componente_{st.session_state['widget_counter']}"
             st.selectbox(
                 "Componente", 
                 options=opciones_componentes, 
-                key="filtro_umbral_componente",
+                key=widget_key_comp,
                 label_visibility="collapsed",
                 disabled=not servidor_seleccionado
             )
+            st.session_state["filtro_umbral_componente"] = st.session_state[widget_key_comp]
+            
         with col_u3:
             if st.button("🧹 Limpiar", key="btn_limpiar_umbral", use_container_width=True):
                 st.query_params["_limpiar_config"] = "1"
-                st.query_params["tab_umbrales"] = "1"
                 st.rerun()
 
         filtro_umbral_servidor = st.session_state.get("filtro_umbral_servidor", VALOR_DEFECTO)
@@ -508,7 +505,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             if k in umbrales_actuales and umbrales_actuales[k] is not None:
                                 valores[k] = umbrales_actuales[k]
                     
-                    # Reiniciar flag de modificaciones
                     if not st.session_state.get("_guardando", False):
                         st.session_state["umbrales_modificados"] = False
                     
@@ -517,17 +513,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         col_cpu_est, col_cpu_adv, col_cpu_crit = st.columns(3)
                         with col_cpu_est:
                             st.markdown('<p style="color:#2E7D32; font-weight:bold; font-size:14px; margin-bottom:2px;">🟢 ESTABLE</p>', unsafe_allow_html=True)
-                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_buen_estado", 69)), key="cpu_buen_estado", label_visibility="collapsed")
+                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_buen_estado", 69)), key=f"cpu_buen_estado_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("cpu_buen_estado", 69):
                                 st.session_state["umbrales_modificados"] = True
                         with col_cpu_adv:
                             st.markdown('<p style="color:#F57F17; font-weight:bold; font-size:14px; margin-bottom:2px;">🟡 PRECAUCION</p>', unsafe_allow_html=True)
-                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_advertencia", 70)), key="cpu_advertencia", label_visibility="collapsed")
+                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_advertencia", 70)), key=f"cpu_advertencia_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("cpu_advertencia", 70):
                                 st.session_state["umbrales_modificados"] = True
                         with col_cpu_crit:
                             st.markdown('<p style="color:#C62828; font-weight:bold; font-size:14px; margin-bottom:2px;">🔴 CRITICO</p>', unsafe_allow_html=True)
-                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_critico", 85)), key="cpu_critico", label_visibility="collapsed")
+                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_critico", 85)), key=f"cpu_critico_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("cpu_critico", 85):
                                 st.session_state["umbrales_modificados"] = True
                     
@@ -536,17 +532,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         col_cp_est, col_cp_adv, col_cp_crit = st.columns(3)
                         with col_cp_est:
                             st.markdown('<p style="color:#2E7D32; font-weight:bold; font-size:14px; margin-bottom:2px;">🟢 ESTABLE</p>', unsafe_allow_html=True)
-                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_p_buen_estado", 69)), key="cpu_p_buen_estado", label_visibility="collapsed")
+                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_p_buen_estado", 69)), key=f"cpu_p_buen_estado_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("cpu_p_buen_estado", 69):
                                 st.session_state["umbrales_modificados"] = True
                         with col_cp_adv:
                             st.markdown('<p style="color:#F57F17; font-weight:bold; font-size:14px; margin-bottom:2px;">🟡 PRECAUCION</p>', unsafe_allow_html=True)
-                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_p_advertencia", 70)), key="cpu_p_advertencia", label_visibility="collapsed")
+                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_p_advertencia", 70)), key=f"cpu_p_advertencia_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("cpu_p_advertencia", 70):
                                 st.session_state["umbrales_modificados"] = True
                         with col_cp_crit:
                             st.markdown('<p style="color:#C62828; font-weight:bold; font-size:14px; margin-bottom:2px;">🔴 CRITICO</p>', unsafe_allow_html=True)
-                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_p_critico", 85)), key="cpu_p_critico", label_visibility="collapsed")
+                            val = st.number_input("Uso maximo %", min_value=0, max_value=100, value=int(valores.get("cpu_p_critico", 85)), key=f"cpu_p_critico_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("cpu_p_critico", 85):
                                 st.session_state["umbrales_modificados"] = True
                     
@@ -555,17 +551,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         col_ram_est, col_ram_adv, col_ram_crit = st.columns(3)
                         with col_ram_est:
                             st.markdown('<p style="color:#2E7D32; font-weight:bold; font-size:14px; margin-bottom:2px;">🟢 ESTABLE</p>', unsafe_allow_html=True)
-                            val = st.number_input("Minimo % libre", min_value=0, max_value=100, value=int(valores.get("ram_buen_estado", 20)), key="ram_buen_estado", label_visibility="collapsed")
+                            val = st.number_input("Minimo % libre", min_value=0, max_value=100, value=int(valores.get("ram_buen_estado", 20)), key=f"ram_buen_estado_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("ram_buen_estado", 20):
                                 st.session_state["umbrales_modificados"] = True
                         with col_ram_adv:
                             st.markdown('<p style="color:#F57F17; font-weight:bold; font-size:14px; margin-bottom:2px;">🟡 PRECAUCION</p>', unsafe_allow_html=True)
-                            val = st.number_input("Minimo % libre", min_value=0, max_value=100, value=int(valores.get("ram_advertencia", 15)), key="ram_advertencia", label_visibility="collapsed")
+                            val = st.number_input("Minimo % libre", min_value=0, max_value=100, value=int(valores.get("ram_advertencia", 15)), key=f"ram_advertencia_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("ram_advertencia", 15):
                                 st.session_state["umbrales_modificados"] = True
                         with col_ram_crit:
                             st.markdown('<p style="color:#C62828; font-weight:bold; font-size:14px; margin-bottom:2px;">🔴 CRITICO</p>', unsafe_allow_html=True)
-                            val = st.number_input("Minimo % libre", min_value=0, max_value=100, value=int(valores.get("ram_critico", 10)), key="ram_critico", label_visibility="collapsed")
+                            val = st.number_input("Minimo % libre", min_value=0, max_value=100, value=int(valores.get("ram_critico", 10)), key=f"ram_critico_{st.session_state['widget_counter']}", label_visibility="collapsed")
                             if val != valores.get("ram_critico", 10):
                                 st.session_state["umbrales_modificados"] = True
                     
@@ -577,17 +573,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             col_d_est, col_d_adv, col_d_crit = st.columns(3)
                             with col_d_est:
                                 st.markdown('<p style="color:#2E7D32; font-size:12px; margin-bottom:2px;">🟢 ESTABLE</p>', unsafe_allow_html=True)
-                                val = st.number_input(f"Minimo % libre", min_value=0, max_value=100, value=int(valores.get(f"disco_{d_num}_buen_estado", 25)), key=f"disco_{d_num}_buen_estado", label_visibility="collapsed")
+                                val = st.number_input(f"Minimo % libre", min_value=0, max_value=100, value=int(valores.get(f"disco_{d_num}_buen_estado", 25)), key=f"disco_{d_num}_buen_estado_{st.session_state['widget_counter']}", label_visibility="collapsed")
                                 if val != valores.get(f"disco_{d_num}_buen_estado", 25):
                                     st.session_state["umbrales_modificados"] = True
                             with col_d_adv:
                                 st.markdown('<p style="color:#F57F17; font-size:12px; margin-bottom:2px;">🟡 PRECAUCION</p>', unsafe_allow_html=True)
-                                val = st.number_input(f"Minimo % libre", min_value=0, max_value=100, value=int(valores.get(f"disco_{d_num}_advertencia", 15)), key=f"disco_{d_num}_advertencia", label_visibility="collapsed")
+                                val = st.number_input(f"Minimo % libre", min_value=0, max_value=100, value=int(valores.get(f"disco_{d_num}_advertencia", 15)), key=f"disco_{d_num}_advertencia_{st.session_state['widget_counter']}", label_visibility="collapsed")
                                 if val != valores.get(f"disco_{d_num}_advertencia", 15):
                                     st.session_state["umbrales_modificados"] = True
                             with col_d_crit:
                                 st.markdown('<p style="color:#C62828; font-size:12px; margin-bottom:2px;">🔴 CRITICO</p>', unsafe_allow_html=True)
-                                val = st.number_input(f"Minimo % libre", min_value=0, max_value=100, value=int(valores.get(f"disco_{d_num}_critico", 5)), key=f"disco_{d_num}_critico", label_visibility="collapsed")
+                                val = st.number_input(f"Minimo % libre", min_value=0, max_value=100, value=int(valores.get(f"disco_{d_num}_critico", 5)), key=f"disco_{d_num}_critico_{st.session_state['widget_counter']}", label_visibility="collapsed")
                                 if val != valores.get(f"disco_{d_num}_critico", 5):
                                     st.session_state["umbrales_modificados"] = True
                     
@@ -607,7 +603,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         justificacion = st.text_area(
                             "Justificacion (requerido para auditoria):",
                             placeholder="Ej: Ajuste de umbrales por incremento de capacidad transaccional...",
-                            key="justificacion_umbrales",
+                            key=f"justificacion_umbrales_{st.session_state['widget_counter']}",
                             height=80
                         )
                         
@@ -620,23 +616,23 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                     dict_umbrales = {}
                                     
                                     if tiene_cpu:
-                                        dict_umbrales["cpu_buen_estado"] = st.session_state.get("cpu_buen_estado", 69)
-                                        dict_umbrales["cpu_advertencia"] = st.session_state.get("cpu_advertencia", 70)
-                                        dict_umbrales["cpu_critico"] = st.session_state.get("cpu_critico", 85)
-                                        dict_umbrales["cpu_p_buen_estado"] = st.session_state.get("cpu_p_buen_estado", 69)
-                                        dict_umbrales["cpu_p_advertencia"] = st.session_state.get("cpu_p_advertencia", 70)
-                                        dict_umbrales["cpu_p_critico"] = st.session_state.get("cpu_p_critico", 85)
+                                        dict_umbrales["cpu_buen_estado"] = st.session_state.get(f"cpu_buen_estado_{st.session_state['widget_counter']}", 69)
+                                        dict_umbrales["cpu_advertencia"] = st.session_state.get(f"cpu_advertencia_{st.session_state['widget_counter']}", 70)
+                                        dict_umbrales["cpu_critico"] = st.session_state.get(f"cpu_critico_{st.session_state['widget_counter']}", 85)
+                                        dict_umbrales["cpu_p_buen_estado"] = st.session_state.get(f"cpu_p_buen_estado_{st.session_state['widget_counter']}", 69)
+                                        dict_umbrales["cpu_p_advertencia"] = st.session_state.get(f"cpu_p_advertencia_{st.session_state['widget_counter']}", 70)
+                                        dict_umbrales["cpu_p_critico"] = st.session_state.get(f"cpu_p_critico_{st.session_state['widget_counter']}", 85)
                                     
                                     if tiene_ram:
-                                        dict_umbrales["ram_buen_estado"] = st.session_state.get("ram_buen_estado", 20)
-                                        dict_umbrales["ram_advertencia"] = st.session_state.get("ram_advertencia", 15)
-                                        dict_umbrales["ram_critico"] = st.session_state.get("ram_critico", 10)
+                                        dict_umbrales["ram_buen_estado"] = st.session_state.get(f"ram_buen_estado_{st.session_state['widget_counter']}", 20)
+                                        dict_umbrales["ram_advertencia"] = st.session_state.get(f"ram_advertencia_{st.session_state['widget_counter']}", 15)
+                                        dict_umbrales["ram_critico"] = st.session_state.get(f"ram_critico_{st.session_state['widget_counter']}", 10)
                                     
                                     for disco in discos_activos:
                                         d_num = disco['num']
-                                        dict_umbrales[f"disco_{d_num}_buen_estado"] = st.session_state.get(f"disco_{d_num}_buen_estado", 25)
-                                        dict_umbrales[f"disco_{d_num}_advertencia"] = st.session_state.get(f"disco_{d_num}_advertencia", 15)
-                                        dict_umbrales[f"disco_{d_num}_critico"] = st.session_state.get(f"disco_{d_num}_critico", 5)
+                                        dict_umbrales[f"disco_{d_num}_buen_estado"] = st.session_state.get(f"disco_{d_num}_buen_estado_{st.session_state['widget_counter']}", 25)
+                                        dict_umbrales[f"disco_{d_num}_advertencia"] = st.session_state.get(f"disco_{d_num}_advertencia_{st.session_state['widget_counter']}", 15)
+                                        dict_umbrales[f"disco_{d_num}_critico"] = st.session_state.get(f"disco_{d_num}_critico_{st.session_state['widget_counter']}", 5)
                                     
                                     for i in range(1, 7):
                                         if f"disco_{i}_critico" not in dict_umbrales:
@@ -649,7 +645,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                         st.session_state["_guardando"] = True
                                         st.session_state["umbrales_modificados"] = False
                                         time.sleep(1)
-                                        st.query_params["tab_umbrales"] = "1"
                                         st.rerun()
                                     else:
                                         st.error("❌ Error al guardar los umbrales. Verifique los logs.")
@@ -657,10 +652,20 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         st.info("ℹ️ No hay cambios pendientes. Modifique algún valor para habilitar el guardado.")
 
     # =========================================================================
-    # PESTAÑA 2: HISTÓRICO DE UMBRALES (INDEPENDIENTE)
+    # PESTAÑA 2: HISTÓRICO DE UMBRALES
     # =========================================================================
     with tab2:
-        st.query_params["tab_umbrales"] = "2"
+        # Procesar limpieza de histórico ANTES de crear los widgets
+        if "_limpiar_historico" in st.query_params:
+            st.session_state["widget_counter"] += 1
+            if "filtro_historico_umbrales" in st.session_state:
+                del st.session_state["filtro_historico_umbrales"]
+            del st.query_params["_limpiar_historico"]
+            st.rerun()
+        
+        # Inicializar estado si no existe
+        if "filtro_historico_umbrales" not in st.session_state:
+            st.session_state["filtro_historico_umbrales"] = VALOR_DEFECTO
         
         st.markdown('<p style="color:#666; font-size:13px; margin-top:-5px;">Historial de cambios en la configuración de umbrales</p>', unsafe_allow_html=True)
         
@@ -669,16 +674,18 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         
         col_f1, col_f2 = st.columns([3, 1])
         with col_f1:
+            widget_key_hist = f"filtro_historico_umbrales_{st.session_state['widget_counter']}"
             st.selectbox(
                 "Filtrar por Servidor",
                 options=opciones_filtro,
-                key="filtro_historico_umbrales",
+                key=widget_key_hist,
                 label_visibility="collapsed"
             )
+            st.session_state["filtro_historico_umbrales"] = st.session_state[widget_key_hist]
+            
         with col_f2:
             if st.button("🧹 Limpiar", key="btn_limpiar_historico_umbrales", use_container_width=True):
                 st.query_params["_limpiar_historico"] = "1"
-                st.query_params["tab_umbrales"] = "2"
                 st.rerun()
         
         filtro_servidor = st.session_state.get("filtro_historico_umbrales", "-- Seleccione un Servidor --")
