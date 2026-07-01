@@ -1,11 +1,64 @@
+import sys
+import os
 import time
 import mysql.connector
 from datetime import datetime
-import sys
-import os
 import socket
-from utils import get_resource_path, obtener_telemetria_total, safe_float
 
+# =============================================================================
+# CONFIGURACIÓN DE LOGS - USANDO CARPETA TEMP
+# =============================================================================
+if getattr(sys, 'frozen', False):
+    # Usar la carpeta TEMP de Windows (siempre tiene permisos de escritura)
+    LOG_DIR = os.environ.get('TEMP', os.path.dirname(sys.executable))
+else:
+    LOG_DIR = os.getcwd()
+
+# Usar nombre diferente para evitar conflicto con app_loader
+LOG_FILE = os.path.join(LOG_DIR, "agente_simpol.log")
+
+def log(msg):
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} - {msg}\n")
+    except:
+        pass
+
+# =============================================================================
+# LOG DE INICIO - SE EJECUTA APENAS SE CARGA EL ARCHIVO
+# =============================================================================
+try:
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{time.strftime('%H:%M:%S')} - === INICIO DE CARGA DEL ARCHIVO ===\n")
+except:
+    pass
+
+# =============================================================================
+# FIX PARA PYINSTALLER
+# =============================================================================
+if getattr(sys, 'frozen', False):
+    sys.path.insert(0, sys._MEIPASS)
+# =============================================================================
+
+log("=" * 50)
+log("AGENTE SIMPOL INICIADO")
+log(f"sys.frozen: {getattr(sys, 'frozen', False)}")
+if getattr(sys, 'frozen', False):
+    log(f"sys._MEIPASS: {sys._MEIPASS}")
+
+# =============================================================================
+# IMPORTAR UTILS
+# =============================================================================
+try:
+    from utils import get_resource_path, obtener_telemetria_total, safe_float
+    log("utils importado correctamente")
+except ImportError as e:
+    log(f"Error importando utils: {e}")
+    sys.exit(1)
+
+# =============================================================================
+# CONFIGURACIÓN DE BASE DE DATOS
+# =============================================================================
 DB_CONFIG = {
     "host": "127.0.0.1", 
     "user": "root", 
@@ -29,10 +82,14 @@ def conectar_bd_con_reintentos(max_intentos=3, delay=2):
     while intentos < max_intentos:
         try:
             conn = mysql.connector.connect(**DB_CONFIG)
-            if conn.is_connected(): return conn
-        except mysql.connector.Error:
+            if conn.is_connected():
+                log("Conexion a MySQL exitosa")
+                return conn
+        except mysql.connector.Error as e:
+            log(f"Error conexion BD (intento {intentos+1}): {e}")
             intentos += 1
             time.sleep(delay)
+    log("No se pudo conectar a la BD")
     return None
 
 def obtener_umbrales_servidor(ip):
@@ -75,7 +132,8 @@ def obtener_umbrales_servidor(ip):
             })
         cursor.close()
         conn.close()
-    except:
+    except Exception as e:
+        log(f"Error obteniendo umbrales: {e}")
         if conn and conn.is_connected(): conn.close()
     return umbrales
 
@@ -92,9 +150,9 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
             if estado_calculado in ["ESTABLE", "ACTIVO"]:
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se ha normalizado correctamente."
             else:
-                comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se encuentra en estado [{estado_calculado}] o caído."
+                comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se encuentra en estado [{estado_calculado}] o caido."
         elif componente in ["RED", "LATENCIA"]:
-            comentario = f"Problema en {componente} (ID Sensor: {sensor_id}). Métrica reporta: {val_pct}."
+            comentario = f"Problema en {componente} (ID Sensor: {sensor_id}). Metrica reporta: {val_pct}."
         else:
             comentario = f"Componente {componente} (ID Sensor: {sensor_id}) reportando {val_pct}% disponible."
 
@@ -126,26 +184,45 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
         conn.commit()
         cursor.close()
         conn.close()
-    except:
+    except Exception as e:
+        log(f"Error en alerta: {e}")
         if conn and conn.is_connected(): conn.close()
 
 def ejecutar_motor_agente():
     global AGENTE_EN_EJECUCION, _SOCKET_LOCK
+    
+    # =============================================================
+    # LOG FORZADO - ESCRIBE SIEMPRE AL ENTRAR A LA FUNCION
+    # =============================================================
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} - >>> EJECUTANDO MOTOR DEL AGENTE <<<\n")
+    except:
+        pass
+    # =============================================================
+    
+    log("INICIANDO MOTOR DEL AGENTE")
+    
     try:
         _SOCKET_LOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         _SOCKET_LOCK.bind(("127.0.0.1", 9999))
-    except socket.error:
-        print(f"\n[🛑 ALERTA] agente.py ya está ejecutándose.", flush=True)
+        log("Socket 9999 creado")
+    except socket.error as e:
+        log(f"Socket fallo: {e}")
+        print(f"\n[ALERTA] agente.py ya esta ejecutandose.", flush=True)
         sys.exit(0)
         
     AGENTE_EN_EJECUCION = True
-    print("🚀 INICIANDO DEMONIO DE MONITOREO SIMPOL CORE V4.0.1", flush=True)
-    print("💡 Presiona Control + C en cualquier momento para detener el agente de forma limpia.\n", flush=True)
+    log("AGENTE_EN_EJECUCION = True")
+    print("INICIANDO DEMONIO DE MONITOREO SIMPOL", flush=True)
+    print("Presiona Control + C en cualquier momento para detener el agente.\n", flush=True)
 
     try:
         while AGENTE_EN_EJECUCION:
+            log("INICIO DE CICLO")
             conn = conectar_bd_con_reintentos()
             if not conn:
+                log("Sin BD, esperando 15s")
                 time.sleep(15)
                 continue
 
@@ -154,14 +231,25 @@ def ejecutar_motor_agente():
                 cursor_ins.execute("SELECT * FROM servidores WHERE estado_monitoreo = 1")
                 servidores = cursor_ins.fetchall()
                 cursor_ins.close()
+                
+                log(f"Servidores activos encontrados: {len(servidores)}")
+
+                if not servidores:
+                    log("No hay servidores activos")
+                    print("No hay servidores activos con estado_monitoreo = 1", flush=True)
+                    conn.close()
+                    time.sleep(15)
+                    continue
 
                 print("\n" + "="*95)
-                print(f" ⏱️  CICLO DE INYECCIÓN Y EVALUACIÓN DE ALERTAS SIMPOL ({datetime.now().strftime('%H:%M:%S')})")
+                print(f" CICLO DE INYECCION Y EVALUACION DE ALERTAS SIMPOL ({datetime.now().strftime('%H:%M:%S')})")
                 print("="*95)
 
                 for srv in servidores:
                     ip = srv["ip"]
                     nombre = srv["nombre_alias"] or ip
+                    
+                    log(f"Procesando: {nombre} ({ip})")
                     
                     id_cpu = int(srv.get("id_sensor_cpu") or 0)
                     id_ram = int(srv.get("id_sensor_ram") or 0)
@@ -174,8 +262,11 @@ def ejecutar_motor_agente():
                     ids_servicios = [int(srv.get(f"id_sensor_servicio_{i}") or 0) for i in range(1, 9)]
                     
                     total_sensores = id_cpu + id_ram + id_red_total + id_red_entrante + id_red_saliente + id_latencia + sum(ids_discos) + sum(ids_servicios)
-                    if total_sensores == 0: continue
+                    if total_sensores == 0:
+                        log(f"{nombre} no tiene sensores configurados")
+                        continue
                     
+                    log(f"Obteniendo telemetria para {nombre}...")
                     telemetria = obtener_telemetria_total(srv)
                     umbrales = obtener_umbrales_servidor(ip) 
 
@@ -189,16 +280,14 @@ def ejecutar_motor_agente():
                     
                     log_items_consola = []
 
-                    # =============================================================
-                    # CPU - Estados correctos (valores más altos = peor)
-                    # =============================================================
+                    # CPU
                     if id_cpu > 0:
                         v_cpu = safe_float(telemetria.get("cpu") or telemetria.get("CPU", 0.0))
                         
                         if v_cpu >= umbrales["cpu_critico"]:
-                            status_cpu = "CRÍTICO"
+                            status_cpu = "CRITICO"
                         elif v_cpu >= umbrales["cpu_advertencia"]:
-                            status_cpu = "PRECAUCIÓN"
+                            status_cpu = "PRECAUCION"
                         else:
                             status_cpu = "ESTABLE"
                         
@@ -212,31 +301,27 @@ def ejecutar_motor_agente():
                             columnas_sql.append(f"val_cpu_p{idx}")
                             parametros_sql.append(v_core)
                             cores_txt.append(f"P{idx}: {v_core}%")
-                        log_items_consola.append(f"• CPU Global: {v_cpu}% [{', '.join(cores_txt)}] -> [{status_cpu}]")
+                        log_items_consola.append(f"CPU Global: {v_cpu}% [{', '.join(cores_txt)}] -> [{status_cpu}]")
 
-                    # =============================================================
-                    # RAM - Estados correctos (valores más bajos = peor - porcentaje libre)
-                    # =============================================================
+                    # RAM
                     if id_ram > 0:
                         v_ram_total = safe_float(telemetria.get("ram_total_gb") or telemetria.get("RAM_TOTAL_GB", 0.0))
                         v_ram_pct = safe_float(telemetria.get("ram_pct") or telemetria.get("ram_disponible_pct") or telemetria.get("RAM_PCT", 100.0))
                         v_ram_gb = safe_float(telemetria.get("ram_gb") or telemetria.get("ram_disponible_gb") or telemetria.get("RAM_GB", 0.0))
                         
                         if v_ram_pct <= umbrales["ram_critico"]:
-                            status_ram = "CRÍTICO"
+                            status_ram = "CRITICO"
                         elif v_ram_pct <= umbrales["ram_advertencia"]:
-                            status_ram = "PRECAUCIÓN"
+                            status_ram = "PRECAUCION"
                         else:
                             status_ram = "ESTABLE"
                         
                         registrar_o_resolver_alerta(ip, "RAM", status_ram, v_ram_total, v_ram_gb, v_ram_pct, id_ram)
                         columnas_sql.extend(["val_ram_total_gb", "val_ram_disponible_pct", "val_ram_disponible_gb"])
                         parametros_sql.extend([v_ram_total, v_ram_pct, v_ram_gb])
-                        log_items_consola.append(f"• RAM Libre: {v_ram_pct}% ({v_ram_gb}/{v_ram_total} GB) -> [{status_ram}]")
+                        log_items_consola.append(f"RAM Libre: {v_ram_pct}% ({v_ram_gb}/{v_ram_total} GB) -> [{status_ram}]")
 
-                    # =============================================================
-                    # RED - Solo registro de datos (CORREGIDO)
-                    # =============================================================
+                    # RED
                     v_red_tot = safe_float(telemetria.get("red_total") or telemetria.get("RED_TOTAL", 0.0))
                     v_red_ent = safe_float(telemetria.get("red_entrante") or telemetria.get("RED_ENTRANTE", 0.0))
                     v_red_sal = safe_float(telemetria.get("red_saliente") or telemetria.get("RED_SALIENTE", 0.0))
@@ -252,11 +337,9 @@ def ejecutar_motor_agente():
                         parametros_sql.append(v_red_sal)
                         
                     if id_red_total > 0 or id_red_entrante > 0 or id_red_saliente > 0:
-                        log_items_consola.append(f"• Red Tráfico: Total {v_red_tot} Mbit/s | Entrante: {v_red_ent} Mbit/s | Saliente: {v_red_sal} Mbit/s")
+                        log_items_consola.append(f"Red Trafico: Total {v_red_tot} Mbit/s | Entrante: {v_red_ent} Mbit/s | Saliente: {v_red_sal} Mbit/s")
 
-                    # =============================================================
-                    # DISCOS - Estados correctos (valores más bajos = peor - porcentaje libre)
-                    # =============================================================
+                    # DISCOS
                     for i in range(1, 7):
                         id_sensor_disco = ids_discos[i-1]
                         if id_sensor_disco > 0:
@@ -269,30 +352,27 @@ def ejecutar_motor_agente():
                             clave_critico = "disco_critico" if i == 1 else f"disco_{i}_critico"
                             clave_advertencia = "disco_advertencia" if i == 1 else f"disco_{i}_advertencia"
                             
-                            # Disco: valores más bajos = peor (porcentaje libre)
                             if pct_libre <= umbrales[clave_critico]:
-                                st_disco = "CRÍTICO"
+                                st_disco = "CRITICO"
                             elif pct_libre <= umbrales[clave_advertencia]:
-                                st_disco = "PRECAUCIÓN"
+                                st_disco = "PRECAUCION"
                             else:
                                 st_disco = "ESTABLE"
                             
                             if status_prtg in [2, 3]:
-                                st_disco = "CRÍTICO"
+                                st_disco = "CRITICO"
                             elif status_prtg == 4:
                                 if st_disco == "ESTABLE":
-                                    st_disco = "PRECAUCIÓN"
+                                    st_disco = "PRECAUCION"
                                 
                             status_discos[i] = st_disco
                             registrar_o_resolver_alerta(ip, letra_unidad, st_disco, total_gb, libres_gb, pct_libre, id_sensor_disco)
                             
                             columnas_sql.extend([f"val_disco_{i}_total_gb", f"val_disco_{i}_pct_libre", f"val_disco_{i}_libres_gb"])
                             parametros_sql.extend([total_gb, pct_libre, libres_gb])
-                            log_items_consola.append(f"• {letra_unidad}: {pct_libre}% Libre ({libres_gb}/{total_gb} GB) -> [{st_disco}]")
+                            log_items_consola.append(f"{letra_unidad}: {pct_libre}% Libre ({libres_gb}/{total_gb} GB) -> [{st_disco}]")
 
-                    # =============================================================
                     # SERVICIOS
-                    # =============================================================
                     for j in range(1, 9):
                         id_sensor_servicio = ids_servicios[j-1]
                         if id_sensor_servicio > 0:
@@ -301,22 +381,20 @@ def ejecutar_motor_agente():
                             
                             if status_prtg_srv:
                                 if int(status_prtg_srv) in [2, 3]:
-                                    st_servicio = "CRÍTICO"
+                                    st_servicio = "CRITICO"
                                 elif int(status_prtg_srv) == 4:
-                                    st_servicio = "PRECAUCIÓN"
+                                    st_servicio = "PRECAUCION"
                                 elif int(status_prtg_srv) == 1:
                                     st_servicio = "ACTIVO"
                             
-                            nivel_alerta = "CRÍTICO" if st_servicio in ["DOWN", "CRÍTICO", "INACTIVO"] else ("PRECAUCIÓN" if st_servicio == "PRECAUCIÓN" else "ACTIVO")
+                            nivel_alerta = "CRITICO" if st_servicio in ["DOWN", "CRITICO", "INACTIVO"] else ("PRECAUCION" if st_servicio == "PRECAUCION" else "ACTIVO")
                             registrar_o_resolver_alerta(ip, f"Servicio_{j}", nivel_alerta, 0, 0, 0, id_sensor_servicio)
 
                             columnas_sql.append(f"estado_servicio_{j}")
                             parametros_sql.append(st_servicio)
-                            log_items_consola.append(f"• Servicio {j}: -> [{st_servicio}]")
+                            log_items_consola.append(f"Servicio {j}: -> [{st_servicio}]")
 
-                    # =============================================================
-                    # LATENCIA - Estados correctos (valores más altos = peor)
-                    # =============================================================
+                    # LATENCIA
                     if id_latencia > 0:
                         v_ping = safe_float(telemetria.get("latencia_ping") or telemetria.get("LATENCIA_PING", 0.0))
                         v_max = safe_float(telemetria.get("latencia_max") or telemetria.get("LATENCIA_MAX", 0.0))
@@ -324,9 +402,9 @@ def ejecutar_motor_agente():
                         v_loss = safe_float(telemetria.get("latencia_perdida") or telemetria.get("LATENCIA_LOSS", 0.0))
 
                         if v_ping >= umbrales["latencia_limite_ms"] or v_loss >= umbrales["perdida_limite_pct"]:
-                            status_latencia = "CRÍTICO"
+                            status_latencia = "CRITICO"
                         elif v_ping >= 50.0 or v_loss > 0.0:
-                            status_latencia = "PRECAUCIÓN"
+                            status_latencia = "PRECAUCION"
                         else:
                             status_latencia = "ESTABLE"
                         
@@ -334,33 +412,31 @@ def ejecutar_motor_agente():
                         
                         columnas_sql.extend(["val_latencia_ping", "val_latencia_max", "val_latencia_min", "val_latencia_perdida"])
                         parametros_sql.extend([v_ping, v_max, v_min, v_loss])
-                        log_items_consola.append(f"• Latencia Ping: Avg {v_ping}ms | Max {v_max}ms | Pérdida: {v_loss}% -> [{status_latencia}]")
+                        log_items_consola.append(f"Latencia Ping: Avg {v_ping}ms | Max {v_max}ms | Perdida: {v_loss}% -> [{status_latencia}]")
 
-                    # =============================================================
-                    # SEMÁFORO DE SALUD - Estado general del sistema
-                    # =============================================================
+                    # SEMAFORO DE SALUD
                     tiene_critico = False
                     tiene_precaucion = False
                     
-                    if status_cpu == "CRÍTICO":
+                    if status_cpu == "CRITICO":
                         tiene_critico = True
-                    elif status_cpu == "PRECAUCIÓN":
+                    elif status_cpu == "PRECAUCION":
                         tiene_precaucion = True
                     
-                    if status_ram == "CRÍTICO":
+                    if status_ram == "CRITICO":
                         tiene_critico = True
-                    elif status_ram == "PRECAUCIÓN":
+                    elif status_ram == "PRECAUCION":
                         tiene_precaucion = True
                     
-                    if status_latencia == "CRÍTICO":
+                    if status_latencia == "CRITICO":
                         tiene_critico = True
-                    elif status_latencia == "PRECAUCIÓN":
+                    elif status_latencia == "PRECAUCION":
                         tiene_precaucion = True
                     
                     for st_d in status_discos.values():
-                        if st_d == "CRÍTICO":
+                        if st_d == "CRITICO":
                             tiene_critico = True
-                        elif st_d == "PRECAUCIÓN":
+                        elif st_d == "PRECAUCION":
                             tiene_precaucion = True
                     
                     if tiene_critico:
@@ -379,60 +455,66 @@ def ejecutar_motor_agente():
                     cursor_write.execute(query, parametros_sql)
                     conn.commit()
                     cursor_write.close()
+                    
+                    log(f"Datos insertados para {nombre}")
 
                     modo_conexion = telemetria.get("modo_conexion", "MODO PRTG")
 
-                    print(f"\n🖥️  [NODO PROCESADO]: '{nombre}' ({ip}) | 🌐 Conexión: {modo_conexion}")
-                    print(f"   ├─📊 [TELEMETRÍA REGISTRADA]:")
+                    print(f"\n[NODO PROCESADO]: '{nombre}' ({ip}) | Conexion: {modo_conexion}")
+                    print(f"   [TELEMETRIA REGISTRADA]:")
                     for line in log_items_consola:
-                        print(f"   │  {line}")
+                        print(f"   {line}")
                     
                     if estado_sistema == "5":
-                        estado_color = "🔴 CRÍTICO"
+                        estado_color = "CRITICO"
                     elif estado_sistema == "4":
-                        estado_color = "🟡 PRECAUCIÓN"
+                        estado_color = "PRECAUCION"
                     else:
-                        estado_color = "🟢 ESTABLE"
-                    print(f"   │  • ESTADO DEL SISTEMA: {estado_color}")
+                        estado_color = "ESTABLE"
+                    print(f"   ESTADO DEL SISTEMA: {estado_color}")
                     
                     cursor_alertas = conn.cursor(dictionary=True)
                     cursor_alertas.execute("SELECT componente, tipo_alerta, comentario FROM alertas WHERE ip_servidor = %s AND estado_alerta = 'ACTIVA'", (ip,))
                     alertas_vigentes = cursor_alertas.fetchall()
                     cursor_alertas.close()
                     
-                    print(f"   └─🚨 [ALERTAS ACTIVAS BD]:")
+                    print(f"   [ALERTAS ACTIVAS BD]:")
                     if alertas_vigentes:
                         for al in alertas_vigentes:
-                            if al['tipo_alerta'] == "CRÍTICO":
-                                alert_color = "🔴"
-                            elif al['tipo_alerta'] == "PRECAUCIÓN":
-                                alert_color = "🟡"
+                            if al['tipo_alerta'] == "CRITICO":
+                                alert_color = "CRITICO"
+                            elif al['tipo_alerta'] == "PRECAUCION":
+                                alert_color = "PRECAUCION"
                             else:
-                                alert_color = "🟢"
-                            print(f"      {alert_color} -> [{al['componente']}] | Nivel: {al['tipo_alerta']} | Info: {al['comentario']}")
+                                alert_color = "ESTABLE"
+                            print(f"      -> [{al['componente']}] | Nivel: {al['tipo_alerta']} | Info: {al['comentario']}")
                     else:
-                        print(f"      ✅ Nodo limpio. Sin anomalías vigentes.")
+                        print(f"      Nodo limpio. Sin anomalias vigentes.")
                     print("-" * 95, flush=True)
 
             except Exception as e_ciclo:
-                print(f"❌ Fallo crítico en el bucle: {str(e_ciclo)}", flush=True)
+                log(f"Fallo en bucle: {str(e_ciclo)}")
+                print(f"Fallo critico en el bucle: {str(e_ciclo)}", flush=True)
                 import traceback
                 traceback.print_exc()
             finally:
-                if conn and conn.is_connected(): conn.close()
+                if conn and conn.is_connected(): 
+                    conn.close()
+                    log("Conexion BD cerrada")
 
+            log("Esperando 15 segundos...")
             time.sleep(15)
 
     except KeyboardInterrupt:
-        print("\n\n🛑 Parada manual detectada. Finalizando agente SIMPOL Core limpiamente...", flush=True)
+        print("\n\nParada manual detectada. Finalizando agente SIMPOL...", flush=True)
     finally:
         if _SOCKET_LOCK:
             try:
                 _SOCKET_LOCK.close()
-                print("🔒 Socket de bloqueo puerto 9999 liberado con éxito.", flush=True)
+                print("Socket de bloqueo puerto 9999 liberado.", flush=True)
             except Exception as e_sock:
-                print(f"⚠️ Error al cerrar el socket: {e_sock}", flush=True)
-        print("👋 ¡Agente fuera de línea!", flush=True)
+                print(f"Error al cerrar el socket: {e_sock}", flush=True)
+        print("Agente fuera de linea!", flush=True)
 
 if __name__ == "__main__":
     ejecutar_motor_agente()

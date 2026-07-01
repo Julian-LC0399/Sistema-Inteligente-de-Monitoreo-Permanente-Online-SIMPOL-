@@ -277,7 +277,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 font-size: 13px !important;
                 font-weight: 500 !important;
             }
-            /* Estilo para el texto del analista - MÁS GRANDE */
             .info-analista-alertas {
                 color: #333333;
                 font-size: 20px;
@@ -297,7 +296,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     st.markdown('<h2 style="color:#003366; margin-bottom:0px;">🛡️ Consola Operativa de Alertas y Políticas</h2>', unsafe_allow_html=True)
     
     # ==========================================================================
-    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
+    # MOSTRAR ANALISTA EN SESIÓN
     # ==========================================================================
     cargo_actual = st.session_state.get("cargo", "Analista")
     usuario_actual = st.session_state.get("user_actual", "Sistema")
@@ -313,7 +312,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     VALOR_DEFECTO = "-- Seleccione un Servidor --"
     VALOR_TODAS = "-- Todas --"
 
-    # Inicialización de estados - IGUAL QUE MONITOREO.PY
+    # Inicialización de estados
     if "filtro_alerta_servidor" not in st.session_state:
         st.session_state["filtro_alerta_servidor"] = VALOR_DEFECTO
     if "filtro_alerta_criticidad" not in st.session_state:
@@ -322,26 +321,43 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
     if "ultima_actualizacion" not in st.session_state:
         st.session_state["ultima_actualizacion"] = datetime.now()
+    
+    # ✅ Control de pestañas con session_state
+    if "tab_alertas_index" not in st.session_state:
+        st.session_state["tab_alertas_index"] = 0
 
     servidores = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores if s.get('nombre_alias')])))
     opciones_servidores = [VALOR_DEFECTO] + lista_nombres_bd
     opciones_criticidad = [VALOR_TODAS, "CRÍTICO", "PRECAUCIÓN", "ESTABLE"]
 
-    # TABS - IGUAL QUE MONITOREO.PY
+    # ✅ Leer query params y sincronizar
+    tab_param = st.query_params.get("tab_alertas")
+    if tab_param == "2":
+        st.session_state["tab_alertas_index"] = 1
+    elif tab_param == "1":
+        st.session_state["tab_alertas_index"] = 0
+    else:
+        # Si no hay parámetro, establecer según session_state
+        st.query_params["tab_alertas"] = "1" if st.session_state["tab_alertas_index"] == 0 else "2"
+
+    # TABS
     tab1, tab2 = st.tabs(
         ["🚨 Alertas Activas", "⚙️ Configuración de Umbrales"],
         key="controlador_pestañas_alertas"
     )
 
     # =====================================================================
-    # PESTAÑA 1: ALERTAS ACTIVAS - CON FILTROS ESTILO MONITOREO.PY
+    # PESTAÑA 1: ALERTAS ACTIVAS - CON AUTO-REFRESH
     # =====================================================================
     with tab1:
+        st.session_state["tab_alertas_index"] = 0
+        st.query_params["tab_alertas"] = "1"
+        
         st.markdown('<h4 style="color:#003366; font-size:16px; font-weight:bold;">📋 ALERTAS ACTIVAS EN EL SISTEMA</h4>', unsafe_allow_html=True)
         st.markdown('<p style="color:#666; font-size:13px; margin-top:-5px;">Monitoreo en tiempo real de los componentes críticos</p>', unsafe_allow_html=True)
         
-        # FILTROS - IGUAL QUE MONITOREO.PY (con columnas y on_change)
+        # FILTROS
         col_f1, col_f2, col_f3 = st.columns([3, 2, 1])
         with col_f1:
             st.selectbox(
@@ -362,6 +378,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             if st.button("🧹 Limpiar filtro", key="btn_limpiar_alerta", use_container_width=True):
                 st.session_state["filtro_alerta_servidor"] = VALOR_DEFECTO
                 st.session_state["filtro_alerta_criticidad"] = VALOR_TODAS
+                st.session_state["tab_alertas_index"] = 0
+                st.query_params["tab_alertas"] = "1"
                 st.rerun()
 
         # Mostrar estado de actualización
@@ -375,7 +393,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         filtro_servidor = st.session_state["filtro_alerta_servidor"]
         filtro_criticidad = st.session_state["filtro_alerta_criticidad"]
 
-        # Verificar si se seleccionó un servidor
         if filtro_servidor == VALOR_DEFECTO:
             st.info("🔍 Seleccione un servidor para visualizar sus alertas activas.")
         else:
@@ -384,11 +401,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.warning("⚠️ Servidor no encontrado en el catálogo.")
             else:
                 ip_filtro = serv_info['ip']
-                
-                # Verificar estado del agente
                 agente_activo, ultimo_registro = obtener_estado_agente(ip_filtro)
                 
-                # Mostrar estado del agente
                 if agente_activo:
                     st.markdown(f"""
                         <div style="background-color: #E8F5E9; padding: 10px 16px; border-radius: 6px; border-left: 5px solid #2E7D32; margin-bottom: 15px;">
@@ -405,10 +419,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         </div>
                     """, unsafe_allow_html=True)
                 
-                # Obtener alertas activas
                 alertas_activas = obtener_alertas_activas(ip_filtro, filtro_criticidad)
                 
-                # Contador de alertas
                 color_contador = "#C62828" if len(alertas_activas) > 0 else "#2E7D32"
                 st.markdown(f"""
                     <div style="background-color: #FFFFFF; padding: 8px 16px; border-radius: 6px; border: 1px solid #E0E0E0; margin-bottom: 15px; display: inline-block;">
@@ -424,34 +436,38 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         html_card = renderizar_alerta_card(alerta, agente_activo)
                         st.markdown(html_card, unsafe_allow_html=True)
                 
-                # Auto-refresh cada 15 segundos (como en monitoreo.py)
+                # ✅ AUTO-REFRESH SOLO EN TAB1
                 st.session_state["ultima_actualizacion"] = datetime.now()
                 time.sleep(15)
                 st.rerun()
 
     # =====================================================================
-    # PESTAÑA 2: CONFIGURACIÓN DE UMBRALES - CON FILTROS ESTILO MONITOREO.PY
+    # PESTAÑA 2: CONFIGURACIÓN DE UMBRALES - SIN AUTO-REFRESH
     # =====================================================================
     with tab2:
+        # ✅ FORZAR que la pestaña 2 se mantenga activa
+        st.session_state["tab_alertas_index"] = 1
+        st.query_params["tab_alertas"] = "2"
+        
         st.markdown('<h4 style="color:#003366; font-size:16px; font-weight:bold;">⚙️ CONFIGURACIÓN DE UMBRALES POR SERVIDOR</h4>', unsafe_allow_html=True)
         st.markdown('<p style="color:#666; font-size:13px; margin-top:-5px;">Configure los umbrales de alerta para cada componente (valores en %)</p>', unsafe_allow_html=True)
         
-        # FILTROS - IGUAL QUE MONITOREO.PY
         col_u1, col_u2 = st.columns([3, 1])
         with col_u1:
             st.selectbox(
                 "Seleccionar Servidor", 
                 options=opciones_servidores, 
-                key="filtro_umbral_servidor", 
-                on_change=callback_cambio_filtro_umbral,
+                key="filtro_umbral_servidor",
                 label_visibility="collapsed"
             )
         with col_u2:
             if st.button("🧹 Limpiar", key="btn_limpiar_umbral", use_container_width=True):
                 st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
+                # ✅ FORZAR que la pestaña 2 se mantenga activa
+                st.session_state["tab_alertas_index"] = 1
+                st.query_params["tab_alertas"] = "2"
                 st.rerun()
 
-        # Obtener valor del filtro desde session_state
         filtro_umbral_servidor = st.session_state["filtro_umbral_servidor"]
 
         if filtro_umbral_servidor == VALOR_DEFECTO:
@@ -464,7 +480,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 ip_servidor = serv_info['ip']
                 umbrales_actuales = obtener_ultimos_umbrales(ip_servidor)
                 
-                # Valores por defecto
                 valores = {
                     "cpu_buen_estado": 69, "cpu_advertencia": 70, "cpu_critico": 85,
                     "cpu_p_buen_estado": 69, "cpu_p_advertencia": 70, "cpu_p_critico": 85,
@@ -491,9 +506,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # =============================================================
                 # CPU GLOBAL
-                # =============================================================
                 st.markdown('<p style="color:#003366; font-weight:bold; font-size:16px; margin-top:5px;">🧠 CPU - Procesamiento Global</p>', unsafe_allow_html=True)
                 col_cpu_est, col_cpu_adv, col_cpu_crit = st.columns(3)
                 with col_cpu_est:
@@ -506,9 +519,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.markdown('<p style="color:#C62828; font-weight:bold; font-size:14px; margin-bottom:2px;">🔴 CRÍTICO</p>', unsafe_allow_html=True)
                     st.number_input("Uso máximo %", min_value=0, max_value=100, value=int(valores["cpu_critico"]), key="cpu_critico", label_visibility="collapsed")
                 
-                # =============================================================
                 # CPU CORES
-                # =============================================================
                 st.markdown('<p style="color:#003366; font-weight:bold; font-size:16px; margin-top:20px;">🎛️ CPU - Núcleos (Cores)</p>', unsafe_allow_html=True)
                 col_cp_est, col_cp_adv, col_cp_crit = st.columns(3)
                 with col_cp_est:
@@ -521,9 +532,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.markdown('<p style="color:#C62828; font-weight:bold; font-size:14px; margin-bottom:2px;">🔴 CRÍTICO</p>', unsafe_allow_html=True)
                     st.number_input("Uso máximo %", min_value=0, max_value=100, value=int(valores["cpu_p_critico"]), key="cpu_p_critico", label_visibility="collapsed")
                 
-                # =============================================================
                 # RAM
-                # =============================================================
                 st.markdown('<p style="color:#003366; font-weight:bold; font-size:16px; margin-top:20px;">🗲 RAM - Memoria (Espacio Libre)</p>', unsafe_allow_html=True)
                 col_ram_est, col_ram_adv, col_ram_crit = st.columns(3)
                 with col_ram_est:
@@ -536,9 +545,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.markdown('<p style="color:#C62828; font-weight:bold; font-size:14px; margin-bottom:2px;">🔴 CRÍTICO</p>', unsafe_allow_html=True)
                     st.number_input("Mínimo % libre", min_value=0, max_value=100, value=int(valores["ram_critico"]), key="ram_critico", label_visibility="collapsed")
                 
-                # =============================================================
                 # DISCOS
-                # =============================================================
                 discos_activos = []
                 letras_unidades = {1: "C:", 2: "D:", 3: "E:", 4: "F:", 5: "G:", 6: "Y:"}
                 for d in range(1, 7):
@@ -564,9 +571,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 else:
                     st.info("📭 No hay discos configurados para este servidor.")
                 
-                # =============================================================
                 # RED Y LATENCIA
-                # =============================================================
                 st.markdown('<p style="color:#003366; font-weight:bold; font-size:16px; margin-top:20px;">🌐 Red y Latencia</p>', unsafe_allow_html=True)
                 col_red1, col_red2 = st.columns(2)
                 with col_red1:
@@ -579,9 +584,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.number_input("Límite (ms)", min_value=0, max_value=500, value=int(valores["latencia_limite_ms"]), key="latencia_limite_ms")
                     st.number_input("Pérdida de Paquetes (%)", min_value=0, max_value=100, value=int(valores["perdida_limite_pct"]), key="perdida_limite_pct")
                 
-                # =============================================================
                 # JUSTIFICACIÓN Y GUARDAR
-                # =============================================================
                 st.markdown("---")
                 st.markdown('<p style="color:#003366; font-weight:bold; font-size:15px;">📝 Justificación del Cambio</p>', unsafe_allow_html=True)
                 justificacion = st.text_area(
@@ -620,10 +623,13 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             
                             if guardar_nuevos_umbrales(ip_servidor, dict_umbrales, usuario_id, justificacion):
                                 st.success("✅ Umbrales actualizados correctamente.")
+                                st.session_state["tab_alertas_index"] = 1
+                                st.query_params["tab_alertas"] = "2"
                                 st.rerun()
                             else:
                                 st.error("❌ Error al guardar los umbrales.")
-
+        
+        
 if __name__ == "__main__":
     cargo_usuario = st.session_state.get("cargo", "Analista de Infraestructura")
     id_usuario = st.session_state.get("id", 1)
