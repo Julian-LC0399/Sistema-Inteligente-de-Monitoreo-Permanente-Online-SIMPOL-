@@ -164,6 +164,18 @@ def renderizar_alerta_card(alerta):
 
 
 # =====================================================================
+# PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS
+# =====================================================================
+def procesar_limpieza_filtros():
+    """Procesa la limpieza de filtros via query_params"""
+    if "_limpiar_alertas" in st.query_params and st.query_params["_limpiar_alertas"] == "1":
+        st.session_state["filtro_alerta_servidor"] = "-- Seleccione un Servidor --"
+        st.session_state["filtro_alerta_criticidad"] = "-- Todas --"
+        del st.query_params["_limpiar_alertas"]
+        st.rerun()
+
+
+# =====================================================================
 # PESTAÑA 1: ALERTAS ACTIVAS (ENCAPSULADA EN FRAGMENTO)
 # =====================================================================
 @st.fragment(run_every=15)
@@ -256,8 +268,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     
     st.markdown("---")
     
-    st.markdown('<p style="color:#666; font-size:13px; margin-top:-5px;">Monitoreo en tiempo real de los componentes criticos</p>', unsafe_allow_html=True)
-    
     VALOR_DEFECTO = "-- Seleccione un Servidor --"
     VALOR_TODAS = "-- Todas --"
 
@@ -269,12 +279,22 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     if "ultima_actualizacion" not in st.session_state:
         st.session_state["ultima_actualizacion"] = datetime.now()
 
+    # PROCESAR LIMPIEZA DE FILTROS
+    procesar_limpieza_filtros()
+
     servidores = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores if s.get('nombre_alias')])))
     opciones_servidores = [VALOR_DEFECTO] + lista_nombres_bd
     opciones_criticidad = [VALOR_TODAS, "CRITICO", "PRECAUCION", "ESTABLE"]
 
-    # FILTROS
+    # Obtener el servidor seleccionado actual
+    servidor_actual = st.session_state.get("filtro_alerta_servidor", VALOR_DEFECTO)
+    criticidad_actual = st.session_state.get("filtro_alerta_criticidad", VALOR_TODAS)
+    
+    # Deshabilitar el filtro de criticidad si no hay servidor seleccionado
+    disabled_criticidad = servidor_actual == VALOR_DEFECTO
+
+    # FILTROS - CON BOTON LIMPIAR
     col_f1, col_f2, col_f3 = st.columns([3, 2, 1])
     with col_f1:
         st.selectbox(
@@ -288,10 +308,12 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             "Filtrar Criticidad", 
             options=opciones_criticidad, 
             key="filtro_alerta_criticidad", 
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            disabled=disabled_criticidad
         )
     with col_f3:
-        if st.button("🔄 Actualizar", key="btn_refresh_alerta", use_container_width=True):
+        if st.button("🧹 Limpiar", key="btn_limpiar_alertas", use_container_width=True):
+            st.query_params["_limpiar_alertas"] = "1"
             st.rerun()
 
     # Mostrar hora de ultima actualizacion
@@ -304,8 +326,11 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     filtro_servidor = st.session_state.get("filtro_alerta_servidor", VALOR_DEFECTO)
     filtro_criticidad = st.session_state.get("filtro_alerta_criticidad", VALOR_TODAS)
 
+    # =============================================================
+    # VALIDACIÓN: AMBOS FILTROS DEBEN ESTAR SELECCIONADOS
+    # =============================================================
     if filtro_servidor == VALOR_DEFECTO:
-        st.info("🔍 Seleccione un servidor para visualizar las alertas.")
+        st.info("🔍 Seleccione un servidor para comenzar.")
     elif filtro_criticidad == VALOR_TODAS:
         st.info("🎯 Seleccione una criticidad para filtrar las alertas.")
     else:
