@@ -171,62 +171,31 @@ st.markdown("""
 import auth
 from menu import generar_menu
 
-def gestionar_limpieza_filtros(seccion_destino, seccion_anterior=None):
+def gestionar_limpieza_filtros(seccion_destino):
     """
     Controla los estados de los filtros de monitoreo, usuarios, servidores,
     reportes, capacity planning, alertas y umbrales.
-    Ahora más inteligente: solo limpia si realmente cambió de sección.
     """
-    # Si no hay sección anterior o es la misma, no hacer nada
-    if seccion_anterior is None or seccion_anterior == seccion_destino:
-        return
-    
     # BLINDAJE ULTRA-CRÍTICO: Si en la URL viene el parámetro "srv" o ya estamos en monitoreo, 
     # abortamos cualquier purga destructiva para no romper la redirección activa.
     if "srv" in st.query_params or seccion_destino == "🖥️ Monitoreo en vivo" or st.query_params.get("p") == "🖥️ Monitoreo en vivo":
-        # Solo limpiamos si realmente salimos de monitoreo
-        if seccion_anterior == "🖥️ Monitoreo en vivo" and seccion_destino != "🖥️ Monitoreo en vivo":
-            pass  # Permitir limpieza al salir de monitoreo
-        else:
-            return
+        return
 
-    # Limpiar filtros de Monitoreo (solo si salimos de esa sección)
-    if seccion_anterior == "🖥️ Monitoreo en vivo" and seccion_destino != "🖥️ Monitoreo en vivo":
+    if seccion_destino != "🖥️ Monitoreo en vivo":
         if "filtro_monitoreo_nombre" in st.session_state:
             st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor--"
         if "filtro_monitoreo_sensor" in st.session_state:
             st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
         if "servidor_seleccionado" in st.session_state:
             st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
-        # Limpiar también los estados específicos de monitoreo
-        if "sb_srv_tab1" in st.session_state:
-            st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
-        if "sb_metrica_tab1" in st.session_state:
-            st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-        if "sb_graf_srv" in st.session_state:
-            st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
-        if "sb_graf_sensor" in st.session_state:
-            st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
-        # Limpiar flags internas
-        if "_srv_redirect" in st.session_state:
-            del st.session_state["_srv_redirect"]
-        if "_srv_processed" in st.session_state:
-            del st.session_state["_srv_processed"]
-        if "_srv_mensaje_mostrado" in st.session_state:
-            del st.session_state["_srv_mensaje_mostrado"]
-        # Limpiar estados de pestañas internas
-        if "controlador_pestañas_monitoreo" in st.session_state:
-            del st.session_state["controlador_pestañas_monitoreo"]
 
-    # Limpiar filtros de Usuarios (solo si salimos de esa sección)
-    if seccion_anterior == "👥 Gestión de usuarios" and seccion_destino != "👥 Gestión de usuarios":
+    if seccion_destino != "👥 Gestión de usuarios":
         if "filtro_analista" in st.session_state:
             st.session_state["filtro_analista"] = "-- Seleccione un Analista --"
         if "accion_personal" in st.session_state:
             st.session_state["accion_personal"] = None
 
-    # Limpiar filtros de Servidores (solo si salimos de esa sección)
-    if seccion_anterior == "🖥️ Servidores" and seccion_destino != "🖥️ Servidores":
+    if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
         if "accion_infra" in st.session_state:
@@ -236,8 +205,7 @@ def gestionar_limpieza_filtros(seccion_destino, seccion_anterior=None):
         if "accion_adicional" in st.session_state:
             st.session_state["accion_adicional"] = None
 
-    # Limpiar filtros de Reportes (solo si salimos de esa sección)
-    if seccion_anterior == "📄 Reportes" and seccion_destino != "📄 Reportes":
+    if seccion_destino != "📄 Reportes":
         st.session_state["rep_listo"] = False
         st.session_state["rep_csv"] = None
         st.session_state["rep_pdf"] = None
@@ -247,8 +215,7 @@ def gestionar_limpieza_filtros(seccion_destino, seccion_anterior=None):
         if "key_semilla_selectbox" in st.session_state:
             st.session_state["key_semilla_selectbox"] += 1
 
-    # Limpiar filtros de Capacity Planning (solo si salimos de esa sección)
-    if seccion_anterior == "📈 Capacity planning" and seccion_destino != "📈 Capacity planning":
+    if seccion_destino != "📈 Capacity planning":
         if "servidor_seleccionado_capacity" in st.session_state:
             st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
         if "metrica_seleccionada_capacity" in st.session_state:
@@ -256,8 +223,7 @@ def gestionar_limpieza_filtros(seccion_destino, seccion_anterior=None):
         if "dias_prediccion_capacity" in st.session_state:
             st.session_state["dias_prediccion_capacity"] = 30
 
-    # Limpiar filtros de Alertas (solo si salimos de esa sección)
-    if seccion_anterior == "🔔 Alertas" and seccion_destino != "🔔 Alertas":
+    if seccion_destino != "🔔 Alertas":
         if "sb_alerta_srv" in st.session_state:
             st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
         if "filtro_alerta_criticidad" in st.session_state:
@@ -265,34 +231,15 @@ def gestionar_limpieza_filtros(seccion_destino, seccion_anterior=None):
         if "filtro_alerta_estado" in st.session_state:
             st.session_state["filtro_alerta_estado"] = "No Resueltas"
 
-    # Limpiar filtros de Umbrales (solo si salimos de esa sección)
-    if seccion_anterior == "⚙️ Umbrales" and seccion_destino != "⚙️ Umbrales":
-        # Limpiar estados de la pestaña 1 (Configuración)
+    # 🔥 NUEVO: Limpieza de filtros de Umbrales al salir
+    if seccion_destino != "⚙️ Umbrales":
         if "filtro_umbral_servidor" in st.session_state:
             st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
         if "filtro_umbral_componente" in st.session_state:
             st.session_state["filtro_umbral_componente"] = "-- Seleccione un Componente --"
-        if "umbrales_modificados" in st.session_state:
-            st.session_state["umbrales_modificados"] = False
         if "justificacion_umbrales" in st.session_state:
-            st.session_state["justificacion_umbrales"] = ""
-        if "_guardando" in st.session_state:
-            del st.session_state["_guardando"]
-        
-        # Limpiar estados de la pestaña 2 (Histórico)
-        if "filtro_historico_umbrales" in st.session_state:
-            st.session_state["filtro_historico_umbrales"] = "-- Seleccione un Servidor --"
-        
-        # Limpiar estados de control de pestañas
-        if "pestana_anterior_umbrales" in st.session_state:
-            del st.session_state["pestana_anterior_umbrales"]
-        if "tabs_umbrales" in st.session_state:
-            del st.session_state["tabs_umbrales"]
-
-    # Limpiar filtros de Inicio (siempre al salir)
-    if seccion_anterior == "🏠 Inicio" and seccion_destino != "🏠 Inicio":
-        # No hay filtros específicos de inicio
-        pass
+            # No eliminamos, solo reseteamos
+            pass
 
 def main():
     params = st.query_params
@@ -347,9 +294,6 @@ def main():
         # --- LÓGICA DE RUTAS Y SINCRONIZACIÓN ---
         url_pestaña = params.get("p")
         
-        # Guardar la sección anterior antes de actualizar
-        seccion_anterior = st.session_state.get("seccion_actual", None)
-        
         if "navegacion_principal" in st.session_state:
             destino = st.session_state["navegacion_principal"]
             st.session_state["seccion_actual"] = destino
@@ -376,10 +320,7 @@ def main():
                     st.session_state["_srv_processed"] = True
                     logging.info(f"🟢 SRV aplicado a monitoreo: {st.session_state['_srv_redirect']}")
         
-        # =============================================================
-        # GESTIÓN DE LIMPIEZA DE FILTROS - AHORA CON CONCIENCIA DE SECCIÓN ANTERIOR
-        # =============================================================
-        gestionar_limpieza_filtros(st.session_state["seccion_actual"], seccion_anterior)
+        gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         
         generar_menu()
         
@@ -428,6 +369,7 @@ def main():
                         usuario_id=st.session_state.get("user_id", 1),
                         usuario_login=st.session_state.get("user_actual", "Sistema")
                     )
+                # 🔥 NUEVO: Sección de Umbrales
                 elif seleccion == "⚙️ Umbrales":
                     from modulos import umbrales
                     umbrales.mostrar_pantalla(
