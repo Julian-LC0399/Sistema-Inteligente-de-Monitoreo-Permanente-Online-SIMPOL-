@@ -11,7 +11,7 @@ from datetime import datetime
 # =============================================================================
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
-SMTP_USER = "julianlopezcastillo12@gmail.com"
+SMTP_USER = "je@gmail.com"
 SMTP_PASSWORD = ""  # <-- PON AQUI TU CONTRASEÑA DE APLICACION (16 digitos)
 
 # =============================================================================
