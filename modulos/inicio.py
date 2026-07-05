@@ -5,17 +5,17 @@ from datetime import datetime
 def obtener_estado_agente_local():
     """
     Consulta el último latido del agente en la base de datos
-    y evalúa su estado con un margen ultra-estricto para detectar el apagado rápido.
+    y evalúa su estado en tiempo real.
     """
     conexion = conectar_bd()
-    # Estado por defecto si falla la conexión o no hay registros (Agente Apagado)
-    estado = {"activo": False, "tipo": "DESCONECTADO"}
+    estado = {"activo": False, "tipo": "DESCONECTADO", "modo": "DESCONOCIDO"}
     
     if conexion:
         cursor = None
         try:
             cursor = conexion.cursor(dictionary=True)
-            # Traemos el último registro absoluto para evaluar el latido en tiempo real
+            
+            # Obtener el registro más reciente
             query = """
                 SELECT ip_servidor, fecha_registro
                 FROM monitoreo 
@@ -28,7 +28,6 @@ def obtener_estado_agente_local():
                 fecha_reg = registro["fecha_registro"]
                 ip_reg = str(registro["ip_servidor"])
                 
-                # Conversión preventiva por si el driver retorna la fecha como string
                 if isinstance(fecha_reg, str):
                     try:
                         fecha_reg = datetime.strptime(fecha_reg, "%Y-%m-%d %H:%M:%S")
@@ -38,22 +37,36 @@ def obtener_estado_agente_local():
                 ahora = datetime.now()
                 diferencia_segundos = abs((ahora - fecha_reg).total_seconds())
                 
-                # DETECCIÓN EN TIEMPO REAL: 
-                # Bajamos la tolerancia a un margen estricto (ej. 15-20 segundos).
-                # Si el agente se detiene, dejará de escribir y superará este tiempo de inmediato.
-                if diferencia_segundos <= 20:
+                # Margen de 30 segundos (el agente guarda cada 15s)
+                if diferencia_segundos <= 30:
                     estado["activo"] = True
                     
-                    # Identificación del modo basada en tu rango de red local (terminal)
-                    if ip_reg in ["127.0.0.1", "localhost", "::1"] or ip_reg.startswith("10."):
+                    # DETERMINAR MODO POR IP
+                    # LOCAL: 127.0.0.1 (localhost)
+                    # PRTG: Cualquier otra IP (192.168.x.x, 10.x.x.x, etc.)
+                    if ip_reg in ["127.0.0.1", "localhost", "::1"]:
+                        estado["modo"] = "LOCAL"
                         estado["tipo"] = "MODO LOCAL"
                     else:
+                        estado["modo"] = "PRTG"
                         estado["tipo"] = "CONECTADO A PRTG"
+                    
+                    estado["ultima_ip"] = ip_reg
+                    estado["ultima_fecha"] = fecha_reg.strftime("%Y-%m-%d %H:%M:%S")
                 else:
-                    # Si la diferencia es mayor, el dato es viejo -> El agente fue desactivado
                     estado["activo"] = False
-        except Exception:
-            pass
+                    estado["tipo"] = "INACTIVO (Sin latido reciente)"
+                    estado["ultima_fecha"] = fecha_reg.strftime("%Y-%m-%d %H:%M:%S")
+                    estado["ultima_ip"] = ip_reg
+            else:
+                estado["activo"] = False
+                estado["tipo"] = "INACTIVO (Sin registros)"
+                estado["ultima_fecha"] = "N/A"
+                estado["ultima_ip"] = "N/A"
+                
+        except Exception as e:
+            estado["activo"] = False
+            estado["tipo"] = f"ERROR: {str(e)}"
         finally:
             if cursor:
                 cursor.close()
@@ -62,14 +75,12 @@ def obtener_estado_agente_local():
     return estado
 
 def mostrar_pantalla():
-    # 1. CREAMOS UN CONTENEDOR VACÍO
     contenedor_principal = st.empty()
     
     with contenedor_principal.container():
         cargo = st.session_state.get("cargo", "Analista")
         rol = st.session_state.get("rol", "operador").upper()
 
-        # --- BLOQUE DE ESTILOS (Inyectados localmente) ---
         st.markdown("""
             <style>
                 [data-testid="stMain"] p, [data-testid="stMain"] li, [data-testid="stMain"] h3 {
@@ -90,11 +101,11 @@ def mostrar_pantalla():
                 .badge-activo {
                     background-color: #e6f4ea;
                     border: 1px solid #34a853;
-                    padding: 8px 12px;
+                    padding: 10px 14px;
                     border-radius: 6px;
                     color: #137333;
                     font-family: 'Segoe UI', sans-serif;
-                    font-size: 12.5px;
+                    font-size: 13px;
                     font-weight: 600;
                     display: flex;
                     align-items: center;
@@ -103,11 +114,24 @@ def mostrar_pantalla():
                 .badge-inactivo {
                     background-color: #fce8e6;
                     border: 1px solid #ea4335;
-                    padding: 8px 12px;
+                    padding: 10px 14px;
                     border-radius: 6px;
                     color: #c5221f;
                     font-family: 'Segoe UI', sans-serif;
-                    font-size: 12.5px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    margin-top: 10px;
+                }
+                .badge-local {
+                    background-color: #e8f0fe;
+                    border: 1px solid #1a73e8;
+                    padding: 10px 14px;
+                    border-radius: 6px;
+                    color: #1557b0;
+                    font-family: 'Segoe UI', sans-serif;
+                    font-size: 13px;
                     font-weight: 600;
                     display: flex;
                     align-items: center;
@@ -119,7 +143,7 @@ def mostrar_pantalla():
                     background-color: #34a853;
                     border-radius: 50%;
                     display: inline-block;
-                    margin-right: 8px;
+                    margin-right: 10px;
                     animation: pulse 1.5s infinite;
                 }
                 .punto-rojo {
@@ -128,17 +152,31 @@ def mostrar_pantalla():
                     background-color: #ea4335;
                     border-radius: 50%;
                     display: inline-block;
-                    margin-right: 8px;
+                    margin-right: 10px;
+                }
+                .punto-azul {
+                    height: 9px;
+                    width: 9px;
+                    background-color: #1a73e8;
+                    border-radius: 50%;
+                    display: inline-block;
+                    margin-right: 10px;
+                    animation: pulse 1.5s infinite;
                 }
                 @keyframes pulse {
                     0% { transform: scale(0.95); opacity: 0.5; }
                     50% { transform: scale(1.1); opacity: 1; }
                     100% { transform: scale(0.95); opacity: 0.5; }
                 }
+                .detalle-agente {
+                    font-size: 11px;
+                    color: #5f6368;
+                    margin-top: 4px;
+                    font-weight: normal;
+                }
             </style>
         """, unsafe_allow_html=True)
 
-        # 2. CONTENIDO ENCAPSULADO
         st.markdown(f"<h1 class='bienvenida-titulo'>Bienvenido al sistema, {cargo}</h1>", unsafe_allow_html=True)
         st.divider()
 
@@ -161,20 +199,48 @@ def mostrar_pantalla():
         with col2:
             st.success(f"✅ Conexión Segura Establecida\n\nIP: Localhost\nDB: Sincronizada")
             
-            # --- INDICADOR DINÁMICO ---
             info_agente = obtener_estado_agente_local()
+            
             if info_agente["activo"]:
-                html_agente = f"""
-                <div class="badge-activo">
-                    <span class="punto-verde"></span>
-                    <span>AGENTE ACTIVADO<br><small style="font-weight:normal; font-size:10.5px;">{info_agente["tipo"]}</small></span>
-                </div>
-                """
+                if info_agente["modo"] == "PRTG":
+                    html_agente = f"""
+                    <div class="badge-activo">
+                        <span class="punto-verde"></span>
+                        <span>AGENTE ACTIVO<br>
+                        <small style="font-weight:normal; font-size:11px;">MODO: PRTG - Conectado al servidor</small>
+                        <br><small class="detalle-agente">Último latido: {info_agente.get('ultima_fecha', 'N/A')}</small>
+                        </span>
+                    </div>
+                    """
+                elif info_agente["modo"] == "LOCAL":
+                    html_agente = f"""
+                    <div class="badge-local">
+                        <span class="punto-azul"></span>
+                        <span>AGENTE ACTIVO<br>
+                        <small style="font-weight:normal; font-size:11px;">MODO: LOCAL - Sin conexión a PRTG</small>
+                        <br><small class="detalle-agente">Último latido: {info_agente.get('ultima_fecha', 'N/A')}</small>
+                        </span>
+                    </div>
+                    """
+                else:
+                    html_agente = f"""
+                    <div class="badge-local">
+                        <span class="punto-azul"></span>
+                        <span>AGENTE ACTIVO<br>
+                        <small style="font-weight:normal; font-size:11px;">MODO: {info_agente.get('modo', 'DESCONOCIDO')}</small>
+                        <br><small class="detalle-agente">Último latido: {info_agente.get('ultima_fecha', 'N/A')}</small>
+                        </span>
+                    </div>
+                    """
             else:
-                html_agente = """
+                ultima_fecha = info_agente.get('ultima_fecha', 'Sin registros')
+                html_agente = f"""
                 <div class="badge-inactivo">
                     <span class="punto-rojo"></span>
-                    <span>AGENTE INACTIVO (OFFLINE)<br><small style="font-weight:normal; font-size:10.5px;">Esperando telemetría...</small></span>
+                    <span>AGENTE INACTIVO<br>
+                    <small style="font-weight:normal; font-size:11px;">El agente no está enviando datos</small>
+                    <br><small class="detalle-agente">Último registro: {ultima_fecha}</small>
+                    </span>
                 </div>
                 """
             st.markdown(html_agente, unsafe_allow_html=True)
