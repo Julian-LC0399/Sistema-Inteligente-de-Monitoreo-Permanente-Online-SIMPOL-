@@ -12,7 +12,7 @@ from datetime import datetime
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 SMTP_USER = "julianlopezcastillo12@gmail.com"
-SMTP_PASSWORD = "tierra0399"  # <-- PON AQUI TU CONTRASEÑA DE APLICACION (16 digitos)
+SMTP_PASSWORD = ""  # <-- PON AQUI TU CONTRASEÑA DE APLICACION (16 digitos)
 
 # =============================================================================
 # CONFIGURACION DE SMS - DIGITEL VENEZUELA
