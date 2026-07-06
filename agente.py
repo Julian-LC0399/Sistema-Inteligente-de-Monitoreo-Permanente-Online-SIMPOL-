@@ -67,7 +67,7 @@ TELEGRAM_CHAT_ID = "7766964399"
 # ¡¡¡ CAMBIA ESTA RUTA POR LA CARPETA COMPARTIDA !!!
 # Ejemplo: r"C:\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
 # Ejemplo red: r"\\SERVER\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
-MENSAJES_FILE = r"C:\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
+MENSAJES_FILE = r"C:\Users\programadorje\Documents\archivos\Julian semestres\UNEG\trabajo de grado\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
 
 # Todos los estados se notifican
 ESTADOS_TELEGRAM = ["CRITICO", "PRECAUCION", "ESTABLE"]

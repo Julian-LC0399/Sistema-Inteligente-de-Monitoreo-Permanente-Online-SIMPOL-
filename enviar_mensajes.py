@@ -20,8 +20,7 @@ TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 # Ejemplo: r"\\NOMBRE_SERVIDOR\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
 # Ejemplo: r"\\192.168.1.100\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
 # Ejemplo: r"Z:\mensajes_telegram_pendientes.json"  (si mapeaste unidad)
-MENSAJES_FILE = r"\\NOMBRE_SERVIDOR\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
-
+MENSAJES_FILE = r"\\DESKTOP-BFL80DV\Users\programadorje\Documents\archivos\Julian semestres\UNEG\trabajo de grado\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
 # =============================================================================
 # LOGS
 # =============================================================================
