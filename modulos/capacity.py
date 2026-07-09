@@ -1193,7 +1193,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     with col_f5:
                         st.write("")
                         st.write("")
-                        if st.button("🧹", use_container_width=True, key="p2_btn_limpiar", help="Limpiar filtros"):
+                        if st.button("🧹 Limpiar", use_container_width=True, key="p2_btn_limpiar", help="Limpiar filtros"):
                             st.session_state.p2_metrica_filtro = "Todas"
                             st.session_state.p2_formato_filtro = "Todos"
                             st.session_state.p2_mostrar_tabla = False
