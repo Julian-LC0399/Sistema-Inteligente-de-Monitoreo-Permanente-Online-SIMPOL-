@@ -824,7 +824,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     )
 
     with tab_historico:
-        # Guardar que estamos en la pestaña 1
+        # =============================================================
+        # 1. PRIMERO: Configurar la pestaña activa ANTES de cualquier operación
+        # =============================================================
         st.query_params["tab_servidores"] = "1"
         st.session_state.tab_servidores_activa = 0
         
@@ -837,12 +839,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             col_srv, col_metrica, col_filtrar, col_limpiar = st.columns([3, 2, 1, 1])
             
             with col_srv:
+                # Obtener el índice actual del selectbox
+                current_srv_index_tab1 = 0
+                if st.session_state["sb_srv_tab1_temp"] in opciones_servidores_tab1:
+                    current_srv_index_tab1 = opciones_servidores_tab1.index(st.session_state["sb_srv_tab1_temp"])
+                
                 st.selectbox(
                     "Filtrar Servidor Historial", 
                     options=opciones_servidores_tab1, 
                     key="sb_srv_tab1_temp",
                     label_visibility="collapsed",
-                    index=opciones_servidores_tab1.index(st.session_state["sb_srv_tab1_temp"]) if st.session_state["sb_srv_tab1_temp"] in opciones_servidores_tab1 else 0
+                    index=current_srv_index_tab1
                 )
             
             with col_metrica:
@@ -863,12 +870,16 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         )
                     else:
                         opciones_metricas_con_placeholder = ["📊 Todas las Métricas"] + opciones_metricas_disponibles
+                        current_metrica_index = 0
+                        if st.session_state["sb_metrica_tab1_temp"] in opciones_metricas_con_placeholder:
+                            current_metrica_index = opciones_metricas_con_placeholder.index(st.session_state["sb_metrica_tab1_temp"])
+                        
                         st.selectbox(
                             "Filtrar Métrica Rejilla", 
                             options=opciones_metricas_con_placeholder, 
                             key="sb_metrica_tab1_temp",
                             label_visibility="collapsed",
-                            index=opciones_metricas_con_placeholder.index(st.session_state["sb_metrica_tab1_temp"]) if st.session_state["sb_metrica_tab1_temp"] in opciones_metricas_con_placeholder else 0
+                            index=current_metrica_index
                         )
                 else:
                     st.selectbox(
@@ -884,14 +895,12 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.session_state["sb_srv_tab1"] = st.session_state["sb_srv_tab1_temp"]
                     st.session_state["sb_metrica_tab1"] = st.session_state["sb_metrica_tab1_temp"]
                     st.session_state["filtro_aplicado_tab1"] = True
-                    # Mantener la pestaña 1
                     st.query_params["tab_servidores"] = "1"
                     st.rerun()
             
             with col_limpiar:
                 if st.button("🧹 Limpiar", key="btn_limpiar_tab1", use_container_width=True):
                     st.query_params["_limpiar_tab1"] = "1"
-                    # Mantener la pestaña 1
                     st.query_params["tab_servidores"] = "1"
                     st.rerun()
 
@@ -916,12 +925,11 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas)
 
     with tab_graficas:
-        # Guardar que estamos en la pestaña 2
+        # =============================================================
+        # 1. PRIMERO: Configurar la pestaña activa ANTES de cualquier operación
+        # =============================================================
         st.query_params["tab_servidores"] = "2"
         st.session_state.tab_servidores_activa = 1
-        
-        # Construir opciones de componentes incluyendo discos detectados
-        opciones_componentes_dinamicas = opciones_componentes_base.copy()
         
         # =============================================================
         # FILTROS CON BOTON "FILTRAR" - PESTAÑA 2 (ÚNICOS)
@@ -929,12 +937,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         col_g_srv_2, col_g_sensor_2, col_filtrar_2, col_limpiar_2 = st.columns([3, 2, 1, 1])
         
         with col_g_srv_2:
+            # Obtener el índice actual del selectbox
+            current_srv_index = 0
+            if st.session_state["sb_graf_srv_temp"] in opciones_servidores_tab2:
+                current_srv_index = opciones_servidores_tab2.index(st.session_state["sb_graf_srv_temp"])
+            
             st.selectbox(
                 "Servidor Gráficas", 
                 options=opciones_servidores_tab2, 
                 key="sb_graf_srv_temp",
                 label_visibility="collapsed",
-                index=opciones_servidores_tab2.index(st.session_state["sb_graf_srv_temp"]) if st.session_state["sb_graf_srv_temp"] in opciones_servidores_tab2 else 0
+                index=current_srv_index
             )
         
         with col_g_sensor_2:
@@ -951,28 +964,34 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         if int(info_srv_temp.get(f'id_sensor_{disco_key}', 0) or 0) > 0:
                             opciones_temp.append(f"💽 Almacenamiento (Disco {letra})")
             
+            # Obtener el índice actual del selectbox de sensor
+            current_sensor_index = 0
+            if st.session_state["sb_graf_sensor_temp"] in opciones_temp:
+                current_sensor_index = opciones_temp.index(st.session_state["sb_graf_sensor_temp"])
+            
             st.selectbox(
                 "Componente Gráficas", 
                 options=opciones_temp, 
                 key="sb_graf_sensor_temp",
                 label_visibility="collapsed",
                 disabled=(nombre_srv_temp == "-- Seleccione un Servidor --"),
-                index=opciones_temp.index(st.session_state["sb_graf_sensor_temp"]) if st.session_state["sb_graf_sensor_temp"] in opciones_temp else 0
+                index=current_sensor_index
             )
         
         with col_filtrar_2:
             if st.button("🔍 Filtrar", key="btn_filtrar_tab2", use_container_width=True):
+                # ✅ Guardar los valores seleccionados en los estados finales
                 st.session_state["sb_graf_srv"] = st.session_state["sb_graf_srv_temp"]
                 st.session_state["sb_graf_sensor"] = st.session_state["sb_graf_sensor_temp"]
                 st.session_state["filtro_aplicado_tab2"] = True
-                # FORZAR PESTAÑA 2
+                # ✅ Mantener la pestaña 2 y recargar solo el fragmento
                 st.query_params["tab_servidores"] = "2"
                 st.rerun()
         
         with col_limpiar_2:
             if st.button("🧹 Limpiar", key="btn_limpiar_tab2", use_container_width=True):
+                # ✅ Usar query_params para limpiar los estados
                 st.query_params["_limpiar_tab2_global"] = "1"
-                # FORZAR PESTAÑA 2
                 st.query_params["tab_servidores"] = "2"
                 st.rerun()
 

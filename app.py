@@ -171,6 +171,22 @@ st.markdown("""
 import auth
 from menu import generar_menu
 
+# =====================================================================
+# FUNCIÓN PARA LIMPIAR EL ESTADO DE CAPACITY
+# =====================================================================
+def limpiar_estado_capacity():
+    """Limpia todas las variables de estado del módulo capacity"""
+    keys_to_clear = [
+        'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
+        'p1_filtros_aplicados', 'p1_reporte_generado',
+        'p2_servidor_seleccionado', 'p2_metrica_filtro',
+        'p2_formato_filtro', 'p2_mostrar_tabla',
+        'modulo_capacity_activo'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
 def gestionar_limpieza_filtros(seccion_destino):
     """
     Controla los estados de los filtros de monitoreo, usuarios, servidores,
@@ -215,13 +231,31 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "key_semilla_selectbox" in st.session_state:
             st.session_state["key_semilla_selectbox"] += 1
 
+    # =============================================================
+    # LIMPIEZA COMPLETA PARA CAPACITY PLANNING AL SALIR
+    # =============================================================
     if seccion_destino != "📈 Capacity planning":
+        # Limpiar todas las variables de capacity
+        limpiar_estado_capacity()
+        # También limpiar variables antiguas de capacity si existen
         if "servidor_seleccionado_capacity" in st.session_state:
             st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
         if "metrica_seleccionada_capacity" in st.session_state:
             st.session_state["metrica_seleccionada_capacity"] = "CPU"
         if "dias_prediccion_capacity" in st.session_state:
             st.session_state["dias_prediccion_capacity"] = 30
+        if "temp_servidor_capacity" in st.session_state:
+            del st.session_state["temp_servidor_capacity"]
+        if "temp_metrica_capacity" in st.session_state:
+            del st.session_state["temp_metrica_capacity"]
+        if "temp_dias_capacity" in st.session_state:
+            del st.session_state["temp_dias_capacity"]
+        if "temp_ajuste_capacity" in st.session_state:
+            del st.session_state["temp_ajuste_capacity"]
+        if "filtros_aplicados_capacity" in st.session_state:
+            del st.session_state["filtros_aplicados_capacity"]
+        if "reporte_generado" in st.session_state:
+            st.session_state["reporte_generado"] = False
 
     if seccion_destino != "🔔 Alertas":
         if "sb_alerta_srv" in st.session_state:
@@ -294,20 +328,28 @@ def main():
         # --- LÓGICA DE RUTAS Y SINCRONIZACIÓN ---
         url_pestaña = params.get("p")
         
+        # =============================================================
+        # ACTUALIZAR módulo_actual PARA SABER EN QUÉ MÓDULO ESTAMOS
+        # =============================================================
         if "navegacion_principal" in st.session_state:
             destino = st.session_state["navegacion_principal"]
             st.session_state["seccion_actual"] = destino
-            st.session_state["nav_radio"] = destino  
+            st.session_state["nav_radio"] = destino
+            # Actualizar módulo_actual
+            st.session_state["modulo_actual"] = destino
             del st.session_state["navegacion_principal"] 
         elif "seccion_actual" not in st.session_state:
             st.session_state["seccion_actual"] = url_pestaña if url_pestaña else "🏠 Inicio"
+            st.session_state["modulo_actual"] = st.session_state["seccion_actual"]
         elif url_pestaña and url_pestaña != st.session_state["seccion_actual"]:
             if st.session_state.get("nav_radio") != st.session_state["seccion_actual"]:
                 st.session_state["seccion_actual"] = url_pestaña
                 st.session_state["nav_radio"] = url_pestaña
+                st.session_state["modulo_actual"] = url_pestaña
 
         if st.session_state.get("nav_radio") and st.session_state["nav_radio"] != st.session_state["seccion_actual"]:
             st.session_state["seccion_actual"] = st.session_state["nav_radio"]
+            st.session_state["modulo_actual"] = st.session_state["nav_radio"]
         
         # =============================================================
         # VERIFICAR REDIRECCIÓN PENDIENTE
@@ -320,6 +362,9 @@ def main():
                     st.session_state["_srv_processed"] = True
                     logging.info(f"🟢 SRV aplicado a monitoreo: {st.session_state['_srv_redirect']}")
         
+        # =============================================================
+        # LIMPIEZA DE FILTROS AL CAMBIAR DE MÓDULO
+        # =============================================================
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         
         generar_menu()

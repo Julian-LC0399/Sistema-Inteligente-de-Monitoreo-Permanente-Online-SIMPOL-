@@ -51,27 +51,22 @@ class PDF(FPDF):
         return super().multi_cell(w, h, self.clean_text(txt), border, align, fill)
 
     def header(self):
-        # Linea superior decorativa
         self.set_draw_color(0, 51, 102)
         self.set_line_width(1.0)
         self.line(10, 8, 200, 8)
         
-        # BANCO CARONI - CENTRADO
         self.set_font(family='ArialUnicode', style='B', size=16)
         self.set_text_color(0, 51, 102)
         self.cell(0, 10, "BANCO CARONI", 0, 1, "C")
         
-        # Subtitulo centrado
         self.set_font(family='ArialUnicode', style='I', size=9)
         self.set_text_color(80, 80, 80)
         self.cell(0, 5, "Sistema Inteligente de Monitoreo Permanente Online (SIMPOL)", 0, 1, "C")
         
-        # Linea separadora
         self.set_draw_color(0, 51, 102)
         self.set_line_width(0.4)
         self.line(10, 28, 200, 28)
         
-        # Titulo del reporte
         self.set_font(family='ArialUnicode', style='B', size=12)
         self.set_text_color(0, 51, 102)
         self.cell(0, 7, "INFORME DE PLANIFICACION DE CAPACIDAD", 0, 1, "C")
@@ -90,9 +85,6 @@ class PDF(FPDF):
         self.cell(55, 5, "BANCO CARONI - SIMPOL v4.0", 0, 0, "C")
         self.cell(60, 5, f"Pagina {self.page_no()}", 0, 0, "R")
 
-    # =====================================================================
-    # GRAFICOS - TAMAÑO OPTIMIZADO
-    # =====================================================================
     def circle(self, x, y, r, style=""):
         self.ellipse(x, y, r, r, style)
 
@@ -406,7 +398,7 @@ def listar_reportes_capacity_bd(ip_servidor):
         try:
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT id, nombre_archivo, formato, metrica_analizada, ip_servidor, fecha_generacion, tamanio_kb
+                SELECT id, nombre_archivo, formato, metrica_analizada, ip_servidor, fecha_generacion, tamanio_kb, tipo_alerta
                 FROM reportes_capacity_archivados
                 WHERE TRIM(ip_servidor) = %s
                 ORDER BY fecha_generacion DESC
@@ -418,6 +410,72 @@ def listar_reportes_capacity_bd(ip_servidor):
         except Exception as e:
             st.error(f"Error listando historico: {e}")
     return resultados
+
+# =====================================================================
+# FUNCIONES PARA LA BÓVEDA (PESTAÑA 2)
+# =====================================================================
+def listar_reportes_capacity_bd_con_filtros(ip_servidor, metrica_filtro=None, formato_filtro=None, fecha_desde=None, fecha_hasta=None):
+    """Versión con filtros para la bóveda de reportes"""
+    conn = conectar_bd()
+    resultados = []
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+                SELECT id, nombre_archivo, formato, metrica_analizada, ip_servidor, 
+                       fecha_generacion, tamanio_kb, tipo_alerta
+                FROM reportes_capacity_archivados
+                WHERE TRIM(ip_servidor) = %s
+            """
+            params = [ip_servidor.strip()]
+            
+            if metrica_filtro and metrica_filtro != "Todas":
+                query += " AND metrica_analizada = %s"
+                params.append(metrica_filtro)
+            
+            if formato_filtro and formato_filtro != "Todos":
+                query += " AND formato = %s"
+                params.append(formato_filtro)
+            
+            if fecha_desde:
+                query += " AND DATE(fecha_generacion) >= %s"
+                params.append(fecha_desde)
+            
+            if fecha_hasta:
+                query += " AND DATE(fecha_generacion) <= %s"
+                params.append(fecha_hasta)
+            
+            query += " ORDER BY fecha_generacion DESC"
+            
+            cursor.execute(query, tuple(params))
+            resultados = cursor.fetchall()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            st.error(f"Error listando historico con filtros: {e}")
+    return resultados
+
+def obtener_metricas_disponibles_boveda(ip_servidor):
+    """Obtiene lista de métricas únicas para el filtro"""
+    conn = conectar_bd()
+    metricas = []
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = """
+                SELECT DISTINCT metrica_analizada 
+                FROM reportes_capacity_archivados 
+                WHERE TRIM(ip_servidor) = %s
+                ORDER BY metrica_analizada
+            """
+            cursor.execute(query, (ip_servidor.strip(),))
+            metricas = [row['metrica_analizada'] for row in cursor.fetchall()]
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            st.error(f"Error obteniendo métricas: {e}")
+    return metricas
 
 def descargar_blob_capacity(id_archivo):
     conn = conectar_bd()
@@ -440,7 +498,7 @@ def reset_reporte():
     st.session_state.reporte_generado = False
 
 # =====================================================================
-# GENERAR PDF - VERSIÓN DEFINITIVA
+# GENERAR PDF
 # =====================================================================
 def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
                              detalle_veredicto, pct_actual, pct_final_proyectado,
@@ -450,15 +508,11 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     pdf = PDF()
     pdf.add_page()
     
-    # =====================================================================
-    # RESUMEN EJECUTIVO
-    # =====================================================================
     pdf.set_font(family='ArialUnicode', style='B', size=13)
     pdf.set_text_color(0, 51, 102)
     pdf.cell(0, 8, "RESUMEN EJECUTIVO", 0, 1, "C")
     pdf.ln(2)
     
-    # DATOS DEL SERVIDOR
     pdf.set_font(family='ArialUnicode', style='B', size=10)
     pdf.set_text_color(50, 50, 50)
     pdf.cell(0, 6, "DATOS DEL SERVIDOR", 0, 1, "L")
@@ -479,9 +533,6 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     pdf.cell(65, 5, f"Horizonte: {dias_proyeccion} dias", 0, 1, "L")
     pdf.ln(3)
     
-    # =====================================================================
-    # VEREDICTO
-    # =====================================================================
     if "CRITICO" in veredicto or "CRITICO" in veredicto:
         color_fondo = (255, 230, 230)
         color_borde = (200, 0, 0)
@@ -509,9 +560,6 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     pdf.multi_cell(0, 4.5, detalle_veredicto, 0, "C")
     pdf.set_y(pdf.get_y() + 4)
     
-    # =====================================================================
-    # TABLA DE METRICAS
-    # =====================================================================
     pdf.ln(2)
     pdf.set_font(family='ArialUnicode', style='B', size=10)
     pdf.set_text_color(0, 51, 102)
@@ -544,9 +592,6 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     
     pdf.ln(2)
     
-    # =====================================================================
-    # GRAFICO 1 - TENDENCIA
-    # =====================================================================
     pdf.set_font(family='ArialUnicode', style='B', size=10)
     pdf.set_text_color(0, 51, 102)
     pdf.cell(0, 6, "GRAFICO 1 - TENDENCIA HISTORICA Y PROYECCION", 0, 1, "L")
@@ -572,9 +617,6 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     
     pdf.ln(2)
     
-    # =====================================================================
-    # GRAFICO 2 - BARRAS
-    # =====================================================================
     pdf.set_font(family='ArialUnicode', style='B', size=10)
     pdf.set_text_color(0, 51, 102)
     pdf.cell(0, 6, "GRAFICO 2 - COMPARATIVA DE VALORES", 0, 1, "L")
@@ -614,9 +656,6 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     
     pdf.ln(2)
     
-    # =====================================================================
-    # RECOMENDACIONES
-    # =====================================================================
     pdf.set_font(family='ArialUnicode', style='B', size=10)
     pdf.set_text_color(0, 51, 102)
     pdf.cell(0, 6, "RECOMENDACIONES", 0, 1, "L")
@@ -649,9 +688,6 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     pdf.multi_cell(0, 5, "\n".join(recomendaciones))
     pdf.ln(2)
     
-    # =====================================================================
-    # FIRMA
-    # =====================================================================
     pdf.set_font(family='ArialUnicode', style='B', size=9)
     pdf.set_text_color(50, 50, 50)
     pdf.cell(0, 5, "FIRMA Y SELLO", 0, 1, "L")
@@ -669,9 +705,63 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     return pdf
 
 # =====================================================================
-# VISTA PRINCIPAL (SIN CAMBIOS - IGUAL QUE ANTES)
+# FUNCIÓN PARA LIMPIAR EL ESTADO DEL MÓDULO CAPACITY
+# =====================================================================
+def limpiar_estado_capacity():
+    """Limpia todas las variables de estado del módulo capacity"""
+    keys_to_clear = [
+        'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
+        'p1_filtros_aplicados', 'p1_reporte_generado',
+        'p2_servidor_seleccionado', 'p2_metrica_filtro',
+        'p2_formato_filtro', 'p2_mostrar_tabla',
+        'modulo_capacity_activo'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+# =====================================================================
+# VISTA PRINCIPAL
 # =====================================================================
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
+    
+    # =============================================================
+    # DETECTAR EL MÓDULO ACTUAL Y LIMPIAR SI CAMBIA
+    # =============================================================
+    # Obtener el módulo actual desde el session_state o query_params
+    modulo_actual = st.session_state.get("modulo_actual", "capacity")
+    
+    # Si el módulo actual no es "capacity" y el módulo capacity estaba activo, limpiar
+    if modulo_actual != "capacity" and st.session_state.get("modulo_capacity_activo", False):
+        limpiar_estado_capacity()
+        st.session_state.modulo_capacity_activo = False
+    
+    # Si estamos en el módulo capacity, marcarlo como activo
+    if modulo_actual == "capacity":
+        st.session_state.modulo_capacity_activo = True
+    
+    # Inicializar variables si no existen
+    if "p1_servidor" not in st.session_state:
+        st.session_state.p1_servidor = "-- Seleccione un Servidor --"
+    if "p1_metrica" not in st.session_state:
+        st.session_state.p1_metrica = ""
+    if "p1_dias" not in st.session_state:
+        st.session_state.p1_dias = 30
+    if "p1_ajuste" not in st.session_state:
+        st.session_state.p1_ajuste = 0
+    if "p1_filtros_aplicados" not in st.session_state:
+        st.session_state.p1_filtros_aplicados = False
+    if "p1_reporte_generado" not in st.session_state:
+        st.session_state.p1_reporte_generado = False
+    if "p2_servidor_seleccionado" not in st.session_state:
+        st.session_state.p2_servidor_seleccionado = "-- Seleccione un Servidor --"
+    if "p2_metrica_filtro" not in st.session_state:
+        st.session_state.p2_metrica_filtro = "Todas"
+    if "p2_formato_filtro" not in st.session_state:
+        st.session_state.p2_formato_filtro = "Todos"
+    if "p2_mostrar_tabla" not in st.session_state:
+        st.session_state.p2_mostrar_tabla = False
+
     st.markdown("""
         <style>
             .info-analista-capacity {
@@ -685,6 +775,22 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             .info-analista-capacity span {
                 color: #003366;
                 font-weight: 700;
+            }
+            .badge-pdf {
+                background-color: #b30000;
+                color: white;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            .badge-csv {
+                background-color: #1b5e20;
+                color: white;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -702,23 +808,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     
     st.markdown("---")
 
-    if "sel_servidor" not in st.session_state:
-        st.session_state.sel_servidor = "-- Seleccione un Servidor --"
-    if "sel_metrica" not in st.session_state:
-        st.session_state.sel_metrica = ""
-    if "reporte_generado" not in st.session_state:
-        st.session_state.reporte_generado = False
-    if "filtros_aplicados_capacity" not in st.session_state:
-        st.session_state.filtros_aplicados_capacity = False
-    if "temp_servidor_capacity" not in st.session_state:
-        st.session_state.temp_servidor_capacity = "-- Seleccione un Servidor --"
-    if "temp_metrica_capacity" not in st.session_state:
-        st.session_state.temp_metrica_capacity = ""
-    if "temp_dias_capacity" not in st.session_state:
-        st.session_state.temp_dias_capacity = 30
-    if "temp_ajuste_capacity" not in st.session_state:
-        st.session_state.temp_ajuste_capacity = 0
-
     pestana_analisis, pestana_boveda = st.tabs(["📊 Simulacion y Analisis Tecnico", "🗄️ Boveda de Reportes Archivados"])
 
     try:
@@ -730,6 +819,9 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 
         opciones_servidores = ["-- Seleccione un Servidor --"] + [s['nombre_alias'] for s in servidores_activos]
 
+        # =====================================================================
+        # PESTAÑA 1 - ANÁLISIS
+        # =====================================================================
         with pestana_analisis:
             with st.container():
                 st.markdown("#### ⚙️ Parametros de Simulacion")
@@ -739,337 +831,433 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     servidor_sel = st.selectbox(
                         "1. Seleccione el Nodo de Infraestructura Virtual", 
                         options=opciones_servidores,
-                        index=opciones_servidores.index(st.session_state.temp_servidor_capacity) if st.session_state.temp_servidor_capacity in opciones_servidores else 0,
-                        key="temp_servidor_capacity_widget"
+                        index=opciones_servidores.index(st.session_state.p1_servidor) if st.session_state.p1_servidor in opciones_servidores else 0,
+                        key="p1_servidor_widget"
                     )
-                    st.session_state.temp_servidor_capacity = servidor_sel
+                    st.session_state.p1_servidor = servidor_sel
                 
                 if servidor_sel == "-- Seleccione un Servidor --":
                     st.info("🖥️ Por favor, elija un servidor de la infraestructura para desplegar sus metricas disponibles.")
-                    return
+                else:
+                    info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_sel), None)
+                    ip_objetivo = str(info_servidor['ip']).strip()
 
-                info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_sel), None)
-                ip_objetivo = str(info_servidor['ip']).strip()
-
-                dict_metricas_config = {}
-                if int(info_servidor.get('id_sensor_cpu') or 0) > 0:
-                    dict_metricas_config["Procesamiento (Uso % CPU)"] = {
-                        "col_pct": "val_cpu", "col_total": None, "col_gb": None, "tipo": "consumo"
-                    }
-                if int(info_servidor.get('id_sensor_ram') or 0) > 0:
-                    dict_metricas_config["Memoria Volatil (Disponible % RAM)"] = {
-                        "col_pct": "val_ram_disponible_pct", "col_total": "val_ram_total_gb", "col_gb": "val_ram_disponible_gb", "tipo": "disponibilidad"
-                    }
-                for d in range(1, 7):
-                    if int(info_servidor.get(f'id_sensor_disco_{d}') or 0) > 0:
-                        letra_bd = info_servidor.get(f'letra_disco_{d}')
-                        letra_limpia = str(letra_bd).replace('\\', '') if letra_bd else f"Disco {d}"
-                        dict_metricas_config[f"Almacenamiento Libre Unidad {letra_limpia} (% Libre)"] = {
-                            "col_pct": f"val_disco_{d}_pct_libre", "col_total": f"val_disco_{d}_total_gb", "col_gb": f"val_disco_{d}_libres_gb", "tipo": "disponibilidad"
+                    dict_metricas_config = {}
+                    if int(info_servidor.get('id_sensor_cpu') or 0) > 0:
+                        dict_metricas_config["Procesamiento (Uso % CPU)"] = {
+                            "col_pct": "val_cpu", "col_total": None, "col_gb": None, "tipo": "consumo"
                         }
-                if int(info_servidor.get('id_sensor_red_total') or 0) > 0:
-                    dict_metricas_config["Ancho de Banda Utilizado (Red Total Mbit/s)"] = {
-                        "col_pct": "val_red_total", "col_total": None, "col_gb": None, "tipo": "red"
-                    }
+                    if int(info_servidor.get('id_sensor_ram') or 0) > 0:
+                        dict_metricas_config["Memoria Volatil (Disponible % RAM)"] = {
+                            "col_pct": "val_ram_disponible_pct", "col_total": "val_ram_total_gb", "col_gb": "val_ram_disponible_gb", "tipo": "disponibilidad"
+                        }
+                    for d in range(1, 7):
+                        if int(info_servidor.get(f'id_sensor_disco_{d}') or 0) > 0:
+                            letra_bd = info_servidor.get(f'letra_disco_{d}')
+                            letra_limpia = str(letra_bd).replace('\\', '') if letra_bd else f"Disco {d}"
+                            dict_metricas_config[f"Almacenamiento Libre Unidad {letra_limpia} (% Libre)"] = {
+                                "col_pct": f"val_disco_{d}_pct_libre", "col_total": f"val_disco_{d}_total_gb", "col_gb": f"val_disco_{d}_libres_gb", "tipo": "disponibilidad"
+                            }
+                    if int(info_servidor.get('id_sensor_red_total') or 0) > 0:
+                        dict_metricas_config["Ancho de Banda Utilizado (Red Total Mbit/s)"] = {
+                            "col_pct": "val_red_total", "col_total": None, "col_gb": None, "tipo": "red"
+                        }
 
-                if not dict_metricas_config:
-                    st.warning("⚠️ El servidor seleccionado no posee sensores de hardware mapeados en el catalogo.")
-                    return
+                    if not dict_metricas_config:
+                        st.warning("⚠️ El servidor seleccionado no posee sensores de hardware mapeados en el catalogo.")
+                    else:
+                        metrica_sel = st.selectbox(
+                            "2. Seleccione la Metrica de Hardware a Modelar", 
+                            options=list(dict_metricas_config.keys()),
+                            index=list(dict_metricas_config.keys()).index(st.session_state.p1_metrica) if st.session_state.p1_metrica in dict_metricas_config else 0,
+                            key="p1_metrica_widget"
+                        )
+                        st.session_state.p1_metrica = metrica_sel
+                        meta_metrica = dict_metricas_config[metrica_sel]
 
-                metrica_sel = st.selectbox(
-                    "2. Seleccione la Metrica de Hardware a Modelar", 
-                    options=list(dict_metricas_config.keys()),
-                    index=list(dict_metricas_config.keys()).index(st.session_state.temp_metrica_capacity) if st.session_state.temp_metrica_capacity in dict_metricas_config else 0,
-                    key="temp_metrica_capacity_widget"
-                )
-                st.session_state.temp_metrica_capacity = metrica_sel
-                meta_metrica = dict_metricas_config[metrica_sel]
+                        st.markdown("#### 📊 Parametros del Escenario de Capacidad")
+                        col_p1, col_p2 = st.columns(2)
+                        with col_p1:
+                            dias_proyeccion = st.slider(
+                                "Horizonte de simulacion (Dias a proyectar):", 
+                                min_value=7, max_value=180, 
+                                value=st.session_state.p1_dias, 
+                                step=7,
+                                key="p1_dias_widget"
+                            )
+                            st.session_state.p1_dias = dias_proyeccion
+                        with col_p2:
+                            porcentaje_ajuste_analista = st.slider(
+                                "Factor de Ajuste de Crecimiento Adicional (%):", 
+                                min_value=0, max_value=50, 
+                                value=st.session_state.p1_ajuste, 
+                                step=5,
+                                key="p1_ajuste_widget"
+                            )
+                            st.session_state.p1_ajuste = porcentaje_ajuste_analista
 
-                st.markdown("#### 📊 Parametros del Escenario de Capacidad")
-                col_p1, col_p2 = st.columns(2)
-                with col_p1:
-                    dias_proyeccion = st.slider(
-                        "Horizonte de simulacion (Dias a proyectar):", 
-                        min_value=7, max_value=180, 
-                        value=st.session_state.temp_dias_capacity, 
-                        step=7,
-                        key="temp_dias_capacity_widget"
-                    )
-                    st.session_state.temp_dias_capacity = dias_proyeccion
-                with col_p2:
-                    porcentaje_ajuste_analista = st.slider(
-                        "Factor de Ajuste de Crecimiento Adicional (%):", 
-                        min_value=0, max_value=50, 
-                        value=st.session_state.temp_ajuste_capacity, 
-                        step=5,
-                        key="temp_ajuste_capacity_widget"
-                    )
-                    st.session_state.temp_ajuste_capacity = porcentaje_ajuste_analista
+                        col_btn_filtrar, col_btn_limpiar = st.columns(2)
+                        
+                        with col_btn_filtrar:
+                            if st.button("🔍 Filtrar", use_container_width=True, key="p1_btn_filtrar"):
+                                st.session_state.p1_filtros_aplicados = True
+                                st.session_state.p1_reporte_generado = False
+                                st.success("✅ Filtros aplicados correctamente.")
+                                st.rerun()
+                        
+                        with col_btn_limpiar:
+                            if st.button("🧹 Limpiar", use_container_width=True, key="p1_btn_limpiar"):
+                                st.session_state.p1_servidor = "-- Seleccione un Servidor --"
+                                st.session_state.p1_metrica = ""
+                                st.session_state.p1_dias = 30
+                                st.session_state.p1_ajuste = 0
+                                st.session_state.p1_filtros_aplicados = False
+                                st.session_state.p1_reporte_generado = False
+                                st.success("🧹 Filtros limpiados correctamente.")
+                                st.rerun()
 
-                col_btn_filtrar, col_btn_limpiar = st.columns(2)
-                
-                with col_btn_filtrar:
-                    if st.button("🔍 Filtrar", use_container_width=True, key="btn_aplicar_filtros_capacity"):
-                        st.session_state.sel_servidor = st.session_state.temp_servidor_capacity
-                        st.session_state.sel_metrica = st.session_state.temp_metrica_capacity
-                        st.session_state.filtros_aplicados_capacity = True
-                        st.session_state.reporte_generado = False
-                        st.success("✅ Filtros aplicados correctamente.")
-                        st.rerun()
-                
-                with col_btn_limpiar:
-                    if st.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_clear_all_filters_capacity"):
-                        st.session_state.temp_servidor_capacity = "-- Seleccione un Servidor --"
-                        st.session_state.temp_metrica_capacity = ""
-                        st.session_state.temp_dias_capacity = 30
-                        st.session_state.temp_ajuste_capacity = 0
-                        st.session_state.sel_servidor = "-- Seleccione un Servidor --"
-                        st.session_state.sel_metrica = ""
-                        st.session_state.reporte_generado = False
-                        st.session_state.filtros_aplicados_capacity = False
-                        st.success("🧹 Filtros limpiados correctamente.")
-                        st.rerun()
+                        if st.session_state.p1_filtros_aplicados:
+                            st.info(f"📌 Filtros activos: Servidor: {st.session_state.p1_servidor} | Metrica: {st.session_state.p1_metrica} | Dias: {dias_proyeccion} | Ajuste: {porcentaje_ajuste_analista}%")
 
-                if st.session_state.get("filtros_aplicados_capacity", False):
-                    st.info(f"📌 Filtros activos: Servidor: {st.session_state.sel_servidor} | Metrica: {st.session_state.sel_metrica} | Dias: {dias_proyeccion} | Ajuste: {porcentaje_ajuste_analista}%")
-
-            if st.session_state.get("filtros_aplicados_capacity", False):
-                servidor_sel = st.session_state.sel_servidor
-                metrica_sel = st.session_state.sel_metrica
+            if st.session_state.p1_filtros_aplicados and st.session_state.p1_servidor != "-- Seleccione un Servidor --":
+                servidor_sel = st.session_state.p1_servidor
+                metrica_sel = st.session_state.p1_metrica
                 
                 info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_sel), None)
                 if not info_servidor:
                     st.warning("⚠️ El servidor seleccionado ya no esta disponible.")
-                    return
+                else:
+                    ip_objetivo = str(info_servidor['ip']).strip()
+                    meta_metrica = dict_metricas_config[metrica_sel]
+
+                    conn_temp = conectar_bd()
+                    datos_diarios = []
+                    valores_historicos = []
                     
-                ip_objetivo = str(info_servidor['ip']).strip()
-                meta_metrica = dict_metricas_config[metrica_sel]
+                    if conn_temp:
+                        try:
+                            cursor_temp = conn_temp.cursor(dictionary=True)
+                            c_pct = meta_metrica["col_pct"]
+                            c_tot = meta_metrica["col_total"] if meta_metrica["col_total"] else "1"
+                            c_gb = meta_metrica["col_gb"] if meta_metrica["col_gb"] else "1"
+                            
+                            query_diaria = f"""
+                                SELECT DATE(fecha_registro) AS fecha_limpia, AVG({c_pct}) AS promedio_pct, MAX({c_tot}) AS max_total_gb, AVG({c_gb}) AS promedio_gb
+                                FROM monitoreo WHERE TRIM(ip_servidor) = %s GROUP BY DATE(fecha_registro) ORDER BY fecha_limpia ASC
+                            """
+                            cursor_temp.execute(query_diaria, (ip_objetivo,))
+                            datos_diarios = cursor_temp.fetchall()
+                            cursor_temp.close()
+                            conn_temp.close()
+                            
+                            valores_historicos = [float(d['promedio_pct'] or 0.0) for d in datos_diarios if d['promedio_pct'] is not None]
+                            
+                        except Exception as e_sql:
+                            st.error(f"❌ Fallo en la query analitica: {e_sql}")
+                            if conn_temp: conn_temp.close()
 
-                conn_temp = conectar_bd()
-                datos_diarios = []
-                valores_historicos = []
-                
-                if conn_temp:
-                    try:
-                        cursor_temp = conn_temp.cursor(dictionary=True)
-                        c_pct = meta_metrica["col_pct"]
-                        c_tot = meta_metrica["col_total"] if meta_metrica["col_total"] else "1"
-                        c_gb = meta_metrica["col_gb"] if meta_metrica["col_gb"] else "1"
-                        
-                        query_diaria = f"""
-                            SELECT DATE(fecha_registro) AS fecha_limpia, AVG({c_pct}) AS promedio_pct, MAX({c_tot}) AS max_total_gb, AVG({c_gb}) AS promedio_gb
-                            FROM monitoreo WHERE TRIM(ip_servidor) = %s GROUP BY DATE(fecha_registro) ORDER BY fecha_limpia ASC
-                        """
-                        cursor_temp.execute(query_diaria, (ip_objetivo,))
-                        datos_diarios = cursor_temp.fetchall()
-                        cursor_temp.close()
-                        conn_temp.close()
-                        
-                        valores_historicos = [float(d['promedio_pct'] or 0.0) for d in datos_diarios if d['promedio_pct'] is not None]
-                        
-                    except Exception as e_sql:
-                        st.error(f"❌ Fallo en la query analitica: {e_sql}")
-                        if conn_temp: conn_temp.close()
-
-                CON_DATOS_SUFICIENTES = True
-                if not datos_diarios or len(datos_diarios) < 3:
-                    CON_DATOS_SUFICIENTES = False
-                    if datos_diarios and len(datos_diarios) > 0:
-                        valores_pct = [float(datos_diarios[-1]['promedio_pct'] or 0.0)]
-                        valores_total = [float(datos_diarios[-1]['max_total_gb'] or 0.0)]
-                        valores_gb = [float(datos_diarios[-1]['promedio_gb'] or 0.0)]
+                    CON_DATOS_SUFICIENTES = True
+                    if not datos_diarios or len(datos_diarios) < 3:
+                        CON_DATOS_SUFICIENTES = False
+                        if datos_diarios and len(datos_diarios) > 0:
+                            valores_pct = [float(datos_diarios[-1]['promedio_pct'] or 0.0)]
+                            valores_total = [float(datos_diarios[-1]['max_total_gb'] or 0.0)]
+                            valores_gb = [float(datos_diarios[-1]['promedio_gb'] or 0.0)]
+                        else:
+                            valores_pct = [80.0 if meta_metrica["tipo"] == "disponibilidad" else 20.0]
+                            valores_total = [float(info_servidor.get(meta_metrica["col_total"]) or 100.0) if meta_metrica["col_total"] else 0.0]
+                            valores_gb = [valores_total[0] * 0.8] if meta_metrica["tipo"] == "disponibilidad" else [0.0]
                     else:
-                        valores_pct = [80.0 if meta_metrica["tipo"] == "disponibilidad" else 20.0]
-                        valores_total = [float(info_servidor.get(meta_metrica["col_total"]) or 100.0) if meta_metrica["col_total"] else 0.0]
-                        valores_gb = [valores_total[0] * 0.8] if meta_metrica["tipo"] == "disponibilidad" else [0.0]
-                else:
-                    valores_pct = [float(d['promedio_pct'] or 0.0) for d in datos_diarios]
-                    valores_total = [float(d['max_total_gb'] or 0.0) for d in datos_diarios]
-                    valores_gb = [float(d['promedio_gb'] or 0.0) for d in datos_diarios]
+                        valores_pct = [float(d['promedio_pct'] or 0.0) for d in datos_diarios]
+                        valores_total = [float(d['max_total_gb'] or 0.0) for d in datos_diarios]
+                        valores_gb = [float(d['promedio_gb'] or 0.0) for d in datos_diarios]
 
-                num_muestras = len(valores_pct)
-                X = list(range(num_muestras))
-                Y = valores_pct
+                    num_muestras = len(valores_pct)
+                    X = list(range(num_muestras))
+                    Y = valores_pct
 
-                if CON_DATOS_SUFICIENTES:
-                    sum_x = sum(X)
-                    sum_y = sum(Y)
-                    sum_x_cuadrado = sum([x**2 for x in X])
-                    sum_xy = sum([X[i] * Y[i] for i in range(num_muestras)])
-                    denominador = (num_muestras * sum_x_cuadrado) - (sum_x**2)
-                    if denominador == 0:
-                        pendiente, interseccion = 0.0, Y[-1]
+                    if CON_DATOS_SUFICIENTES:
+                        sum_x = sum(X)
+                        sum_y = sum(Y)
+                        sum_x_cuadrado = sum([x**2 for x in X])
+                        sum_xy = sum([X[i] * Y[i] for i in range(num_muestras)])
+                        denominador = (num_muestras * sum_x_cuadrado) - (sum_x**2)
+                        if denominador == 0:
+                            pendiente, interseccion = 0.0, Y[-1]
+                        else:
+                            pendiente = ((num_muestras * sum_xy) - (sum_x * sum_y)) / denominador
+                            interseccion = (sum_y - (pendiente * sum_x)) / num_muestras
                     else:
-                        pendiente = ((num_muestras * sum_xy) - (sum_x * sum_y)) / denominador
-                        interseccion = (sum_y - (pendiente * sum_x)) / num_muestras
-                else:
-                    factor_direccion = -1.0 if meta_metrica["tipo"] == "disponibilidad" else 1.0
-                    pendiente = (5.0 / 30.0) * factor_direccion
-                    interseccion = Y[-1]
+                        factor_direccion = -1.0 if meta_metrica["tipo"] == "disponibilidad" else 1.0
+                        pendiente = (5.0 / 30.0) * factor_direccion
+                        interseccion = Y[-1]
 
-                pct_actual = Y[-1]
-                total_gb_actual = valores_total[-1]
-                gb_actual = valores_gb[-1]
-                
-                indice_proyectado = num_muestras + dias_proyeccion - 1
-                pct_base_proyectado = (pendiente * indice_proyectado) + interseccion
+                    pct_actual = Y[-1]
+                    total_gb_actual = valores_total[-1]
+                    gb_actual = valores_gb[-1]
+                    
+                    indice_proyectado = num_muestras + dias_proyeccion - 1
+                    pct_base_proyectado = (pendiente * indice_proyectado) + interseccion
 
-                red_actual_val = pct_actual if meta_metrica["tipo"] == "red" else 0.0
-                red_proyectada_val = pct_base_proyectado if meta_metrica["tipo"] == "red" else 0.0
+                    red_actual_val = pct_actual if meta_metrica["tipo"] == "red" else 0.0
+                    red_proyectada_val = pct_base_proyectado if meta_metrica["tipo"] == "red" else 0.0
 
-                if meta_metrica["tipo"] == "consumo":
-                    pct_final_proyectado = pct_base_proyectado * (1 + (porcentaje_ajuste_analista / 100.0))
-                    pct_final_proyectado = max(0.0, min(100.0, pct_final_proyectado))
-                    gb_proyectado_final = 0.0
-                    if pct_final_proyectado >= 85.0:
-                        veredicto, color_alert = "CRITICO", "red"
-                        detalle_veredicto = "Saturacion de CPU inminente. El consumo proyectado supera el umbral corporativo del 85%."
-                    elif pct_final_proyectado >= 70.0:
-                        veredicto, color_alert = "PRECAUCION", "orange"
-                        detalle_veredicto = "Crecimiento elevado en procesamiento. Se aconseja revision preventiva."
+                    if meta_metrica["tipo"] == "consumo":
+                        pct_final_proyectado = pct_base_proyectado * (1 + (porcentaje_ajuste_analista / 100.0))
+                        pct_final_proyectado = max(0.0, min(100.0, pct_final_proyectado))
+                        gb_proyectado_final = 0.0
+                        if pct_final_proyectado >= 85.0:
+                            veredicto, color_alert = "CRITICO", "red"
+                            detalle_veredicto = "Saturacion de CPU inminente. El consumo proyectado supera el umbral corporativo del 85%."
+                        elif pct_final_proyectado >= 70.0:
+                            veredicto, color_alert = "PRECAUCION", "orange"
+                            detalle_veredicto = "Crecimiento elevado en procesamiento. Se aconseja revision preventiva."
+                        else:
+                            veredicto, color_alert = "ESTABLE", "green"
+                            detalle_veredicto = f"La capacidad de procesamiento operara de forma segura en los proximos {dias_proyeccion} dias."
+                    elif meta_metrica["tipo"] == "red":
+                        pct_final_proyectado = pct_base_proyectado * (1 + (porcentaje_ajuste_analista / 100.0))
+                        red_proyectada_val = pct_final_proyectado
+                        gb_proyectado_final = 0.0
+                        if pct_final_proyectado >= 90.0:
+                            veredicto, color_alert = "CRITICO", "red"
+                            detalle_veredicto = "Saturacion de interfaz de Red proyectada por encima de limites de canal (90% de saturacion)."
+                        elif pct_final_proyectado >= 75.0:
+                            veredicto, color_alert = "PRECAUCION", "orange"
+                            detalle_veredicto = "Trafico de red elevado. Posible congestion en horas pico de procesamiento bancario."
+                        else:
+                            veredicto, color_alert = "ESTABLE", "green"
+                            detalle_veredicto = "Ancho de banda stable con holgura suficiente para la operacion diaria."
                     else:
-                        veredicto, color_alert = "ESTABLE", "green"
-                        detalle_veredicto = f"La capacidad de procesamiento operara de forma segura en los proximos {dias_proyeccion} dias."
-                elif meta_metrica["tipo"] == "red":
-                    pct_final_proyectado = pct_base_proyectado * (1 + (porcentaje_ajuste_analista / 100.0))
-                    red_proyectada_val = pct_final_proyectado
-                    gb_proyectado_final = 0.0
-                    if pct_final_proyectado >= 90.0:
-                        veredicto, color_alert = "CRITICO", "red"
-                        detalle_veredicto = "Saturacion de interfaz de Red proyectada por encima de limites de canal (90% de saturacion)."
-                    elif pct_final_proyectado >= 75.0:
-                        veredicto, color_alert = "PRECAUCION", "orange"
-                        detalle_veredicto = "Trafico de red elevado. Posible congestion en horas pico de procesamiento bancario."
-                    else:
-                        veredicto, color_alert = "ESTABLE", "green"
-                        detalle_veredicto = "Ancho de banda stable con holgura suficiente para la operacion diaria."
-                else:
-                    pct_final_proyectado = pct_base_proyectado * (1 - (porcentaje_ajuste_analista / 100.0))
-                    pct_final_proyectado = max(0.0, min(100.0, pct_final_proyectado))
-                    gb_proyectado_final = round((total_gb_actual * pct_final_proyectado) / 100.0, 2)
-                    if pct_final_proyectado <= 10.0:
-                        veredicto, color_alert = "CRITICO", "red"
-                        detalle_veredicto = "Agotamiento total de recurso libre inminente (Menos del 10% disponible)."
-                    elif pct_final_proyectado <= 20.0:
-                        veredicto, color_alert = "PRECAUCION", "orange"
-                        detalle_veredicto = "Recurso libre escaso para responder ante contingencias operativas (Menos del 20% disponible)."
-                    else:
-                        veredicto, color_alert = "ESTABLE", "green"
-                        detalle_veredicto = "La infraestructura mantendra indices de disponibilidad saludables durante el periodo simulado."
+                        pct_final_proyectado = pct_base_proyectado * (1 - (porcentaje_ajuste_analista / 100.0))
+                        pct_final_proyectado = max(0.0, min(100.0, pct_final_proyectado))
+                        gb_proyectado_final = round((total_gb_actual * pct_final_proyectado) / 100.0, 2)
+                        if pct_final_proyectado <= 10.0:
+                            veredicto, color_alert = "CRITICO", "red"
+                            detalle_veredicto = "Agotamiento total de recurso libre inminente (Menos del 10% disponible)."
+                        elif pct_final_proyectado <= 20.0:
+                            veredicto, color_alert = "PRECAUCION", "orange"
+                            detalle_veredicto = "Recurso libre escaso para responder ante contingencias operativas (Menos del 20% disponible)."
+                        else:
+                            veredicto, color_alert = "ESTABLE", "green"
+                            detalle_veredicto = "La infraestructura mantendra indices de disponibilidad saludables durante el periodo simulado."
 
-                st.markdown(" ")
-                if st.button("🚀 Generar Reporte y Procesar Simulacion de Tendencia", use_container_width=True):
-                    st.session_state.reporte_generado = True
-                    st.rerun()
+                    st.markdown(" ")
+                    if st.button("🚀 Generar Reporte y Procesar Simulacion de Tendencia", use_container_width=True, key="p1_btn_generar"):
+                        st.session_state.p1_reporte_generado = True
+                        st.rerun()
 
-                if st.session_state.reporte_generado:
-                    st.markdown("---")
-                    if not CON_DATOS_SUFICIENTES:
-                        st.warning("⚠️ **Modo de Proyeccion Estatica Normativa Activo:** Muestras historicas insuficientes.")
+                    if st.session_state.p1_reporte_generado:
+                        st.markdown("---")
+                        if not CON_DATOS_SUFICIENTES:
+                            st.warning("⚠️ **Modo de Proyeccion Estatica Normativa Activo:** Muestras historicas insuficientes.")
 
-                    st.markdown(
-                        f'<div style="background-color:#f8f9fa; border:1px solid #ddd; border-left:6px solid {color_alert}; padding:12px; border-radius:4px; margin-top:10px;">'
-                        f'<h4 style="margin:0px; color:#333;">Veredicto Tecnico: <span style="color:{color_alert}; font-weight:bold;">{veredicto}</span></h4>'
-                        f'<p style="margin:5px 0px; font-size:13px; color:#555;">{detalle_veredicto}</p>'
-                        f'<ul style="margin:5px 0px; padding-left:20px; font-size:12px; color:#444;">'
-                        f'<li><b>Muestra Actual:</b> {round(pct_actual, 2)} {"Mbit/s" if meta_metrica["tipo"] == "red" else "%"}</li>'
-                        f'<li><b>Tendencia Proyectada:</b> {round(pct_final_proyectado, 2)} {"Mbit/s" if meta_metrica["tipo"] == "red" else "%"}</li>'
-                        f'{"<li><b>Capacidad Absoluta Actual:</b> " + str(round(gb_actual, 2)) + " GB de " + str(round(total_gb_actual, 2)) + " GB Totales</li>" if meta_metrica["tipo"] == "disponibilidad" else ""}'
-                        f'{"<li><b>Capacidad Absoluta Proyectada:</b> " + str(round(gb_proyectado_final, 2)) + " GB libres estimados</li>" if meta_metrica["tipo"] == "disponibilidad" else ""}'
-                        f'<li><b>Veredicto del Sistema:</b> {veredicto}</li>'
-                        f'</ul>'
-                        f'</div>', 
-                        unsafe_allow_html=True
-                    )
-
-                    nombre_doc_pdf = f"capacity_{ip_objetivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                    nombre_doc_csv = f"capacity_{ip_objetivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-                    pdf = generar_pdf_con_graficos(
-                        servidor_sel=servidor_sel,
-                        ip_objetivo=ip_objetivo,
-                        metrica_sel=metrica_sel,
-                        veredicto=veredicto,
-                        detalle_veredicto=detalle_veredicto,
-                        pct_actual=pct_actual,
-                        pct_final_proyectado=pct_final_proyectado,
-                        gb_actual=gb_actual,
-                        total_gb_actual=total_gb_actual,
-                        gb_proyectado_final=gb_proyectado_final,
-                        dias_proyeccion=dias_proyeccion,
-                        nombre_analista=nombre_analista,
-                        meta_metrica=meta_metrica,
-                        red_actual_val=red_actual_val,
-                        red_proyectada_val=red_proyectada_val,
-                        valores_historicos=valores_historicos
-                    )
-
-                    pdf_buffer = io.BytesIO()
-                    pdf.output(pdf_buffer)
-                    bytes_pdf = pdf_buffer.getvalue()
-
-                    csv_lineas = [
-                        "PROPIEDAD,VALOR",
-                        f"VEREDICTO SIMPOL TECNICO,{veredicto}",
-                        f"Servidor Nombrado,{servidor_sel}",
-                        f"Direccion IP V4,{ip_objetivo}",
-                        f"Metrica de Analisis,{metrica_sel}",
-                        f"Horizonte Simulado Dias,{dias_proyeccion}",
-                        f"Porcentaje Actual,{round(pct_actual, 2)}",
-                        f"Porcentaje Proyectado,{round(pct_final_proyectado, 2)}",
-                        f"Total Capacidad GB,{round(total_gb_actual, 2)}",
-                        f"Actual Libre GB,{round(gb_actual, 2)}",
-                        f"Proyectado Libre GB,{round(gb_proyectado_final, 2)}",
-                        f"Red Mbps Actual,{round(red_actual_val, 2)}",
-                        f"Red Mbps Proyectado,{round(red_proyectada_val, 2)}"
-                    ]
-                    bytes_csv = "\n".join(csv_lineas).encode("utf-8")
-
-                    col_exp1, col_exp2 = st.columns(2)
-                    with col_exp1:
-                        def archivar_pdf_callback():
-                            registrar_proyeccion_v398(usuario_id, ip_objetivo, metrica_sel, total_gb_actual, gb_actual, pct_actual, gb_proyectado_final, pct_final_proyectado, red_actual_val, red_proyectada_val, veredicto)
-                            kb = round(len(bytes_pdf) / 1024.0, 2)
-                            guardar_reporte_capacity_bd(nombre_doc_pdf, "PDF", metrica_sel, ip_objetivo, bytes_pdf, usuario_id, None, veredicto, kb, total_gb_actual, gb_actual, gb_proyectado_final, red_actual_val, red_proyectada_val)
-                        
-                        st.download_button(
-                            label="📥 Exportar PDF", 
-                            data=bytes_pdf, file_name=nombre_doc_pdf, mime="application/pdf", 
-                            use_container_width=True, on_click=archivar_pdf_callback, key="btn_auto_pdf"
+                        st.markdown(
+                            f'<div style="background-color:#f8f9fa; border:1px solid #ddd; border-left:6px solid {color_alert}; padding:12px; border-radius:4px; margin-top:10px;">'
+                            f'<h4 style="margin:0px; color:#333;">Veredicto Tecnico: <span style="color:{color_alert}; font-weight:bold;">{veredicto}</span></h4>'
+                            f'<p style="margin:5px 0px; font-size:13px; color:#555;">{detalle_veredicto}</p>'
+                            f'<ul style="margin:5px 0px; padding-left:20px; font-size:12px; color:#444;">'
+                            f'<li><b>Muestra Actual:</b> {round(pct_actual, 2)} {"Mbit/s" if meta_metrica["tipo"] == "red" else "%"}</li>'
+                            f'<li><b>Tendencia Proyectada:</b> {round(pct_final_proyectado, 2)} {"Mbit/s" if meta_metrica["tipo"] == "red" else "%"}</li>'
+                            f'{"<li><b>Capacidad Absoluta Actual:</b> " + str(round(gb_actual, 2)) + " GB de " + str(round(total_gb_actual, 2)) + " GB Totales</li>" if meta_metrica["tipo"] == "disponibilidad" else ""}'
+                            f'{"<li><b>Capacidad Absoluta Proyectada:</b> " + str(round(gb_proyectado_final, 2)) + " GB libres estimados</li>" if meta_metrica["tipo"] == "disponibilidad" else ""}'
+                            f'<li><b>Veredicto del Sistema:</b> {veredicto}</li>'
+                            f'</ul>'
+                            f'</div>', 
+                            unsafe_allow_html=True
                         )
 
-                    with col_exp2:
-                        def archivar_csv_callback():
-                            registrar_proyeccion_v398(usuario_id, ip_objetivo, metrica_sel, total_gb_actual, gb_actual, pct_actual, gb_proyectado_final, pct_final_proyectado, red_actual_val, red_proyectada_val, veredicto)
-                            kb = round(len(bytes_csv) / 1024.0, 2)
-                            guardar_reporte_capacity_bd(nombre_doc_csv, "CSV", metrica_sel, ip_objetivo, bytes_csv, usuario_id, None, veredicto, kb, total_gb_actual, gb_actual, gb_proyectado_final, red_actual_val, red_proyectada_val)
-                        
-                        st.download_button(
-                            label="📥 Exportar CSV", 
-                            data=bytes_csv, file_name=nombre_doc_csv, mime="text/csv", 
-                            use_container_width=True, on_click=archivar_csv_callback, key="btn_auto_csv"
-                        )
-            else:
-                st.info("🔍 Selecciona los filtros y presiona **'Filtrar'** para comenzar el analisis.")
+                        nombre_doc_pdf = f"capacity_{ip_objetivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                        nombre_doc_csv = f"capacity_{ip_objetivo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
+                        pdf = generar_pdf_con_graficos(
+                            servidor_sel=servidor_sel,
+                            ip_objetivo=ip_objetivo,
+                            metrica_sel=metrica_sel,
+                            veredicto=veredicto,
+                            detalle_veredicto=detalle_veredicto,
+                            pct_actual=pct_actual,
+                            pct_final_proyectado=pct_final_proyectado,
+                            gb_actual=gb_actual,
+                            total_gb_actual=total_gb_actual,
+                            gb_proyectado_final=gb_proyectado_final,
+                            dias_proyeccion=dias_proyeccion,
+                            nombre_analista=nombre_analista,
+                            meta_metrica=meta_metrica,
+                            red_actual_val=red_actual_val,
+                            red_proyectada_val=red_proyectada_val,
+                            valores_historicos=valores_historicos
+                        )
+
+                        pdf_buffer = io.BytesIO()
+                        pdf.output(pdf_buffer)
+                        bytes_pdf = pdf_buffer.getvalue()
+
+                        csv_lineas = [
+                            "PROPIEDAD,VALOR",
+                            f"VEREDICTO SIMPOL TECNICO,{veredicto}",
+                            f"Servidor Nombrado,{servidor_sel}",
+                            f"Direccion IP V4,{ip_objetivo}",
+                            f"Metrica de Analisis,{metrica_sel}",
+                            f"Horizonte Simulado Dias,{dias_proyeccion}",
+                            f"Porcentaje Actual,{round(pct_actual, 2)}",
+                            f"Porcentaje Proyectado,{round(pct_final_proyectado, 2)}",
+                            f"Total Capacidad GB,{round(total_gb_actual, 2)}",
+                            f"Actual Libre GB,{round(gb_actual, 2)}",
+                            f"Proyectado Libre GB,{round(gb_proyectado_final, 2)}",
+                            f"Red Mbps Actual,{round(red_actual_val, 2)}",
+                            f"Red Mbps Proyectado,{round(red_proyectada_val, 2)}"
+                        ]
+                        bytes_csv = "\n".join(csv_lineas).encode("utf-8")
+
+                        col_exp1, col_exp2 = st.columns(2)
+                        with col_exp1:
+                            def archivar_pdf_callback():
+                                registrar_proyeccion_v398(usuario_id, ip_objetivo, metrica_sel, total_gb_actual, gb_actual, pct_actual, gb_proyectado_final, pct_final_proyectado, red_actual_val, red_proyectada_val, veredicto)
+                                kb = round(len(bytes_pdf) / 1024.0, 2)
+                                guardar_reporte_capacity_bd(nombre_doc_pdf, "PDF", metrica_sel, ip_objetivo, bytes_pdf, usuario_id, None, veredicto, kb, total_gb_actual, gb_actual, gb_proyectado_final, red_actual_val, red_proyectada_val)
+                            
+                            st.download_button(
+                                label="📥 Exportar PDF", 
+                                data=bytes_pdf, file_name=nombre_doc_pdf, mime="application/pdf", 
+                                use_container_width=True, on_click=archivar_pdf_callback, key="p1_btn_pdf"
+                            )
+
+                        with col_exp2:
+                            def archivar_csv_callback():
+                                registrar_proyeccion_v398(usuario_id, ip_objetivo, metrica_sel, total_gb_actual, gb_actual, pct_actual, gb_proyectado_final, pct_final_proyectado, red_actual_val, red_proyectada_val, veredicto)
+                                kb = round(len(bytes_csv) / 1024.0, 2)
+                                guardar_reporte_capacity_bd(nombre_doc_csv, "CSV", metrica_sel, ip_objetivo, bytes_csv, usuario_id, None, veredicto, kb, total_gb_actual, gb_actual, gb_proyectado_final, red_actual_val, red_proyectada_val)
+                            
+                            st.download_button(
+                                label="📥 Exportar CSV", 
+                                data=bytes_csv, file_name=nombre_doc_csv, mime="text/csv", 
+                                use_container_width=True, on_click=archivar_csv_callback, key="p1_btn_csv"
+                            )
+
+        # =====================================================================
+        # PESTAÑA 2 - BÓVEDA
+        # =====================================================================
         with pestana_boveda:
-            if st.session_state.get("filtros_aplicados_capacity", False):
-                servidor_sel = st.session_state.sel_servidor
-                info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_sel), None)
+            st.markdown("#### 📜 Repositorio de Informes Archivados")
+            
+            st.markdown("##### 🔍 Filtros de Búsqueda")
+            
+            col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([2, 1.5, 1, 1, 0.5])
+            
+            with col_f1:
+                servidor_boveda = st.selectbox(
+                    "Servidor",
+                    options=opciones_servidores,
+                    index=opciones_servidores.index(st.session_state.p2_servidor_seleccionado) if st.session_state.p2_servidor_seleccionado in opciones_servidores else 0,
+                    key="p2_servidor_widget"
+                )
+                st.session_state.p2_servidor_seleccionado = servidor_boveda
+            
+            if servidor_boveda == "-- Seleccione un Servidor --":
+                st.info("🖥️ Seleccione un servidor para ver sus reportes archivados.")
+            else:
+                info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_boveda), None)
                 if info_servidor:
                     ip_objetivo = str(info_servidor['ip']).strip()
-                    st.markdown(f"#### 📜 Repositorio de Informes Archivados para `{servidor_sel}`")
-                    items_historicos = listar_reportes_capacity_bd(ip_objetivo)
-                    if not items_historicos:
-                        st.caption("📭 No se registran informes tecnicos de capacity auto-archivados para este nodo.")
+                    
+                    metricas_disponibles = obtener_metricas_disponibles_boveda(ip_objetivo)
+                    opciones_metricas = ["Todas"] + metricas_disponibles
+                    opciones_formatos = ["Todos", "PDF", "CSV"]
+                    
+                    with col_f2:
+                        metrica_filtro = st.selectbox(
+                            "📊 Métrica",
+                            options=opciones_metricas,
+                            index=opciones_metricas.index(st.session_state.p2_metrica_filtro) if st.session_state.p2_metrica_filtro in opciones_metricas else 0,
+                            key="p2_filtro_metrica"
+                        )
+                        st.session_state.p2_metrica_filtro = metrica_filtro
+                    
+                    with col_f3:
+                        formato_filtro = st.selectbox(
+                            "📄 Formato",
+                            options=opciones_formatos,
+                            index=opciones_formatos.index(st.session_state.p2_formato_filtro) if st.session_state.p2_formato_filtro in opciones_formatos else 0,
+                            key="p2_filtro_formato"
+                        )
+                        st.session_state.p2_formato_filtro = formato_filtro
+                    
+                    with col_f4:
+                        st.write("")
+                        st.write("")
+                        if st.button("🔍 Filtrar", use_container_width=True, key="p2_btn_filtrar"):
+                            st.session_state.p2_mostrar_tabla = True
+                            st.rerun()
+                    
+                    with col_f5:
+                        st.write("")
+                        st.write("")
+                        if st.button("🧹", use_container_width=True, key="p2_btn_limpiar", help="Limpiar filtros"):
+                            st.session_state.p2_metrica_filtro = "Todas"
+                            st.session_state.p2_formato_filtro = "Todos"
+                            st.session_state.p2_mostrar_tabla = False
+                            st.rerun()
+                    
+                    if st.session_state.p2_mostrar_tabla:
+                        st.markdown("---")
+                        
+                        items_historicos = listar_reportes_capacity_bd_con_filtros(
+                            ip_objetivo,
+                            metrica_filtro if metrica_filtro != "Todas" else None,
+                            formato_filtro if formato_filtro != "Todos" else None,
+                            None,
+                            None
+                        )
+                        
+                        if not items_historicos:
+                            st.info("📭 No se encontraron reportes con los filtros seleccionados.")
+                        else:
+                            st.markdown(
+                                '<div style="background-color:#003366; color:white; padding:10px; border-radius:4px; font-weight:bold; font-size:13px; font-family:Arial; display:flex; align-items:center;">'
+                                '<div style="flex:3.5;">Nombre del Archivo Guardado</div>'
+                                '<div style="flex:1.2; text-align:center;">Formato</div>'
+                                '<div style="flex:1.2; text-align:center;">Tamaño</div>'
+                                '<div style="flex:2.5; text-align:center;">Fecha de Almacenamiento</div>'
+                                '<div style="flex:1.6; text-align:center;">Acción</div>'
+                                '</div>', unsafe_allow_html=True
+                            )
+                            
+                            for idx, item in enumerate(items_historicos):
+                                fecha_str = item['fecha_generacion'].strftime("%Y-%m-%d %H:%M:%S") if hasattr(item['fecha_generacion'], 'strftime') else str(item['fecha_generacion'])
+                                
+                                badge_class = "badge-pdf" if item['formato'] == "PDF" else "badge-csv"
+                                
+                                tamanio = item['tamanio_kb']
+                                if tamanio and tamanio > 1024:
+                                    tamanio_str = f"{tamanio/1024:.1f} MB"
+                                else:
+                                    tamanio_str = f"{tamanio:.1f} KB" if tamanio else "-"
+                                
+                                st.markdown(
+                                    f'<div style="background-color:#ffffff; border-bottom:1px solid #ddd; padding:12px 10px; font-size:12px; font-family:Arial; display:flex; align-items:center; margin-bottom: 2px;">'
+                                    f'<div style="flex:3.5; font-weight:bold; color:#111;">🗃️ {item["nombre_archivo"]}</div>'
+                                    f'<div style="flex:1.2; text-align:center;"><span class="{badge_class}">{item["formato"]}</span></div>'
+                                    f'<div style="flex:1.2; text-align:center; color:#444;">{tamanio_str}</div>'
+                                    f'<div style="flex:2.5; text-align:center; color:#444; font-family:monospace;">{fecha_str}</div>'
+                                    f'<div style="flex:1.6; text-align:center;"></div>'
+                                    f'</div>', unsafe_allow_html=True
+                                )
+                                
+                                reporte_blob = descargar_blob_capacity(item['id'])
+                                if reporte_blob:
+                                    st.download_button(
+                                        label="📥 Descargar",
+                                        data=bytes(reporte_blob),
+                                        file_name=item['nombre_archivo'],
+                                        mime="application/pdf" if item['formato'] == "PDF" else "text/csv",
+                                        key=f"dl_capacity_{item['id']}",
+                                        use_container_width=True
+                                    )
+                            
+                            st.caption(f"📊 **{len(items_historicos)}** reportes encontrados")
                     else:
-                        for item in items_historicos:
-                            st.write(f"📄 {item['nombre_archivo']} | Metrica: {item['metrica_analizada']} ({item['formato']})")
-                            datos_binarios = descargar_blob_capacity(item['id'])
-                            if datos_binarios:
-                                st.download_button(label=f"📥 Descargar {item['nombre_archivo']}", data=datos_binarios, file_name=item['nombre_archivo'], key=f"btn_dl_{item['id']}")
-            else:
-                st.info("🔍 Aplica los filtros en la pestaña 'Simulacion y Analisis Tecnico' para ver los reportes archivados.")
+                        st.info("🔍 Selecciona los filtros y presiona **'Filtrar'** para ver los reportes archivados.")
 
     except Exception as e_main:
         st.error(f"❌ Fallo general critico en la ejecucion de la vista analitica: {e_main}")
