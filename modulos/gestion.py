@@ -13,6 +13,7 @@ def cb_limpiar_p1():
     if "wb_filtro_analista" in st.session_state:
         del st.session_state["wb_filtro_analista"]
     st.session_state.accion_personal = None
+    st.session_state.filtro_aplicado_p1 = False
 
 
 def mostrar_pantalla(user_actual, user_id):
@@ -26,14 +27,20 @@ def mostrar_pantalla(user_actual, user_id):
         st.session_state.filtro_analista = "-- Seleccione un Analista --"
     if "accion_personal" not in st.session_state:
         st.session_state.accion_personal = None
+    if "filtro_aplicado_p1" not in st.session_state:
+        st.session_state.filtro_aplicado_p1 = False
 
     if "filtro_auditoria_usr" not in st.session_state:
         st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
+    if "filtro_aplicado_p2" not in st.session_state:
+        st.session_state.filtro_aplicado_p2 = False
 
     if st.session_state.modulo_actual != "gestion_personal":
         st.session_state.filtro_analista = "-- Seleccione un Analista --"
         st.session_state.accion_personal = None
         st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
+        st.session_state.filtro_aplicado_p1 = False
+        st.session_state.filtro_aplicado_p2 = False
         st.session_state.modulo_actual = "gestion_personal"
 
     rol_sanitizado = str(st.session_state.get("rol")).strip().upper() if st.session_state.get("rol") else ""
@@ -138,15 +145,31 @@ def mostrar_pantalla(user_actual, user_id):
     # ==========================================================================
     # CONTROL DE PESTAÑA ACTIVA VIA QUERY_PARAMS
     # ==========================================================================
-    # Leer parámetro de pestaña desde la URL
     tab_param = st.query_params.get("tab_gestion")
     if tab_param == "2":
         tab_index = 1
     else:
         tab_index = 0
-        # Si no hay parámetro o es 1, asegurar que la URL tenga tab=1
         if tab_param != "1":
             st.query_params["tab_gestion"] = "1"
+
+    # ==========================================================================
+    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS
+    # ==========================================================================
+    if "_limpiar_p1" in st.query_params and st.query_params["_limpiar_p1"] == "1":
+        st.session_state.filtro_analista = "-- Seleccione un Analista --"
+        st.session_state.accion_personal = None
+        st.session_state.filtro_aplicado_p1 = False
+        if "wb_filtro_analista" in st.session_state:
+            del st.session_state["wb_filtro_analista"]
+        del st.query_params["_limpiar_p1"]
+        st.rerun()
+
+    if "_limpiar_p2" in st.query_params and st.query_params["_limpiar_p2"] == "1":
+        st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
+        st.session_state.filtro_aplicado_p2 = False
+        del st.query_params["_limpiar_p2"]
+        st.rerun()
 
     # ==========================================================================
     # TABS CON CONTROL DE PESTAÑA ACTIVA
@@ -157,7 +180,6 @@ def mostrar_pantalla(user_actual, user_id):
     # PESTAÑA 1: GESTIÓN DE PERSONAL
     # ==========================================================================
     with tab1:
-        # Guardar que estamos en pestaña 1 en la URL
         st.query_params["tab_gestion"] = "1"
         
         conn = None
@@ -172,33 +194,46 @@ def mostrar_pantalla(user_actual, user_id):
                 cursor.execute("SELECT id, usuario, cargo FROM usuarios ORDER BY cargo ASC")
                 lista_raw = cursor.fetchall()
                 
+                # Opciones: "Todos" + lista de usuarios
                 mapeo_opciones = {f"{u['cargo']} [{u['usuario']}]": u['id'] for u in lista_raw}
-                opciones_selectbox = ["-- Seleccione un Analista --"] + list(mapeo_opciones.keys())
+                opciones_selectbox = ["-- Seleccione un Analista --", "-- Todos los Analistas --"] + list(mapeo_opciones.keys())
 
-                idx_actual = 0
-                if st.session_state.filtro_analista in opciones_selectbox:
-                    idx_actual = opciones_selectbox.index(st.session_state.filtro_analista)
-
-                col_f1, col_f2 = st.columns([3, 1])
-                col_f1.selectbox(
-                    "Filtrar Analistas por Cargo Institucional:",
-                    options=opciones_selectbox,
-                    index=idx_actual,
-                    key="wb_filtro_analista",
-                    on_change=cb_cambio_analista
-                )
+                # =============================================================
+                # FILTROS CON BOTON FILTRAR - ESTILO ALERTAS.PY
+                # =============================================================
+                col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
+                with col_f1:
+                    st.selectbox(
+                        "Filtrar Analistas por Cargo Institucional:",
+                        options=opciones_selectbox,
+                        key="wb_filtro_analista",
+                        on_change=cb_cambio_analista,
+                        label_visibility="collapsed"
+                    )
                 
-                col_f2.markdown('<div style="margin-top: 36px;"></div>', unsafe_allow_html=True)
-                col_f2.button("🧹 Limpiar Filtro", use_container_width=True, key="btn_p1_limpiar", on_click=cb_limpiar_p1)
+                with col_f2:
+                    # Botón Filtrar - SIEMPRE DISPONIBLE (no se deshabilita)
+                    if st.button("🔍 Filtrar", key="btn_filtrar_p1", use_container_width=True):
+                        st.session_state.filtro_aplicado_p1 = True
+                        st.rerun()
+                
+                with col_f3:
+                    if st.button("🧹 Limpiar", key="btn_p1_limpiar", use_container_width=True):
+                        st.query_params["_limpiar_p1"] = "1"
+                        st.rerun()
 
-                hay_filtro = st.session_state.filtro_analista != "-- Seleccione un Analista --"
+                hay_filtro = st.session_state.filtro_aplicado_p1 and st.session_state.filtro_analista != "-- Seleccione un Analista --"
+                mostrar_todos = st.session_state.filtro_aplicado_p1 and st.session_state.filtro_analista == "-- Todos los Analistas --"
                 datos_filtrados = []
 
-                if not hay_filtro:
-                    st.info("👤 Por favor, seleccione un analista de la lista desplegable superior para evaluar sus credenciales y estatus corporativo.")
-                else:
+                if not st.session_state.filtro_aplicado_p1:
+                    st.info("👤 Seleccione un analista o 'Todos los Analistas' y presione 'Filtrar' para evaluar sus credenciales y estatus corporativo.")
+                elif hay_filtro and not mostrar_todos:
                     id_seleccionado = mapeo_opciones[st.session_state.filtro_analista]
                     cursor.execute("SELECT id, usuario, cargo, rol, estado FROM usuarios WHERE id = %s", (id_seleccionado,))
+                    datos_filtrados = cursor.fetchall()
+                elif mostrar_todos:
+                    cursor.execute("SELECT id, usuario, cargo, rol, estado FROM usuarios ORDER BY cargo ASC")
                     datos_filtrados = cursor.fetchall()
 
                 if datos_filtrados:
@@ -232,7 +267,8 @@ def mostrar_pantalla(user_actual, user_id):
                     st.components.v1.html("".join(html_lineas), height=max(180, len(datos_filtrados) * 42 + 65), scrolling=True)
                     st.markdown("---")
 
-                if not hay_filtro:
+                # Mostrar botones de acción solo si hay un filtro específico (no "Todos")
+                if not hay_filtro or mostrar_todos:
                     if st.button("➕ Registrar Usuario", use_container_width=True, key="btn_p1_registrar_vista"):
                         st.session_state.accion_personal = "registrar"
                 else:
@@ -243,7 +279,7 @@ def mostrar_pantalla(user_actual, user_id):
                         st.session_state.accion_personal = "estatus"
 
                 # --- FORMULARIO DE REGISTRO ---
-                if st.session_state.accion_personal == "registrar" and not hay_filtro:
+                if st.session_state.accion_personal == "registrar" and (not hay_filtro or mostrar_todos):
                     st.markdown("### 📥 Nuevo Integrante")
                     with st.form("form_alta_usr"):
                         c1, c2 = st.columns(2)
@@ -267,7 +303,7 @@ def mostrar_pantalla(user_actual, user_id):
                                 crear_nuevo_usuario(f_user.strip(), f_pass, f_cargo.strip(), f_rol, user_id)
 
                 # --- FORMULARIO DE MODIFICACIÓN ---
-                elif st.session_state.accion_personal == "editar" and hay_filtro:
+                elif st.session_state.accion_personal == "editar" and hay_filtro and not mostrar_todos:
                     st.markdown("### 📝 Modificación de Credenciales Nominales")
                     id_edit = lista_ids[0]
                     usr_sel = mapeo_usuarios[id_edit]
@@ -292,7 +328,7 @@ def mostrar_pantalla(user_actual, user_id):
                                 ejecutar_update_nombre(usr_sel['usuario'], usr_sel['cargo'], nuevo_cargo.strip(), user_id, justificacion.strip())
 
                 # --- FORMULARIO DE CAMBIO DE ESTADO ---
-                elif st.session_state.accion_personal == "estatus" and hay_filtro:
+                elif st.session_state.accion_personal == "estatus" and hay_filtro and not mostrar_todos:
                     st.markdown("### ⚙️ Alteración de Estatus Operativo")
                     id_est = lista_ids[0]
                     usr_sel = mapeo_usuarios[id_est]
@@ -329,7 +365,6 @@ def mostrar_pantalla(user_actual, user_id):
     # PESTAÑA 2: TABLA HISTÓRICO USUARIOS
     # ==========================================================================
     with tab2:
-        # Guardar que estamos en pestaña 2 en la URL
         st.query_params["tab_gestion"] = "2"
         
         conn_p2 = None
@@ -344,12 +379,13 @@ def mostrar_pantalla(user_actual, user_id):
                 cursor_p2.execute("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")
                 raw_usuarios_p2 = cursor_p2.fetchall()
                 
-                opciones_auditoria = ["-- Seleccione un Usuario --"] + [row['usuario'] for row in raw_usuarios_p2]
+                # Opciones: "Todos" + lista de usuarios
+                opciones_auditoria = ["-- Seleccione un Usuario --", "-- Todos los Usuarios --"] + [row['usuario'] for row in raw_usuarios_p2]
 
                 # =============================================================
-                # FILTRO - ESTILO ALERTAS.PY
+                # FILTRO CON BOTON FILTRAR - ESTILO ALERTAS.PY
                 # =============================================================
-                col_aud1, col_aud2 = st.columns([3, 1])
+                col_aud1, col_aud2, col_aud3 = st.columns([3, 1, 1])
                 with col_aud1:
                     st.selectbox(
                         "Filtrar Registros de Auditoría por Nombre de Usuario:",
@@ -359,23 +395,37 @@ def mostrar_pantalla(user_actual, user_id):
                     )
                 
                 with col_aud2:
+                    # Botón Filtrar - SIEMPRE DISPONIBLE (no se deshabilita)
+                    if st.button("🔍 Filtrar", key="btn_filtrar_p2", use_container_width=True):
+                        st.session_state.filtro_aplicado_p2 = True
+                        st.rerun()
+                
+                with col_aud3:
                     if st.button("🧹 Limpiar", key="btn_p2_limpiar", use_container_width=True):
-                        st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
-                        # Asegurar que nos quedamos en pestaña 2
-                        st.query_params["tab_gestion"] = "2"
+                        st.query_params["_limpiar_p2"] = "1"
                         st.rerun()
 
                 # Obtener valor del filtro desde session_state
                 filtro_auditoria = st.session_state.filtro_auditoria_usr
+                filtro_aplicado_p2 = st.session_state.filtro_aplicado_p2
+                mostrar_todos_p2 = filtro_auditoria == "-- Todos los Usuarios --"
 
-                if filtro_auditoria == "-- Seleccione un Usuario --":
+                if not filtro_aplicado_p2:
+                    st.info("👤 Seleccione un usuario o 'Todos los Usuarios' y presione 'Filtrar' para evaluar sus operaciones históricas de auditoría.")
+                elif filtro_auditoria == "-- Seleccione un Usuario --":
                     st.info("👤 Por favor, seleccione un usuario para evaluar sus operaciones históricas de auditoría.")
                 else:
-                    cursor_p2.execute(
-                        "SELECT id_auditoria, fecha_evento, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario "
-                        "FROM historico_usuarios WHERE usuario_afectado = %s ORDER BY fecha_evento DESC",
-                        (filtro_auditoria,)
-                    )
+                    if mostrar_todos_p2:
+                        cursor_p2.execute(
+                            "SELECT id_auditoria, fecha_evento, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario "
+                            "FROM historico_usuarios ORDER BY fecha_evento DESC LIMIT 200"
+                        )
+                    else:
+                        cursor_p2.execute(
+                            "SELECT id_auditoria, fecha_evento, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario "
+                            "FROM historico_usuarios WHERE usuario_afectado = %s ORDER BY fecha_evento DESC",
+                            (filtro_auditoria,)
+                        )
                     datos_auditoria_filtrados = cursor_p2.fetchall()
 
                     if datos_auditoria_filtrados:
@@ -421,7 +471,10 @@ def mostrar_pantalla(user_actual, user_id):
                         html_lineas_aud.append('</tbody></table>')
                         st.components.v1.html("".join(html_lineas_aud), height=max(180, len(datos_auditoria_filtrados) * 45 + 65), scrolling=True)
                     else:
-                        st.warning(f"📭 No se encontraron transacciones en el histórico para el usuario '{filtro_auditoria}'.")
+                        if mostrar_todos_p2:
+                            st.warning("📭 No se encontraron transacciones en el histórico de auditoría.")
+                        else:
+                            st.warning(f"📭 No se encontraron transacciones en el histórico para el usuario '{filtro_auditoria}'.")
 
         except Exception as e:
             st.error(f"❌ Fallo técnico al procesar el histórico de auditoría: {e}")
@@ -447,6 +500,7 @@ def crear_nuevo_usuario(u, c, cargo_val, r, ejecutor_id):
         
         st.session_state.filtro_analista = f"{cargo_val} [{u}]"
         st.session_state.accion_personal = None
+        st.session_state.filtro_aplicado_p1 = True
         if "wb_filtro_analista" in st.session_state:
             del st.session_state["wb_filtro_analista"]
         st.rerun()
@@ -465,6 +519,7 @@ def ejecutar_update_nombre(log, v, n, ejecutor_id, mot):
         
         st.session_state.filtro_analista = f"{n} [{log}]"
         st.session_state.accion_personal = None
+        st.session_state.filtro_aplicado_p1 = True
         if "wb_filtro_analista" in st.session_state:
             del st.session_state["wb_filtro_analista"]
         st.rerun()
@@ -495,6 +550,7 @@ def ejecutar_update_estado(log, est_v, ejecutor_id, ejecutor_log, mot):
             st.session_state.filtro_analista = "-- Seleccione un Analista --"
             
         st.session_state.accion_personal = None
+        st.session_state.filtro_aplicado_p1 = True
         if "wb_filtro_analista" in st.session_state:
             del st.session_state["wb_filtro_analista"]
         st.rerun()

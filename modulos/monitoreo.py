@@ -118,6 +118,46 @@ def obtener_columnas_metrica(info_srv, seleccion_metrica):
     """Retorna la lista de columnas a mostrar para una métrica seleccionada"""
     columnas = []
     
+    # =============================================================
+    # CASO: "Todas las Métricas" - devolver TODAS las columnas
+    # =============================================================
+    if seleccion_metrica == "📊 Todas las Métricas":
+        # CPU
+        if int(info_srv.get('id_sensor_cpu', 0) or 0) > 0:
+            columnas.append("val_cpu")
+            for i in range(1, 9):
+                columnas.append(f"val_cpu_p{i}")
+        
+        # RAM
+        if int(info_srv.get('id_sensor_ram', 0) or 0) > 0:
+            columnas.extend(["val_ram_total_gb", "val_ram_disponible_gb", "val_ram_disponible_pct"])
+        
+        # RED
+        if int(info_srv.get('id_sensor_red_total', 0) or 0) > 0:
+            columnas.append("val_red_total")
+        if int(info_srv.get('id_sensor_red_entrante', 0) or 0) > 0:
+            columnas.append("val_red_entrante")
+        if int(info_srv.get('id_sensor_red_saliente', 0) or 0) > 0:
+            columnas.append("val_red_saliente")
+        
+        # LATENCIA
+        if int(info_srv.get('id_sensor_latencia', 0) or 0) > 0:
+            columnas.extend(["val_latencia_ping", "val_latencia_max", "val_latencia_min", "val_latencia_perdida"])
+        
+        # DISCOS
+        for i in range(1, 7):
+            if int(info_srv.get(f'id_sensor_disco_{i}', 0) or 0) > 0:
+                columnas.extend([
+                    f"val_disco_{i}_total_gb",
+                    f"val_disco_{i}_pct_libre",
+                    f"val_disco_{i}_libres_gb"
+                ])
+        
+        return columnas
+    
+    # =============================================================
+    # CASOS ESPECÍFICOS
+    # =============================================================
     if seleccion_metrica == "🧠 Variables de Memoria (RAM)":
         if int(info_srv.get('id_sensor_ram', 0) or 0) > 0:
             columnas = ["val_ram_disponible_pct", "val_ram_disponible_gb", "val_ram_total_gb"]
@@ -128,7 +168,6 @@ def obtener_columnas_metrica(info_srv, seleccion_metrica):
                        "val_cpu_p5", "val_cpu_p6", "val_cpu_p7", "val_cpu_p8"]
     
     elif seleccion_metrica == "🌐 Variables de Red":
-        # Mostrar TODOS los sensores de red registrados
         if int(info_srv.get('id_sensor_red_total', 0) or 0) > 0:
             columnas.append("val_red_total")
         if int(info_srv.get('id_sensor_red_entrante', 0) or 0) > 0:
@@ -141,12 +180,10 @@ def obtener_columnas_metrica(info_srv, seleccion_metrica):
             columnas = ["val_latencia_ping", "val_latencia_max", "val_latencia_min", "val_latencia_perdida"]
     
     elif seleccion_metrica.startswith("💽 Variables de Almacenamiento (Disco"):
-        # Extraer la letra del disco de la selección
         import re
         match = re.search(r'Disco ([A-Z])', seleccion_metrica)
         if match:
             letra = match.group(1)
-            # Mapear letra a índice de disco
             discos_map = {'C': 'disco_1', 'D': 'disco_2', 'E': 'disco_3', 
                          'F': 'disco_4', 'G': 'disco_5', 'Y': 'disco_6'}
             disco_key = discos_map.get(letra)
@@ -157,10 +194,14 @@ def obtener_columnas_metrica(info_srv, seleccion_metrica):
 
 
 # =========================================================================
-# PESTAÑA 2 ENCAPSULADA EN UN FRAGMENTO (TIEMPO REAL DINÁMICO)
+# PESTAÑA 2 ENCAPSULADA EN UN FRAGMENTO (SIN FILTROS INTERNOS)
 # =========================================================================
 @st.fragment(run_every=30)
 def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_componentes, servidores_activos):
+    """
+    Renderiza las gráficas de la pestaña 2 usando los filtros ya aplicados.
+    Este fragmento NO tiene filtros internos para evitar duplicación.
+    """
     # =============================================================
     # PROCESAR LIMPIEZA INMEDIATA DESDE SESSION_STATE
     # =============================================================
@@ -174,30 +215,6 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
     nombre_srv = st.session_state["sb_graf_srv"]
     componente_sel = st.session_state["sb_graf_sensor"]
     servidor_seleccionado_tab2 = (nombre_srv != "-- Seleccione un Servidor --")
-
-    # Filtros Propios de la Pestaña 2
-    col_g_srv_2, col_g_sensor_2, col_g_limpiar_2 = st.columns([3, 2, 1])
-    with col_g_srv_2:
-        st.selectbox(
-            "Servidor Gráficas", 
-            options=opciones_servidores_tab2, 
-            key="sb_graf_srv", 
-            on_change=callback_cambio_servidor_tab2, 
-            label_visibility="collapsed"
-        )
-    with col_g_sensor_2:
-        st.selectbox(
-            "Componente Gráficas", 
-            options=opciones_componentes, 
-            key="sb_graf_sensor", 
-            label_visibility="collapsed", 
-            disabled=not servidor_seleccionado_tab2
-        )
-    with col_g_limpiar_2:
-        if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab2_inner", use_container_width=True):
-            st.session_state["_limpiar_tab2"] = True
-            st.rerun(scope="fragment")
-            return
 
     if not servidor_seleccionado_tab2:
         st.info("🖥️ Por favor, seleccione primero un Servidor Bajo Análisis para habilitar la selección de componentes.")
@@ -240,7 +257,20 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
             )
             ultimo_registro = cursor.fetchone()
             
-            # Construir query dinámica para incluir todas las columnas de discos
+            # =============================================================
+            # CONSTRUIR QUERY CORRECTAMENTE
+            # =============================================================
+            # Columnas fijas siempre presentes
+            columnas_fijas = [
+                "fecha_registro", "val_cpu", "val_ram_total_gb", 
+                "val_ram_disponible_pct", "val_ram_disponible_gb",
+                "val_red_total", "val_red_entrante", "val_red_saliente",
+                "val_latencia_ping", "val_latencia_max", "val_latencia_min", "val_latencia_perdida",
+                "val_cpu_p1", "val_cpu_p2", "val_cpu_p3", "val_cpu_p4", 
+                "val_cpu_p5", "val_cpu_p6", "val_cpu_p7", "val_cpu_p8"
+            ]
+            
+            # Agregar columnas de discos si existen
             columnas_discos = []
             for i in range(1, 7):
                 if discos_ids.get(f'disco_{i}', 0) > 0:
@@ -250,25 +280,23 @@ def renderizar_pestaña_analitica_completa(opciones_servidores_tab2, opciones_co
                         f'val_disco_{i}_libres_gb'
                     ])
             
+            if columnas_discos:
+                columnas_fijas.extend(columnas_discos)
+            
+            # Construir query final
             query_graficas = (
-                "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                + (", ".join(columnas_discos) if columnas_discos else "") +
-                "val_red_total, val_red_entrante, val_red_saliente, "
-                "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
-                "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
+                f"SELECT {', '.join(columnas_fijas)} "
                 "FROM monitoreo WHERE ip_servidor = %s AND fecha_registro >= %s "
                 "ORDER BY fecha_registro ASC LIMIT 50;"
             )
+            
             cursor.execute(query_graficas, (info_srv['ip'], rango_desde))
             datos_raw = cursor.fetchall()
             
             if not datos_raw:
+                # Query histórica (sin filtro de fecha)
                 query_historico_graficas = (
-                    "SELECT fecha_registro, val_cpu, val_ram_total_gb, val_ram_disponible_pct, val_ram_disponible_gb, "
-                    + (", ".join(columnas_discos) if columnas_discos else "") +
-                    "val_red_total, val_red_entrante, val_red_saliente, "
-                    "val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida, "
-                    "val_cpu_p1, val_cpu_p2, val_cpu_p3, val_cpu_p4, val_cpu_p5, val_cpu_p6, val_cpu_p7, val_cpu_p8 "
+                    f"SELECT {', '.join(columnas_fijas)} "
                     "FROM monitoreo WHERE ip_servidor = %s "
                     "ORDER BY fecha_registro DESC LIMIT 50;"
                 )
@@ -590,7 +618,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     # Estilos
     st.markdown("""
         <style>
-            /* Estilo para el texto del analista - MÁS GRANDE */
             .info-analista-monitoreo {
                 color: #333333;
                 font-size: 20px;
@@ -614,9 +641,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
 
     st.markdown('<h3 style="color:#003366; margin:0px; font-size:20px;">🖥️ Centro de Control y Telemetría</h3>', unsafe_allow_html=True)
     
-    # ==========================================================================
-    # MOSTRAR ANALISTA EN SESIÓN - DEBAJO DEL TÍTULO, MÁS GRANDE
-    # ==========================================================================
     cargo_actual = st.session_state.get("cargo", "Analista")
     usuario_actual = st.session_state.get("user_actual", "Sistema")
     
@@ -629,7 +653,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     st.markdown("---")
 
     # =========================================================================
-    # INICIALIZAR ESTADOS BASE - SIEMPRE PRIMERO
+    # INICIALIZAR ESTADOS BASE
     # =========================================================================
     if "sb_srv_tab1" not in st.session_state:
         st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
@@ -639,9 +663,61 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
     if "sb_graf_sensor" not in st.session_state:
         st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
+    
+    # =========================================================================
+    # ESTADOS PARA FILTROS APLICADOS
+    # =========================================================================
+    if "filtro_aplicado_tab1" not in st.session_state:
+        st.session_state["filtro_aplicado_tab1"] = False
+    if "filtro_aplicado_tab2" not in st.session_state:
+        st.session_state["filtro_aplicado_tab2"] = False
+    if "sb_srv_tab1_temp" not in st.session_state:
+        st.session_state["sb_srv_tab1_temp"] = "-- Seleccione un Servidor para empezar --"
+    if "sb_metrica_tab1_temp" not in st.session_state:
+        st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+    if "sb_graf_srv_temp" not in st.session_state:
+        st.session_state["sb_graf_srv_temp"] = "-- Seleccione un Servidor --"
+    if "sb_graf_sensor_temp" not in st.session_state:
+        st.session_state["sb_graf_sensor_temp"] = "-- Seleccione un Componente --"
+    if "tab_servidores_activa" not in st.session_state:
+        st.session_state.tab_servidores_activa = 0
 
     # =========================================================================
-    # PROCESAR REDIRECCIÓN DESDE QUERY_PARAMS
+    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS
+    # =========================================================================
+    if "_limpiar_tab1" in st.query_params and st.query_params["_limpiar_tab1"] == "1":
+        st.session_state["sb_srv_tab1_temp"] = "-- Seleccione un Servidor para empezar --"
+        st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+        st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor para empezar --"
+        st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+        st.session_state["filtro_aplicado_tab1"] = False
+        if "_srv_mensaje_mostrado" in st.session_state:
+            del st.session_state["_srv_mensaje_mostrado"]
+        del st.query_params["_limpiar_tab1"]
+        st.rerun()
+
+    if "_limpiar_tab2_global" in st.query_params and st.query_params["_limpiar_tab2_global"] == "1":
+        st.session_state["sb_graf_srv_temp"] = "-- Seleccione un Servidor --"
+        st.session_state["sb_graf_sensor_temp"] = "-- Seleccione un Componente --"
+        st.session_state["sb_graf_srv"] = "-- Seleccione un Servidor --"
+        st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
+        st.session_state["filtro_aplicado_tab2"] = False
+        if "_srv_mensaje_mostrado" in st.session_state:
+            del st.session_state["_srv_mensaje_mostrado"]
+        del st.query_params["_limpiar_tab2_global"]
+        st.rerun()
+
+    # =========================================================================
+    # PROCESAR REDIRECCIÓN DE PESTAÑAS VIA QUERY_PARAMS
+    # =========================================================================
+    tab_servidores = st.query_params.get("tab_servidores")
+    if tab_servidores == "2":
+        st.session_state.tab_servidores_activa = 1
+    elif tab_servidores == "1":
+        st.session_state.tab_servidores_activa = 0
+
+    # =========================================================================
+    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY
     # =========================================================================
     if "srv" in st.query_params:
         srv_redireccionado = st.query_params.get("srv")
@@ -656,13 +732,20 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             
             if srv_redireccionado in nombres_validos:
                 st.session_state["sb_srv_tab1"] = srv_redireccionado
+                st.session_state["sb_srv_tab1_temp"] = srv_redireccionado
                 st.session_state["sb_graf_srv"] = srv_redireccionado
-                st.session_state["sb_graf_sensor"] = "🧠 Memoria (RAM)"
+                st.session_state["sb_graf_srv_temp"] = srv_redireccionado
+                st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
+                st.session_state["sb_graf_sensor_temp"] = "-- Seleccione un Componente --"
                 st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-                
-                if not st.session_state.get("_srv_mensaje_mostrado", False):
-                    st.success(f"✅ Redirigido al servidor: **{srv_redireccionado}**")
-                    st.session_state["_srv_mensaje_mostrado"] = True
+                st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+                st.session_state["filtro_aplicado_tab1"] = True
+                st.session_state["filtro_aplicado_tab2"] = False
+                st.session_state["_srv_mensaje_mostrado"] = True
+                # Redirigir a la pestaña 1 por defecto
+                st.session_state.tab_servidores_activa = 0
+                st.query_params["tab_servidores"] = "1"
+                st.rerun()
             else:
                 st.warning(f"⚠️ El servidor '{srv_redireccionado}' no existe en la base de datos.")
 
@@ -724,9 +807,16 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         "🌐 Tráfico de Red",
         "⏳ Latencia de Respuesta (Ping)"
     ]
-    
-    # Agregar discos dinámicamente según el servidor seleccionado
-    # Esto se hace en la pestaña de gráficas directamente
+
+    # =========================================================================
+    # CREAR PESTAÑAS CON CONTROL DE PESTAÑA ACTIVA
+    # =========================================================================
+    # Leer la pestaña activa desde query_params
+    tab_servidores_param = st.query_params.get("tab_servidores")
+    if tab_servidores_param == "2":
+        st.session_state.tab_servidores_activa = 1
+    elif tab_servidores_param == "1":
+        st.session_state.tab_servidores_activa = 0
 
     tab_historico, tab_graficas = st.tabs(
         ["📊 Histórico Telemetría", "📈 Variables por Componente"],
@@ -734,95 +824,203 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     )
 
     with tab_historico:
+        # =============================================================
+        # 1. PRIMERO: Configurar la pestaña activa ANTES de cualquier operación
+        # =============================================================
+        st.query_params["tab_servidores"] = "1"
+        st.session_state.tab_servidores_activa = 0
+        
         if not servidores_activos:
             st.info("💡 No hay servidores activos mapeados en la base de datos.")
         else:
-            col_srv, col_metrica, col_limpiar = st.columns([3, 2, 1])
+            # =============================================================
+            # FILTROS CON BOTON "FILTRAR" - PESTAÑA 1
+            # =============================================================
+            col_srv, col_metrica, col_filtrar, col_limpiar = st.columns([3, 2, 1, 1])
             
             with col_srv:
+                # Obtener el índice actual del selectbox
+                current_srv_index_tab1 = 0
+                if st.session_state["sb_srv_tab1_temp"] in opciones_servidores_tab1:
+                    current_srv_index_tab1 = opciones_servidores_tab1.index(st.session_state["sb_srv_tab1_temp"])
+                
                 st.selectbox(
                     "Filtrar Servidor Historial", 
                     options=opciones_servidores_tab1, 
-                    key="sb_srv_tab1", 
-                    on_change=callback_cambio_servidor_tab1, 
-                    label_visibility="collapsed"
+                    key="sb_srv_tab1_temp",
+                    label_visibility="collapsed",
+                    index=current_srv_index_tab1
                 )
             
-            with col_limpiar:
-                if st.button("🧹 Limpiar filtro", key="btn_limpiar_tab1", use_container_width=True):
-                    if "_srv_mensaje_mostrado" in st.session_state:
-                        del st.session_state["_srv_mensaje_mostrado"]
-                    st.rerun()
-            
-            seleccion_srv = st.session_state["sb_srv_tab1"]
-            servidor_seleccionado_tab1 = (seleccion_srv != "-- Seleccione un Servidor para empezar --")
-            
             with col_metrica:
-                if servidor_seleccionado_tab1:
-                    info_srv_metricas = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv), None)
-                    
+                seleccion_srv_temp = st.session_state["sb_srv_tab1_temp"]
+                servidor_seleccionado_temp = (seleccion_srv_temp != "-- Seleccione un Servidor para empezar --")
+                
+                if servidor_seleccionado_temp:
+                    info_srv_metricas = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv_temp), None)
                     opciones_metricas_disponibles = obtener_opciones_metricas(info_srv_metricas)
                     
                     if not opciones_metricas_disponibles:
                         st.selectbox(
                             "Filtrar Métrica Rejilla", 
                             options=["-- Sin sensores registrados --"], 
-                            key="sb_metrica_tab1", 
+                            key="sb_metrica_tab1_temp",
                             disabled=True,
                             label_visibility="collapsed"
                         )
                     else:
                         opciones_metricas_con_placeholder = ["📊 Todas las Métricas"] + opciones_metricas_disponibles
+                        current_metrica_index = 0
+                        if st.session_state["sb_metrica_tab1_temp"] in opciones_metricas_con_placeholder:
+                            current_metrica_index = opciones_metricas_con_placeholder.index(st.session_state["sb_metrica_tab1_temp"])
+                        
                         st.selectbox(
                             "Filtrar Métrica Rejilla", 
                             options=opciones_metricas_con_placeholder, 
-                            key="sb_metrica_tab1", 
-                            label_visibility="collapsed"
+                            key="sb_metrica_tab1_temp",
+                            label_visibility="collapsed",
+                            index=current_metrica_index
                         )
                 else:
                     st.selectbox(
                         "Filtrar Métrica Rejilla", 
                         options=["-- Seleccione un Servidor primero --"], 
-                        key="sb_metrica_tab1", 
+                        key="sb_metrica_tab1_temp",
                         disabled=True,
                         label_visibility="collapsed"
                     )
+            
+            with col_filtrar:
+                if st.button("🔍 Filtrar", key="btn_filtrar_tab1", use_container_width=True):
+                    st.session_state["sb_srv_tab1"] = st.session_state["sb_srv_tab1_temp"]
+                    st.session_state["sb_metrica_tab1"] = st.session_state["sb_metrica_tab1_temp"]
+                    st.session_state["filtro_aplicado_tab1"] = True
+                    st.query_params["tab_servidores"] = "1"
+                    st.rerun()
+            
+            with col_limpiar:
+                if st.button("🧹 Limpiar", key="btn_limpiar_tab1", use_container_width=True):
+                    st.query_params["_limpiar_tab1"] = "1"
+                    st.query_params["tab_servidores"] = "1"
+                    st.rerun()
 
-            seleccion_metrica = st.session_state["sb_metrica_tab1"]
-            metrica_seleccionada = (seleccion_metrica != "📊 Todas las Métricas" and 
-                                   seleccion_metrica != "-- Seleccione un Servidor primero --" and
-                                   seleccion_metrica != "-- Sin sensores registrados --")
-            
-            if not servidor_seleccionado_tab1:
-                st.info("🔍 Por favor, seleccione un servidor del listado para habilitar los filtros de métricas.")
-            
-            elif seleccion_metrica == "-- Sin sensores registrados --":
-                st.warning("⚠️ Este servidor no tiene sensores registrados en la base de datos.")
-            
-            elif not metrica_seleccionada:
-                st.info("📊 Por favor, seleccione una métrica específica para desplegar la rejilla de datos.")
-            
+            # =============================================================
+            # MOSTRAR DATOS SOLO SI SE APLICARON FILTROS
+            # =============================================================
+            if not st.session_state.get("filtro_aplicado_tab1", False):
+                st.info("🔍 Seleccione un servidor y presione **'Filtrar'** para visualizar los datos.")
             else:
-                renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas)
+                seleccion_srv = st.session_state["sb_srv_tab1"]
+                seleccion_metrica = st.session_state["sb_metrica_tab1"]
+                servidor_seleccionado_tab1 = (seleccion_srv != "-- Seleccione un Servidor para empezar --")
+                metrica_seleccionada = (seleccion_metrica != "📊 Todas las Métricas" and 
+                                       seleccion_metrica != "-- Seleccione un Servidor primero --" and
+                                       seleccion_metrica != "-- Sin sensores registrados --")
+                
+                if not servidor_seleccionado_tab1:
+                    st.info("🔍 Por favor, seleccione un servidor del listado para habilitar los filtros de métricas.")
+                elif seleccion_metrica == "-- Sin sensores registrados --":
+                    st.warning("⚠️ Este servidor no tiene sensores registrados en la base de datos.")
+                else:
+                    renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas)
 
     with tab_graficas:
-        # Construir opciones de componentes incluyendo discos detectados
-        opciones_componentes_dinamicas = opciones_componentes_base.copy()
+        # =============================================================
+        # 1. PRIMERO: Configurar la pestaña activa ANTES de cualquier operación
+        # =============================================================
+        st.query_params["tab_servidores"] = "2"
+        st.session_state.tab_servidores_activa = 1
         
-        # Si hay un servidor seleccionado, agregar sus discos
-        nombre_srv_graf = st.session_state.get("sb_graf_srv", "-- Seleccione un Servidor --")
-        if nombre_srv_graf != "-- Seleccione un Servidor --":
-            info_srv_graf = next((s for s in servidores_activos if s['nombre_alias'] == nombre_srv_graf), None)
-            if info_srv_graf:
-                # Agregar discos disponibles
-                discos_map = {'disco_1': 'C', 'disco_2': 'D', 'disco_3': 'E', 
-                             'disco_4': 'F', 'disco_5': 'G', 'disco_6': 'Y'}
-                for disco_key, letra in discos_map.items():
-                    if int(info_srv_graf.get(f'id_sensor_{disco_key}', 0) or 0) > 0:
-                        opciones_componentes_dinamicas.append(f"💽 Almacenamiento (Disco {letra})")
+        # =============================================================
+        # FILTROS CON BOTON "FILTRAR" - PESTAÑA 2 (ÚNICOS)
+        # =============================================================
+        col_g_srv_2, col_g_sensor_2, col_filtrar_2, col_limpiar_2 = st.columns([3, 2, 1, 1])
         
-        renderizar_pestaña_analitica_completa(
-            opciones_servidores_tab2, 
-            opciones_componentes_dinamicas, 
-            servidores_activos
-        )
+        with col_g_srv_2:
+            # Obtener el índice actual del selectbox
+            current_srv_index = 0
+            if st.session_state["sb_graf_srv_temp"] in opciones_servidores_tab2:
+                current_srv_index = opciones_servidores_tab2.index(st.session_state["sb_graf_srv_temp"])
+            
+            st.selectbox(
+                "Servidor Gráficas", 
+                options=opciones_servidores_tab2, 
+                key="sb_graf_srv_temp",
+                label_visibility="collapsed",
+                index=current_srv_index
+            )
+        
+        with col_g_sensor_2:
+            # Construir opciones de componentes incluyendo discos detectados para el servidor temporal
+            nombre_srv_temp = st.session_state.get("sb_graf_srv_temp", "-- Seleccione un Servidor --")
+            opciones_temp = opciones_componentes_base.copy()
+            
+            if nombre_srv_temp != "-- Seleccione un Servidor --":
+                info_srv_temp = next((s for s in servidores_activos if s['nombre_alias'] == nombre_srv_temp), None)
+                if info_srv_temp:
+                    discos_map = {'disco_1': 'C', 'disco_2': 'D', 'disco_3': 'E', 
+                                 'disco_4': 'F', 'disco_5': 'G', 'disco_6': 'Y'}
+                    for disco_key, letra in discos_map.items():
+                        if int(info_srv_temp.get(f'id_sensor_{disco_key}', 0) or 0) > 0:
+                            opciones_temp.append(f"💽 Almacenamiento (Disco {letra})")
+            
+            # Obtener el índice actual del selectbox de sensor
+            current_sensor_index = 0
+            if st.session_state["sb_graf_sensor_temp"] in opciones_temp:
+                current_sensor_index = opciones_temp.index(st.session_state["sb_graf_sensor_temp"])
+            
+            st.selectbox(
+                "Componente Gráficas", 
+                options=opciones_temp, 
+                key="sb_graf_sensor_temp",
+                label_visibility="collapsed",
+                disabled=(nombre_srv_temp == "-- Seleccione un Servidor --"),
+                index=current_sensor_index
+            )
+        
+        with col_filtrar_2:
+            if st.button("🔍 Filtrar", key="btn_filtrar_tab2", use_container_width=True):
+                # ✅ Guardar los valores seleccionados en los estados finales
+                st.session_state["sb_graf_srv"] = st.session_state["sb_graf_srv_temp"]
+                st.session_state["sb_graf_sensor"] = st.session_state["sb_graf_sensor_temp"]
+                st.session_state["filtro_aplicado_tab2"] = True
+                # ✅ Mantener la pestaña 2 y recargar solo el fragmento
+                st.query_params["tab_servidores"] = "2"
+                st.rerun()
+        
+        with col_limpiar_2:
+            if st.button("🧹 Limpiar", key="btn_limpiar_tab2", use_container_width=True):
+                # ✅ Usar query_params para limpiar los estados
+                st.query_params["_limpiar_tab2_global"] = "1"
+                st.query_params["tab_servidores"] = "2"
+                st.rerun()
+
+        # =============================================================
+        # MOSTRAR DATOS SOLO SI SE APLICARON FILTROS
+        # =============================================================
+        if not st.session_state.get("filtro_aplicado_tab2", False):
+            st.info("🔍 Seleccione un servidor y componente, luego presione **'Filtrar'** para visualizar las gráficas.")
+        else:
+            # Construir opciones de componentes para el renderizado con el servidor real
+            opciones_componentes_render = opciones_componentes_base.copy()
+            nombre_srv_real = st.session_state.get("sb_graf_srv", "-- Seleccione un Servidor --")
+            
+            if nombre_srv_real != "-- Seleccione un Servidor --":
+                info_srv_real = next((s for s in servidores_activos if s['nombre_alias'] == nombre_srv_real), None)
+                if info_srv_real:
+                    discos_map = {'disco_1': 'C', 'disco_2': 'D', 'disco_3': 'E', 
+                                 'disco_4': 'F', 'disco_5': 'G', 'disco_6': 'Y'}
+                    for disco_key, letra in discos_map.items():
+                        if int(info_srv_real.get(f'id_sensor_{disco_key}', 0) or 0) > 0:
+                            opciones_componentes_render.append(f"💽 Almacenamiento (Disco {letra})")
+            
+            # Llamar al fragmento con los filtros ya aplicados
+            renderizar_pestaña_analitica_completa(
+                opciones_servidores_tab2, 
+                opciones_componentes_render, 
+                servidores_activos
+            )
+
+
+if __name__ == "__main__":
+    mostrar_pantalla()

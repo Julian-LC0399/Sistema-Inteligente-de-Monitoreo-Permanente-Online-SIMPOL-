@@ -19,6 +19,16 @@ def mostrar_pantalla():
                 color: #003366;
                 font-weight: 700;
             }
+            /* Alinear botones verticalmente con los filtros */
+            div[data-testid="column"] {
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+            }
+            div[data-testid="column"] button {
+                margin-bottom: 0px;
+                height: 38px;
+            }
         </style>
     """, unsafe_allow_html=True)
 
@@ -38,7 +48,21 @@ def mostrar_pantalla():
     
     st.markdown("---")
 
-    # === INICIALIZAR ESTADOS ===
+    # ==========================================================================
+    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS
+    # ==========================================================================
+    if "_limpiar_auditoria" in st.query_params and st.query_params["_limpiar_auditoria"] == "1":
+        st.session_state["filtro_usuario_auditoria"] = "-- Seleccione un Usuario --"
+        st.session_state["fecha_desde_auditoria"] = (datetime.now() - timedelta(days=7)).date()
+        st.session_state["fecha_hasta_auditoria"] = datetime.now().date()
+        st.session_state["mostrar_resultados"] = False
+        st.session_state["filtro_aplicado_auditoria"] = False
+        del st.query_params["_limpiar_auditoria"]
+        st.rerun()
+
+    # ==========================================================================
+    # INICIALIZAR ESTADOS
+    # ==========================================================================
     if "filtro_usuario_auditoria" not in st.session_state:
         st.session_state["filtro_usuario_auditoria"] = "-- Seleccione un Usuario --"
     if "fecha_desde_auditoria" not in st.session_state:
@@ -47,6 +71,8 @@ def mostrar_pantalla():
         st.session_state["fecha_hasta_auditoria"] = datetime.now().date()
     if "mostrar_resultados" not in st.session_state:
         st.session_state["mostrar_resultados"] = False
+    if "filtro_aplicado_auditoria" not in st.session_state:
+        st.session_state["filtro_aplicado_auditoria"] = False
 
     try:
         conn = conectar_bd()
@@ -61,27 +87,32 @@ def mostrar_pantalla():
         # =============================================================
         cursor.execute("SELECT DISTINCT usuario FROM log_accesos ORDER BY usuario ASC")
         usuarios_db = cursor.fetchall()
-        lista_usuarios = ["-- Seleccione un Usuario --"] + [u["usuario"] for u in usuarios_db]
+        lista_usuarios = ["-- Seleccione un Usuario --", "-- Todos los Usuarios --"] + [u["usuario"] for u in usuarios_db]
 
         # =============================================================
-        # 2. FILTRO DE USUARIO + BOTÓN LIMPIAR
+        # 2. FILTRO DE USUARIO + BOTÓN FILTRAR Y LIMPIAR (ALINEADOS)
         # =============================================================
-        col_f1, col_f2 = st.columns([3, 1])
+        col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
 
         with col_f1:
-            usuario_seleccionado = st.selectbox(
+            st.selectbox(
                 "👤 Filtrar por Usuario",
                 options=lista_usuarios,
-                key="filtro_usuario_auditoria"
+                key="filtro_usuario_auditoria",
+                label_visibility="collapsed"
             )
 
         with col_f2:
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            if st.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_limpiar_auditoria"):
-                st.session_state["filtro_usuario_auditoria"] = "-- Seleccione un Usuario --"
-                st.session_state["fecha_desde_auditoria"] = (datetime.now() - timedelta(days=7)).date()
-                st.session_state["fecha_hasta_auditoria"] = datetime.now().date()
-                st.session_state["mostrar_resultados"] = False
+            # Botón Filtrar - siempre visible
+            if st.button("🔍 Filtrar", use_container_width=True, key="btn_filtrar_auditoria"):
+                st.session_state["filtro_aplicado_auditoria"] = True
+                st.session_state["mostrar_resultados"] = True
+                st.rerun()
+
+        with col_f3:
+            # Botón Limpiar - siempre visible
+            if st.button("🧹 Limpiar", use_container_width=True, key="btn_limpiar_auditoria"):
+                st.query_params["_limpiar_auditoria"] = "1"
                 st.rerun()
 
         st.markdown("---")
@@ -91,9 +122,10 @@ def mostrar_pantalla():
         # =============================================================
         usuario_seleccionado = st.session_state["filtro_usuario_auditoria"]
         hay_usuario_seleccionado = usuario_seleccionado != "-- Seleccione un Usuario --"
+        mostrar_todos = usuario_seleccionado == "-- Todos los Usuarios --"
 
-        if hay_usuario_seleccionado:
-            col_f3, col_f4, col_f5 = st.columns([2, 2, 1])
+        if hay_usuario_seleccionado or mostrar_todos:
+            col_f3, col_f4 = st.columns([2, 2])
 
             with col_f3:
                 st.date_input(
@@ -107,20 +139,14 @@ def mostrar_pantalla():
                     key="fecha_hasta_auditoria"
                 )
 
-            with col_f5:
-                st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-                if st.button("🔍 Buscar", use_container_width=True, key="btn_buscar_auditoria"):
-                    st.session_state["mostrar_resultados"] = True
-                    st.rerun()
-
             st.markdown("---")
 
         # =============================================================
         # 4. MOSTRAR RESULTADOS SOLO SI SE HA BUSCADO
         # =============================================================
         if not st.session_state["mostrar_resultados"]:
-            if hay_usuario_seleccionado:
-                st.info("🔍 Seleccione el rango de fechas y presione **Buscar** para visualizar el historial.")
+            if hay_usuario_seleccionado or mostrar_todos:
+                st.info("🔍 Seleccione el rango de fechas y presione **Filtrar** para visualizar el historial.")
             else:
                 st.info("👤 Por favor, seleccione un usuario para habilitar los filtros de fecha y búsqueda.")
             cursor.close()
@@ -133,6 +159,20 @@ def mostrar_pantalla():
         fecha_desde = st.session_state["fecha_desde_auditoria"]
         fecha_hasta = st.session_state["fecha_hasta_auditoria"]
 
+        params = []
+        condiciones = []
+
+        # Si no es "Todos los Usuarios", filtrar por usuario específico
+        if not mostrar_todos:
+            condiciones.append("usuario = %s")
+            params.append(usuario_seleccionado)
+
+        # Filtro por rango de fechas
+        condiciones.append("DATE(fecha_acceso) >= %s")
+        params.append(fecha_desde.strftime("%Y-%m-%d"))
+        condiciones.append("DATE(fecha_acceso) <= %s")
+        params.append(fecha_hasta.strftime("%Y-%m-%d"))
+
         query = """
             SELECT 
                 usuario, 
@@ -142,14 +182,10 @@ def mostrar_pantalla():
                 resultado, 
                 ip_cliente
             FROM log_accesos 
-            WHERE usuario = %s
         """
-        params = [usuario_seleccionado]
 
-        # Filtro por rango de fechas
-        query += " AND DATE(fecha_acceso) >= %s AND DATE(fecha_acceso) <= %s"
-        params.append(fecha_desde.strftime("%Y-%m-%d"))
-        params.append(fecha_hasta.strftime("%Y-%m-%d"))
+        if condiciones:
+            query += " WHERE " + " AND ".join(condiciones)
 
         query += " ORDER BY fecha_acceso DESC LIMIT 100"
 
@@ -159,17 +195,14 @@ def mostrar_pantalla():
         # =============================================================
         # 6. CONTAR TOTAL DE REGISTROS CON FILTROS APLICADOS
         # =============================================================
+        params_count = params.copy()
         query_count = """
             SELECT COUNT(*) as total 
             FROM log_accesos 
-            WHERE usuario = %s
-            AND DATE(fecha_acceso) >= %s AND DATE(fecha_acceso) <= %s
         """
-        params_count = [
-            usuario_seleccionado,
-            fecha_desde.strftime("%Y-%m-%d"),
-            fecha_hasta.strftime("%Y-%m-%d")
-        ]
+
+        if condiciones:
+            query_count += " WHERE " + " AND ".join(condiciones)
 
         cursor.execute(query_count, params_count)
         total_registros = cursor.fetchone()["total"]
@@ -180,12 +213,13 @@ def mostrar_pantalla():
         # =============================================================
         # 7. BANNER ESTADÍSTICO
         # =============================================================
+        titulo_usuario = "Todos los Usuarios" if mostrar_todos else usuario_seleccionado
         st.markdown(
             f"""
             <div style="background-color: #f1f5f9; padding: 12px 18px; border-radius: 6px; margin-bottom: 18px; border: 1px solid #e2e8f0;">
                 <span style="color: #475569; font-size: 13px; font-weight: 600;">📊 REGISTROS ENCONTRADOS:</span>
                 <span style="color: #003366; font-size: 18px; font-weight: 700; margin-left: 8px;">{total_registros}</span>
-                <span style="color: #64748b; font-size: 12px; margin-left: 15px;">👤 {usuario_seleccionado}</span>
+                <span style="color: #64748b; font-size: 12px; margin-left: 15px;">👤 {titulo_usuario}</span>
                 <span style="color: #64748b; font-size: 12px; margin-left: 15px;">📅 {fecha_desde.strftime('%d/%m/%Y')} - {fecha_hasta.strftime('%d/%m/%Y')}</span>
             </div>
             """,
@@ -289,7 +323,6 @@ def mostrar_pantalla():
             resultado = log.get("resultado", "-")
             ip = log.get("ip_cliente", "-") or "-"
 
-            # Badge según resultado
             if resultado == "EXITOSO":
                 badge = f'<span class="badge-ok">✅ {resultado}</span>'
             elif resultado == "FALLIDO":
