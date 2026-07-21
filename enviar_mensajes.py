@@ -16,7 +16,7 @@ TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 # =============================================================================
 # RUTA DEL ARCHIVO DE MENSAJES (CARPETA COMPARTIDA)
 # =============================================================================
-# ¡¡¡ CAMBIA ESTA RUTA POR LA CARPETA COMPARTIDA DEL SERVIDOR !!!
+# !!! CAMBIA ESTA RUTA POR LA CARPETA COMPARTIDA DEL SERVIDOR !!!
 # Ejemplo: r"\\NOMBRE_SERVIDOR\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
 # Ejemplo: r"\\192.168.1.100\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
 # Ejemplo: r"Z:\mensajes_telegram_pendientes.json"  (si mapeaste unidad)
@@ -55,17 +55,17 @@ def enviar_a_telegram(mensaje):
         )
         
         with urllib.request.urlopen(req, timeout=30) as response:
-            log(f"✅ Enviado: {response.status}")
+            log(f"[OK] Enviado: {response.status}")
             return True
             
     except urllib.error.HTTPError as e:
-        log(f"❌ HTTP Error: {e.code} - {e.reason}")
+        log(f"[ERROR] HTTP Error: {e.code} - {e.reason}")
         return False
     except urllib.error.URLError as e:
-        log(f"❌ URL Error: {e.reason}")
+        log(f"[ERROR] URL Error: {e.reason}")
         return False
     except Exception as e:
-        log(f"❌ Error: {e}")
+        log(f"[ERROR] Error: {e}")
         return False
 
 # =============================================================================
@@ -79,7 +79,7 @@ def procesar_mensajes():
     
     # Verificar si existe el archivo
     if not os.path.exists(MENSAJES_FILE):
-        log("📂 No hay mensajes pendientes (archivo no existe)")
+        log("[INFO] No hay mensajes pendientes (archivo no existe)")
         return
     
     # Leer mensajes
@@ -87,17 +87,17 @@ def procesar_mensajes():
         with open(MENSAJES_FILE, "r", encoding="utf-8") as f:
             mensajes = json.load(f)
     except json.JSONDecodeError as e:
-        log(f"❌ Error leyendo JSON: {e}")
+        log(f"[ERROR] Error leyendo JSON: {e}")
         return
     except Exception as e:
-        log(f"❌ Error leyendo archivo: {e}")
+        log(f"[ERROR] Error leyendo archivo: {e}")
         return
     
     if not mensajes:
-        log("📂 No hay mensajes pendientes (archivo vacio)")
+        log("[INFO] No hay mensajes pendientes (archivo vacio)")
         return
     
-    log(f"📨 Procesando {len(mensajes)} mensajes pendientes...")
+    log(f"[INFO] Procesando {len(mensajes)} mensajes pendientes...")
     
     enviados = []
     fallidos = []
@@ -107,7 +107,7 @@ def procesar_mensajes():
         mensaje = item.get("mensaje", "")
         
         if not mensaje:
-            log(f"  [{idx+1}/{len(mensajes)}] ⚠️ Mensaje vacio, saltando...")
+            log(f"  [{idx+1}/{len(mensajes)}] [WARN] Mensaje vacio, saltando...")
             continue
         
         log(f"  [{idx+1}/{len(mensajes)}] Enviando mensaje de {fecha}...")
@@ -126,16 +126,16 @@ def procesar_mensajes():
         try:
             with open(MENSAJES_FILE, "w", encoding="utf-8") as f:
                 json.dump(fallidos, f, ensure_ascii=False, indent=2)
-            log(f"⚠️ {len(fallidos)} mensajes fallidos, guardados para reintentar")
+            log(f"[WARN] {len(fallidos)} mensajes fallidos, guardados para reintentar")
         except Exception as e:
-            log(f"❌ Error guardando mensajes fallidos: {e}")
+            log(f"[ERROR] Error guardando mensajes fallidos: {e}")
     else:
         try:
             with open(MENSAJES_FILE, "w", encoding="utf-8") as f:
                 json.dump([], f, ensure_ascii=False, indent=2)
-            log(f"✅ Archivo vaciado (todos los mensajes enviados)")
+            log(f"[OK] Archivo vaciado (todos los mensajes enviados)")
         except Exception as e:
-            log(f"❌ Error vaciando archivo: {e}")
+            log(f"[ERROR] Error vaciando archivo: {e}")
     
     log("=" * 60)
     log(f"RESUMEN: {len(enviados)} enviados, {len(fallidos)} fallidos")
@@ -148,9 +148,9 @@ if __name__ == "__main__":
     try:
         procesar_mensajes()
     except KeyboardInterrupt:
-        log("\n⏹️ Proceso interrumpido por el usuario")
+        log("\n[STOP] Proceso interrumpido por el usuario")
     except Exception as e:
-        log(f"❌ Error critico: {e}")
+        log(f"[ERROR] Error critico: {e}")
         import traceback
         traceback.print_exc()
     
