@@ -68,16 +68,12 @@ def verificar_instancia_unica():
     lock_path = obtener_lock_file()
     
     try:
-        # Intentar crear el archivo de bloqueo
         if os.path.exists(lock_path):
-            # Leer el PID del archivo
             try:
                 with open(lock_path, 'r') as f:
                     pid = int(f.read().strip())
                 
-                # Verificar si el proceso sigue vivo
                 try:
-                    # En Windows, usar tasklist
                     result = subprocess.run(
                         ['tasklist', '/FI', f'PID eq {pid}'],
                         capture_output=True,
@@ -88,35 +84,28 @@ def verificar_instancia_unica():
                         logger.error("Solo se permite una instancia")
                         return False
                     else:
-                        # El proceso no existe, eliminar lock y continuar
                         os.remove(lock_path)
                 except:
-                    # Si hay error, asumir que el proceso no existe
                     try:
                         os.remove(lock_path)
                     except:
                         pass
             except:
-                # Si no se puede leer, eliminar lock
                 try:
                     os.remove(lock_path)
                 except:
                     pass
         
-        # Crear nuevo archivo de bloqueo
         with open(lock_path, 'w') as f:
             f.write(str(os.getpid()))
         
         LOCK_FILE = lock_path
-        
-        # Registrar eliminacion al salir
         atexit.register(eliminar_lock_file)
-        
         return True
         
     except Exception as e:
         logger.error(f"Error verificando instancia unica: {e}")
-        return True  # Continuar de todas formas
+        return True
 
 def eliminar_lock_file():
     """Elimina el archivo de bloqueo"""
@@ -145,7 +134,6 @@ def get_exe_dir():
         return os.path.dirname(os.path.abspath(__file__))
 
 def get_script_dir():
-    """Obtiene el directorio donde estan los scripts (dentro o fuera del .exe)"""
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
     else:
@@ -168,7 +156,6 @@ def signal_handler(signum, frame):
 # =============================================================================
 
 def ejecutar_streamlit():
-    """Ejecuta Streamlit en un proceso separado"""
     global logger
     
     if logger is None:
@@ -182,7 +169,6 @@ def ejecutar_streamlit():
             logger.error(f"[STREAMLIT] No se encontro app.py en: {script_path}")
             return False
         
-        # Configurar argumentos para Streamlit
         sys.argv = [
             "streamlit",
             "run",
@@ -210,11 +196,14 @@ def ejecutar_streamlit():
         logger.error(traceback.format_exc())
 
 # =============================================================================
-# FUNCION PARA EJECUTAR EL ENVIADOR DE MENSAJES
+# FUNCION PARA EJECUTAR EL ENVIADOR DE MENSAJES (VERSIÓN CORREGIDA)
 # =============================================================================
 
 def ejecutar_enviador_mensajes():
-    """Ejecuta enviar_mensajes.py en un bucle continuo"""
+    """
+    Ejecuta enviar_mensajes.py en un bucle continuo.
+    En el .exe, importa y ejecuta la función directamente.
+    """
     global SISTEMA_ACTIVO, logger
     
     if logger is None:
@@ -222,58 +211,71 @@ def ejecutar_enviador_mensajes():
     
     logger.info("[MENSAJES] Proceso iniciado correctamente")
     
-    # Buscar el script
+    # Agregar el directorio del script al path
     script_dir = get_script_dir()
-    enviador_path = os.path.join(script_dir, ENVIADOR_SCRIPT)
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
     
-    if not os.path.exists(enviador_path):
-        enviador_path = os.path.join(get_exe_dir(), ENVIADOR_SCRIPT)
-    
-    if not os.path.exists(enviador_path):
-        logger.error(f"[MENSAJES] No se encontro {ENVIADOR_SCRIPT}")
-        return
-    
-    logger.info(f"[MENSAJES] Script encontrado en: {enviador_path}")
+    logger.info(f"[MENSAJES] Script dir: {script_dir}")
     
     contador = 0
-    python_exe = sys.executable
     
     while SISTEMA_ACTIVO:
         try:
             contador += 1
             logger.info(f"[MENSAJES] Ejecucion #{contador}")
             
-            # Ejecutar el script
-            if getattr(sys, 'frozen', False):
-                cmd = [python_exe, enviador_path, "--auto"]
-            else:
-                cmd = [sys.executable, enviador_path, "--auto"]
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120,  # Aumentado de 60 a 120 segundos
-                cwd=os.path.dirname(enviador_path)
-            )
-            
-            if result.stdout:
-                lines = result.stdout.strip().split('\n')
-                for line in lines:
-                    if line and not line.startswith('Presiona'):
-                        logger.info(f"[MENSAJES] {line}")
-            if result.stderr:
-                logger.warning(f"[MENSAJES] Stderr: {result.stderr.strip()}")
+            # =============================================================
+            # IMPORTAR Y EJECUTAR DIRECTAMENTE (FUNCIONA EN .EXE)
+            # =============================================================
+            try:
+                import enviar_mensajes as enviador
+                enviador.procesar_mensajes()
+                logger.info(f"[MENSAJES] Ejecucion #{contador} completada")
                 
-        except subprocess.TimeoutExpired:
-            logger.error("[MENSAJES] El proceso tomo demasiado tiempo (>120s)")
-            time.sleep(10)
+            except ImportError as e:
+                logger.error(f"[MENSAJES] Error importando enviar_mensajes: {e}")
+                logger.info("[MENSAJES] Intentando como subproceso...")
+                
+                # Fallback: ejecutar como subproceso
+                enviador_path = os.path.join(script_dir, ENVIADOR_SCRIPT)
+                if not os.path.exists(enviador_path):
+                    enviador_path = os.path.join(get_exe_dir(), ENVIADOR_SCRIPT)
+                
+                if os.path.exists(enviador_path):
+                    logger.info(f"[MENSAJES] Script encontrado en: {enviador_path}")
+                    cmd = [sys.executable, enviador_path, "--auto"]
+                    
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        cwd=get_exe_dir()
+                    )
+                    
+                    if result.stdout:
+                        logger.info(f"[MENSAJES] STDOUT: {result.stdout.strip()}")
+                    if result.stderr:
+                        logger.warning(f"[MENSAJES] STDERR: {result.stderr.strip()}")
+                else:
+                    logger.error(f"[MENSAJES] No se encontro {ENVIADOR_SCRIPT}")
+                    
+            except Exception as e:
+                logger.error(f"[MENSAJES] Error en ejecucion: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                time.sleep(10)
+                
         except Exception as e:
-            logger.error(f"[MENSAJES] Error: {e}")
+            logger.error(f"[MENSAJES] Error en bucle: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             time.sleep(10)
         
         # Esperar antes de la proxima ejecucion
         if SISTEMA_ACTIVO:
+            logger.info("[MENSAJES] Esperando 30 segundos...")
             for _ in range(30):
                 if not SISTEMA_ACTIVO:
                     break
@@ -286,7 +288,6 @@ def ejecutar_enviador_mensajes():
 # =============================================================================
 
 def ejecutar_agente():
-    """Funcion que se ejecuta en el proceso hijo"""
     global SISTEMA_ACTIVO, logger
     
     if logger is None:
@@ -298,7 +299,6 @@ def ejecutar_agente():
         if script_dir not in sys.path:
             sys.path.insert(0, script_dir)
         
-        # Cambiar al directorio del script
         original_dir = os.getcwd()
         os.chdir(script_dir)
         
@@ -306,12 +306,10 @@ def ejecutar_agente():
             import agente
             logger.info("[AGENTE] Motor iniciado correctamente")
             
-            # Mantener el proceso vivo
             while SISTEMA_ACTIVO:
                 try:
                     if hasattr(agente, 'ejecutar_motor_agente'):
                         agente.ejecutar_motor_agente()
-                        # Si la funcion retorna, esperar y reintentar
                         time.sleep(5)
                     else:
                         logger.error("[AGENTE] La funcion 'ejecutar_motor_agente' no existe")
@@ -399,7 +397,6 @@ def iniciar_streamlit():
         logger = setup_logging()
     
     try:
-        # Verificar que app.py existe
         script_path = resolve_path("app.py")
         if not os.path.exists(script_path):
             logger.error(f"[STREAMLIT] No se encontro app.py en: {script_path}")
@@ -407,14 +404,12 @@ def iniciar_streamlit():
         
         logger.info(f"[STREAMLIT] app.py encontrado en: {script_path}")
         
-        # Iniciar Streamlit en un proceso separado
         STREAMLIT_PROCESS = multiprocessing.Process(
             target=ejecutar_streamlit,
             name="StreamlitServer"
         )
         STREAMLIT_PROCESS.start()
         
-        # Esperar a que arranque
         time.sleep(3)
         
         if STREAMLIT_PROCESS.is_alive():
@@ -436,7 +431,6 @@ def detener_todo():
     SISTEMA_ACTIVO = False
     logger.info("[SISTEMA] Deteniendo todos los procesos...")
     
-    # Detener agente
     if AGENTE_PROCESS and AGENTE_PROCESS.is_alive():
         try:
             logger.info("[AGENTE] Deteniendo proceso...")
@@ -448,7 +442,6 @@ def detener_todo():
         except Exception as e:
             logger.error(f"[AGENTE] Error al detener: {e}")
     
-    # Detener enviador
     if ENVIADOR_PROCESS and ENVIADOR_PROCESS.is_alive():
         try:
             logger.info("[MENSAJES] Deteniendo proceso...")
@@ -460,7 +453,6 @@ def detener_todo():
         except Exception as e:
             logger.error(f"[MENSAJES] Error al detener: {e}")
     
-    # Detener Streamlit
     if STREAMLIT_PROCESS and STREAMLIT_PROCESS.is_alive():
         try:
             logger.info("[STREAMLIT] Deteniendo proceso...")
@@ -512,10 +504,8 @@ def mostrar_consola():
 def main():
     global SISTEMA_ACTIVO, logger
     
-    # === SETUP LOGGING ===
     logger = setup_logging()
     
-    # === VERIFICAR INSTANCIA UNICA ===
     if not verificar_instancia_unica():
         input("\nPresiona Enter para salir...")
         sys.exit(1)
@@ -531,31 +521,24 @@ def main():
         logger.info(f"Modo: DESARROLLO")
     logger.info("=" * 70)
 
-    # === MANEJADOR DE SEÑALES ===
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # === CONFIGURACION INICIAL ===
     if getattr(sys, 'frozen', False):
         sys.path.insert(0, sys._MEIPASS)
         os.chdir(os.path.dirname(sys.executable))
         logger.info(f"Directorio de trabajo cambiado a: {os.getcwd()}")
 
-    # === MOSTRAR CONSOLA ===
     mostrar_consola()
 
-    # === INICIAR PROCESOS ===
     logger.info("[SISTEMA] Iniciando procesos...")
     
-    # 1. Iniciar agente
     if not iniciar_agente():
         logger.warning("[SISTEMA] El agente no se inicio correctamente")
     
-    # 2. Iniciar enviador
     if not iniciar_enviador():
         logger.warning("[SISTEMA] El enviador no se inicio correctamente")
     
-    # 3. Iniciar Streamlit
     if not iniciar_streamlit():
         logger.error("[SISTEMA] Streamlit no se inicio correctamente")
         print("\n[ERROR] No se pudo iniciar Streamlit")
@@ -563,10 +546,8 @@ def main():
         input("\nPresione ENTER para salir...")
         sys.exit(1)
 
-    # === ABRIR NAVEGADOR ===
     threading.Timer(3, abrir_navegador).start()
 
-    # === MANTENER EL SISTEMA VIVO ===
     logger.info("[SISTEMA] Sistema completamente iniciado")
     print("\n[SISTEMA] Sistema iniciado correctamente")
     print("[SISTEMA] Presiona Ctrl+C para detener\n")

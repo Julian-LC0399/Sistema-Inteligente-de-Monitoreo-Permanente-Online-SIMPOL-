@@ -59,15 +59,34 @@ DB_CONFIG = {
 }
 
 # =============================================================================
-# CONFIGURACION DE TELEGRAM - CARPETA COMPARTIDA EN RED
+# CONFIGURACION DE TELEGRAM - DETECCIÓN AUTOMÁTICA DE RUTA
 # =============================================================================
 TELEGRAM_TOKEN = "8511465977:AAHAbgPqJ1pSndxZ2JeCcrbXBk0vMSxYx24"
 TELEGRAM_CHAT_ID = "7766964399"
 
-# ¡¡¡ CAMBIA ESTA RUTA POR LA CARPETA COMPARTIDA !!!
-# Ejemplo: r"C:\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
-# Ejemplo red: r"\\SERVER\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
-MENSAJES_FILE = r"C:\Users\programadorje\Documents\archivos\Julian semestres\UNEG\trabajo de grado\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
+# =============================================================================
+# RUTA DEL ARCHIVO DE MENSAJES - DETECCIÓN AUTOMÁTICA
+# =============================================================================
+def obtener_ruta_mensajes():
+    """
+    Detecta automáticamente la ruta del archivo de mensajes
+    - Si es .exe: usa la carpeta del ejecutable
+    - Si es desarrollo: usa la ruta de red compartida
+    """
+    if getattr(sys, 'frozen', False):
+        # Modo .exe - usar carpeta local
+        exe_dir = os.path.dirname(sys.executable)
+        ruta = os.path.join(exe_dir, "mensajes_telegram_pendientes.json")
+        try:
+            os.makedirs(exe_dir, exist_ok=True)
+        except:
+            pass
+        return ruta
+    else:
+        # Modo desarrollo - usar ruta de red
+        return r"\\DESKTOP-BFL80DV\Users\programadorje\Documents\archivos\Julian semestres\UNEG\trabajo de grado\SIMPOL_Mensajes\mensajes_telegram_pendientes.json"
+
+MENSAJES_FILE = obtener_ruta_mensajes()
 
 # Todos los estados se notifican
 ESTADOS_TELEGRAM = ["CRITICO", "PRECAUCION", "ESTABLE"]
