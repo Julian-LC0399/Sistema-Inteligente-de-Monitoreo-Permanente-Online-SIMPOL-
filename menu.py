@@ -16,8 +16,8 @@ def get_base64_image(image_path):
 
 def cambiar_pagina():
     """Manejador seguro para la conmutación de secciones y purga del estado residual"""
-    if "widget_navegacion" in st.session_state:
-        nueva_seccion = st.session_state["widget_navegacion"]
+    if "nav_radio" in st.session_state:
+        nueva_seccion = st.session_state["nav_radio"]
         seccion_anterior = st.session_state.get("seccion_actual", "🏠 Inicio")
         
         # Si el usuario realmente cambió de módulo, ejecutamos la purga en el State
@@ -33,7 +33,7 @@ def cambiar_pagina():
                     if clave in st.session_state:
                         del st.session_state[clave]
             
-            # Purga de Umbrales
+            # 🔥 NUEVO: Purga de Umbrales
             if seccion_anterior == "⚙️ Umbrales":
                 claves_umbrales = [
                     "filtro_umbral_servidor", 
@@ -76,7 +76,7 @@ def generar_menu():
         st.session_state["autenticado"] = False
         st.session_state["seccion_actual"] = "🏠 Inicio"
         
-        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal"]
+        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "nav_radio"]
         for clave in claves_a_remover:
             if clave in st.session_state:
                 del st.session_state[clave]
@@ -137,28 +137,44 @@ def generar_menu():
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # ==========================================================================
-        # 3. WIDGET DE NAVEGACIÓN - CON KEY CORRECTA
-        # ==========================================================================
-        # Obtener la sección actual, asegurando que sea válida
+        # === BLINDAJE ANTI-WARNING Y CONFIGURACIÓN DINÁMICA DEL ESTADO ===
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
+        
+        # Si hay redirección pendiente, forzar selección a monitoreo
+        if st.session_state.get("_srv_redirect_pending"):
+            seccion_persistente = "🖥️ Monitoreo en vivo"
+        
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
-        # =============================================================
-        # IMPORTANTE: Usar key="widget_navegacion" (NO "nav_radio")
-        # =============================================================
+        # ==========================================================================
+        # 3. NAVEGACIÓN POR RADIO - CON ÍNDICE DINÁMICO
+        # ==========================================================================
+        # Determinar el índice basado en la sección persistente
+        try:
+            default_index = opciones.index(seccion_persistente)
+        except ValueError:
+            default_index = 0
+        
+        # Crear el radio con el índice correcto
         seleccion = st.radio(
             "Navegación del Sistema", 
-            opciones, 
-            index=opciones.index(seccion_persistente) if seccion_persistente in opciones else 0,
-            key="widget_navegacion",
+            options=opciones,
+            index=default_index,
+            key="nav_radio",
             label_visibility="collapsed",
             on_change=cambiar_pagina
         )
         
         # Garantizamos el estado maestro alineado con la interfaz
         st.session_state["seccion_actual"] = seleccion
+        
+        # Si hay redirección pendiente, la limpiamos después de establecer la selección
+        if st.session_state.get("_srv_redirect_pending"):
+            # La redirección ya se procesó, limpiamos el flag
+            # No lo limpiamos aquí porque monitoreo.py lo necesita
+            pass
+        
         st.divider()
 
         # ==========================================================================

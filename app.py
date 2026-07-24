@@ -164,12 +164,12 @@ def limpiar_estado_capacity():
             del st.session_state[key]
 
 def gestionar_limpieza_filtros(seccion_destino):
-    # Si es monitoreo y hay un SRV pendiente O filtro aplicado, NO LIMPIAR
+    # Si es monitoreo, NO LIMPIAR NADA
     if seccion_destino == "🖥️ Monitoreo en vivo":
-        if st.session_state.get("_srv_redirect") or st.session_state.get("filtro_aplicado_tab1", False):
-            return
+        return
     
-    if "srv" in st.query_params or seccion_destino == "🖥️ Monitoreo en vivo" or st.query_params.get("p") == "🖥️ Monitoreo en vivo":
+    # Si hay un SRV en query params o redirección pendiente, NO LIMPIAR
+    if "srv" in st.query_params or st.session_state.get("_srv_redirect"):
         return
 
     tab_actual = None
@@ -273,9 +273,8 @@ def main():
         st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
         st.session_state["servidor_seleccionado"] = srv_desde_url
         
-        # Sincronizar temporales para monitoreo
-        st.session_state["sb_srv_tab1_temp"] = srv_desde_url
-        st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+        # NO modificar widgets directamente
+        st.session_state["_srv_redirect_pending"] = srv_desde_url
         
         try:
             del st.query_params["srv"]
@@ -293,17 +292,14 @@ def main():
             # === FORZAR TODOS LOS ESTADOS ===
             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
             st.session_state["sb_srv_tab1"] = servidor
-            st.session_state["sb_srv_tab1_temp"] = servidor  # Sincronizar temporal
             st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"  # Sincronizar temporal
             st.session_state["filtro_aplicado_tab1"] = True
             st.session_state["filtro_aplicado_tab2"] = False
             st.session_state["_srv_mensaje_mostrado"] = True
-            st.session_state["tab_servidores_activa"] = 0
             st.session_state["_srv_redirect"] = servidor
+            st.session_state["_srv_redirect_pending"] = servidor
             
             del st.session_state["_redirigir_a_monitoreo"]
-            st.query_params["tab_servidores"] = "1"
             st.rerun()
     
     # =============================================================
@@ -348,7 +344,6 @@ def main():
     # 2. SEGUNDO: Si hay redirección SRV, forzar monitoreo
     if st.session_state.get("_srv_redirect"):
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-        # NO LIMPIAR _srv_redirect aquí - monitoreo.py lo necesita
     
     # 3. TERCERO: Si no hay sección, usar Inicio
     if "seccion_actual" not in st.session_state:
@@ -357,20 +352,27 @@ def main():
     # =============================================================
     # GENERAR MENÚ (el widget se sincroniza con seccion_actual)
     # =============================================================
+    # Pasar la sección actual al menú para que seleccione la opción correcta
+    # El menú usa el valor de seccion_actual para determinar el índice
     generar_menu()
     
     # =============================================================
     # LEER LA SECCIÓN DEL WIDGET Y ACTUALIZAR
     # =============================================================
-    if "widget_navegacion" in st.session_state:
-        widget_seleccion = st.session_state["widget_navegacion"]
-        if widget_seleccion != st.session_state["seccion_actual"]:
-            st.session_state["seccion_actual"] = widget_seleccion
+    # SOLO actualizar si NO hay una redirección pendiente
+    if not st.session_state.get("_srv_redirect_pending"):
+        if "widget_navegacion" in st.session_state:
+            widget_seleccion = st.session_state["widget_navegacion"]
+            if widget_seleccion != st.session_state["seccion_actual"]:
+                st.session_state["seccion_actual"] = widget_seleccion
+    # Si hay redirección pendiente, NO modificar widget_navegacion
+    # El menú ya se renderizó con la sección correcta
     
     # =============================================================
-    # LIMPIEZA DE FILTROS
+    # LIMPIEZA DE FILTROS (SOLO PARA SECCIONES QUE NO SON MONITOREO)
     # =============================================================
-    gestionar_limpieza_filtros(st.session_state["seccion_actual"])
+    if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
+        gestionar_limpieza_filtros(st.session_state["seccion_actual"])
     
     # =============================================================
     # SINCRONIZAR URL

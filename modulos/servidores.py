@@ -349,10 +349,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
         if servidor and servidor != "-- Seleccione un Servidor --":
             logging.info(f"🔍 Redirigiendo a servidor: {servidor}")
             st.session_state["redirigir_servidor"] = None
-            st.session_state["_redirigir_a_monitoreo"] = servidor
-            # IMPORTANTE: Sincronizar también los valores temporales para monitoreo
-            st.session_state["sb_srv_tab1_temp"] = servidor
-            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+            # Usar flag en lugar de modificar widgets directamente
+            st.session_state["_srv_redirect_pending"] = servidor
             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
             st.rerun()
         else:
@@ -586,10 +584,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             key=f"btn_vivo_{nombre_servidor}", 
                             use_container_width=True
                         ):
-                            st.session_state["redirigir_servidor"] = nombre_servidor
-                            # Sincronizar temporales para monitoreo
-                            st.session_state["sb_srv_tab1_temp"] = nombre_servidor
-                            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+                            # Usar flag en lugar de modificar widgets directamente
+                            st.session_state["_srv_redirect_pending"] = nombre_servidor
+                            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
                             st.rerun()
 
                 st.markdown("---")
