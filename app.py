@@ -169,7 +169,7 @@ def gestionar_limpieza_filtros(seccion_destino):
         return
     
     # Si hay un SRV en query params o redirección pendiente, NO LIMPIAR
-    if "srv" in st.query_params or st.session_state.get("_srv_redirect"):
+    if "srv" in st.query_params or st.session_state.get("_srv_redirect_pending"):
         return
 
     tab_actual = None
@@ -266,17 +266,15 @@ def main():
     srv_desde_url = params.get("srv")
     if srv_desde_url:
         logging.info(f"🔍 Procesando redirección desde servidores: {srv_desde_url}")
-        # Establecer todos los estados necesarios
         st.session_state["_srv_redirect_pending"] = srv_desde_url
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+        st.session_state["_monitoreo_activo"] = True
         st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
         st.session_state["servidor_seleccionado"] = srv_desde_url
         st.session_state["sb_srv_tab1"] = srv_desde_url
         st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
         st.session_state["filtro_aplicado_tab1"] = True
-        # Limpiar el parámetro para que no se procese de nuevo
         del st.query_params["srv"]
-        # Forzar rerun para aplicar los cambios
         st.rerun()
     
     # =============================================================
@@ -321,8 +319,13 @@ def main():
     # 2. SEGUNDO: Si hay redirección pendiente, forzar monitoreo
     if st.session_state.get("_srv_redirect_pending"):
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+        st.session_state["_monitoreo_activo"] = True
     
-    # 3. TERCERO: Si no hay sección, usar Inicio
+    # 3. TERCERO: Si hay flag de monitoreo activo, mantener monitoreo
+    if st.session_state.get("_monitoreo_activo", False):
+        st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+    
+    # 4. CUARTO: Si no hay sección, usar Inicio
     if "seccion_actual" not in st.session_state:
         st.session_state["seccion_actual"] = "🏠 Inicio"
     
@@ -334,23 +337,27 @@ def main():
     # =============================================================
     # LEER LA SECCIÓN DEL WIDGET Y ACTUALIZAR
     # =============================================================
-    # Si hay redirección pendiente, FORZAR monitoreo (sobrescribir el widget)
-    if st.session_state.get("_srv_redirect_pending"):
+    # Si hay redirección pendiente o monitoreo activo, FORZAR monitoreo
+    if st.session_state.get("_srv_redirect_pending") or st.session_state.get("_monitoreo_activo", False):
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
     else:
         if "widget_navegacion" in st.session_state:
             widget_seleccion = st.session_state["widget_navegacion"]
             if widget_seleccion != st.session_state["seccion_actual"]:
                 st.session_state["seccion_actual"] = widget_seleccion
+                # Limpiar flag de monitoreo cuando se cambia de sección
+                if "_monitoreo_activo" in st.session_state:
+                    st.session_state["_monitoreo_activo"] = False
     
     # =============================================================
-    # LIMPIEZA DE FILTROS
+    # LIMPIEZA DE FILTROS - PRESERVAR MONITOREO
     # =============================================================
+    # Solo limpiar filtros si NO estamos en monitoreo
     if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
     
     # =============================================================
-    # SINCRONIZAR URL
+    # SINCRONIZAR URL - PRESERVAR MONITOREO
     # =============================================================
     if params.get("p") != st.session_state["seccion_actual"]:
         st.query_params["p"] = st.session_state["seccion_actual"]
@@ -361,11 +368,17 @@ def main():
     st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
     st.query_params["c"] = st.session_state.get("cargo", "Analista")
     
+    # Si estamos en monitoreo, preservar el servidor en URL
+    if st.session_state["seccion_actual"] == "🖥️ Monitoreo en vivo":
+        servidor_actual = st.session_state.get("sb_srv_tab1", "")
+        if servidor_actual and servidor_actual not in ["-- Seleccione un Servidor para empezar --", "-- Todos los Servidores --"]:
+            st.query_params["srv_mon"] = servidor_actual
+    
     # =============================================================
     # RENDERIZAR MÓDULO
     # =============================================================
-    # Si hay redirección pendiente, forzar monitoreo
-    if st.session_state.get("_srv_redirect_pending"):
+    # Si hay redirección pendiente o monitoreo activo, forzar monitoreo
+    if st.session_state.get("_srv_redirect_pending") or st.session_state.get("_monitoreo_activo", False):
         seleccion = "🖥️ Monitoreo en vivo"
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
     else:

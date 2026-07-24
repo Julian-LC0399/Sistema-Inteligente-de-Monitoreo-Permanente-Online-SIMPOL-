@@ -383,8 +383,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
 
     with tab1:
         st.session_state.tab_servidores_activa = 0
-        if st.query_params.get("tab_servidores") != "1":
-            st.query_params["tab_servidores"] = "1"
+        # IMPORTANTE: Solo establecer tab_servidores si NO estamos en monitoreo
+        # El flag _en_monitoreo se establece en monitoreo.py
+        if not st.session_state.get("_en_monitoreo", False):
+            if st.query_params.get("tab_servidores") != "1":
+                st.query_params["tab_servidores"] = "1"
 
         conn = None
         cursor = None
