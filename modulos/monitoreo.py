@@ -813,6 +813,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             del st.session_state["_srv_mensaje_mostrado"]
         if "_srv_select" in st.query_params:
             del st.query_params["_srv_select"]
+        if "_metrica_select" in st.query_params:
+            del st.query_params["_metrica_select"]
         del st.query_params["_limpiar_tab1"]
         st.rerun()
 
@@ -826,55 +828,54 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.rerun()
 
     # =========================================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY (USANDO FLAG) - CORREGIDO
-    # NO MODIFICAR WIDGETS (sb_srv_tab1_temp, sb_metrica_tab1_temp)
+    # DETECTAR REDIRECCIÓN DESDE SERVIDORES (PARÁMETRO "srv" EN URL)
+    # =========================================================================
+    srv_desde_url = st.query_params.get("srv")
+    if srv_desde_url and not st.session_state.get("_srv_redirect_pending"):
+        st.session_state["_srv_redirect_pending"] = srv_desde_url
+
+    # =========================================================================
+    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY
     # =========================================================================
     if "_srv_redirect_pending" in st.session_state and st.session_state["_srv_redirect_pending"]:
         srv_redireccionado = st.session_state["_srv_redirect_pending"]
         
-        # OBTENER TODOS LOS SERVIDORES (NO SOLO ACTIVOS)
+        # Verificar que el servidor existe
         try:
             conn = conectar_bd()
             if conn:
                 cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT ip, nombre_alias FROM servidores WHERE nombre_alias IS NOT NULL AND nombre_alias != ''")
-                servidores_temp = cursor.fetchall()
+                cursor.execute("SELECT nombre_alias FROM servidores WHERE nombre_alias = %s", (srv_redireccionado,))
+                existe = cursor.fetchone()
                 cursor.close()
                 conn.close()
             else:
-                servidores_temp = []
+                existe = None
         except Exception as e:
-            st.error(f"Error al obtener servidores: {e}")
-            servidores_temp = []
+            st.error(f"Error al verificar servidor: {e}")
+            existe = None
         
-        nombres_validos = [s['nombre_alias'] for s in servidores_temp if s.get('nombre_alias')]
-        
-        if srv_redireccionado in nombres_validos:
-            # Guardar en query params para que el selectbox lo use
-            st.query_params["_srv_select"] = srv_redireccionado
-            
-            # Actualizar SOLO estados que NO son widgets
+        if existe:
+            # Establecer los estados (NO modificar widgets)
             st.session_state["sb_srv_tab1"] = srv_redireccionado
-            # NO modificar sb_srv_tab1_temp - es un widget
-            st.session_state["sb_graf_srv"] = srv_redireccionado
-            st.session_state["sb_graf_srv_temp"] = srv_redireccionado
-            st.session_state["sb_graf_sensor"] = "-- Seleccione un Componente --"
-            st.session_state["sb_graf_sensor_temp"] = "-- Seleccione un Componente --"
             st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-            # NO modificar sb_metrica_tab1_temp - es un widget
             st.session_state["filtro_aplicado_tab1"] = True
-            st.session_state["filtro_aplicado_tab2"] = False
             st.session_state["_srv_mensaje_mostrado"] = True
+            
+            # Limpiar el flag
             st.session_state["_srv_redirect_pending"] = False
             
-            # Limpiar flag de redirección
-            if "_srv_redirect" in st.session_state:
-                del st.session_state["_srv_redirect"]
+            # Eliminar el parámetro de la URL
+            if "srv" in st.query_params:
+                del st.query_params["srv"]
             
+            # Forzar actualización
             st.rerun()
         else:
             st.warning(f"⚠️ El servidor '{srv_redireccionado}' no existe en la base de datos.")
             st.session_state["_srv_redirect_pending"] = False
+            if "srv" in st.query_params:
+                del st.query_params["srv"]
 
     servidores_activos = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores_activos if s.get('nombre_alias')])))
@@ -944,8 +945,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     )
 
     with tab_historico:
-        # NOTA: Ya no forzamos tab_servidores aquí
-        
         if not servidores_activos:
             st.info("💡 No hay servidores activos mapeados en la base de datos.")
         else:
@@ -955,23 +954,13 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             col_srv, col_metrica, col_filtrar, col_limpiar = st.columns([3, 2, 1, 1])
             
             with col_srv:
-                # Determinar el índice basado en el query param de redirección
+                # Determinar el índice basado en el valor actual
                 default_index = 0
-                srv_redirect = st.query_params.get("_srv_select")
-                
-                # Verificar que el servidor existe en las opciones
-                if srv_redirect and srv_redirect in opciones_servidores_tab1:
-                    default_index = opciones_servidores_tab1.index(srv_redirect)
-                elif st.session_state.get("sb_srv_tab1_temp") in opciones_servidores_tab1:
+                if st.session_state.get("sb_srv_tab1_temp") in opciones_servidores_tab1:
                     default_index = opciones_servidores_tab1.index(st.session_state["sb_srv_tab1_temp"])
                 else:
-                    # Si no existe, usar el primer elemento (índice 0)
                     default_index = 0
-                    # Limpiar el query param para evitar errores
-                    if "_srv_select" in st.query_params:
-                        del st.query_params["_srv_select"]
                 
-                # Asegurarse de que el índice esté dentro del rango de opciones
                 if default_index >= len(opciones_servidores_tab1):
                     default_index = 0
                 
@@ -982,31 +971,29 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     label_visibility="collapsed",
                     index=default_index
                 )
-                
-                # Limpiar el query param después de usarlo
-                if "_srv_select" in st.query_params:
-                    del st.query_params["_srv_select"]
             
             with col_metrica:
                 seleccion_srv_temp = st.session_state["sb_srv_tab1_temp"]
                 servidor_seleccionado_temp = (seleccion_srv_temp != "-- Seleccione un Servidor para empezar --")
                 es_vista_global_temp = (seleccion_srv_temp == "-- Todos los Servidores --")
                 
+                # Determinar el índice de métrica
+                default_metrica_index = 0
+                
                 # Si es vista global, mostrar opciones de métricas globales
                 if es_vista_global_temp:
                     opciones_metricas_globales = obtener_opciones_metricas_globales(servidores_activos)
                     opciones_metricas_con_placeholder = ["📊 Todas las Métricas"] + opciones_metricas_globales
                     
-                    current_metrica_index = 0
-                    if st.session_state["sb_metrica_tab1_temp"] in opciones_metricas_con_placeholder:
-                        current_metrica_index = opciones_metricas_con_placeholder.index(st.session_state["sb_metrica_tab1_temp"])
+                    if st.session_state.get("sb_metrica_tab1_temp") in opciones_metricas_con_placeholder:
+                        default_metrica_index = opciones_metricas_con_placeholder.index(st.session_state["sb_metrica_tab1_temp"])
                     
                     st.selectbox(
                         "Filtrar Métrica Rejilla", 
                         options=opciones_metricas_con_placeholder, 
                         key="sb_metrica_tab1_temp",
                         label_visibility="collapsed",
-                        index=current_metrica_index
+                        index=default_metrica_index
                     )
                 elif servidor_seleccionado_temp:
                     info_srv_metricas = next((s for s in servidores_activos if s['nombre_alias'] == seleccion_srv_temp), None)
@@ -1022,16 +1009,16 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         )
                     else:
                         opciones_metricas_con_placeholder = ["📊 Todas las Métricas"] + opciones_metricas_disponibles
-                        current_metrica_index = 0
-                        if st.session_state["sb_metrica_tab1_temp"] in opciones_metricas_con_placeholder:
-                            current_metrica_index = opciones_metricas_con_placeholder.index(st.session_state["sb_metrica_tab1_temp"])
+                        
+                        if st.session_state.get("sb_metrica_tab1_temp") in opciones_metricas_con_placeholder:
+                            default_metrica_index = opciones_metricas_con_placeholder.index(st.session_state["sb_metrica_tab1_temp"])
                         
                         st.selectbox(
                             "Filtrar Métrica Rejilla", 
                             options=opciones_metricas_con_placeholder, 
                             key="sb_metrica_tab1_temp",
                             label_visibility="collapsed",
-                            index=current_metrica_index
+                            index=default_metrica_index
                         )
                 else:
                     st.selectbox(
@@ -1047,13 +1034,11 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.session_state["sb_srv_tab1"] = st.session_state["sb_srv_tab1_temp"]
                     st.session_state["sb_metrica_tab1"] = st.session_state["sb_metrica_tab1_temp"]
                     st.session_state["filtro_aplicado_tab1"] = True
-                    # IMPORTANTE: NO forzar tab_servidores aquí
                     st.rerun()
             
             with col_limpiar:
                 if st.button("🧹 Limpiar", key="btn_limpiar_tab1", use_container_width=True):
                     st.query_params["_limpiar_tab1"] = "1"
-                    # IMPORTANTE: NO forzar tab_servidores aquí
                     st.rerun()
 
             # =============================================================
@@ -1077,8 +1062,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     renderizar_tabla_historico(seleccion_srv, seleccion_metrica, servidores_activos, dict_ip_a_nombre, mapa_columnas)
 
     with tab_graficas:
-        # NOTA: Ya no forzamos tab_servidores aquí
-        
         # =============================================================
         # FILTROS CON BOTON "FILTRAR" - PESTAÑA 2
         # =============================================================
@@ -1128,13 +1111,11 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.session_state["sb_graf_srv"] = st.session_state["sb_graf_srv_temp"]
                 st.session_state["sb_graf_sensor"] = st.session_state["sb_graf_sensor_temp"]
                 st.session_state["filtro_aplicado_tab2"] = True
-                # IMPORTANTE: NO forzar tab_servidores aquí
                 st.rerun()
         
         with col_limpiar_2:
             if st.button("🧹 Limpiar", key="btn_limpiar_tab2", use_container_width=True):
                 st.query_params["_limpiar_tab2_global"] = "1"
-                # IMPORTANTE: NO forzar tab_servidores aquí
                 st.rerun()
 
         # =============================================================

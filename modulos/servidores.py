@@ -584,9 +584,19 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             key=f"btn_vivo_{nombre_servidor}", 
                             use_container_width=True
                         ):
-                            # Usar flag en lugar de modificar widgets directamente
+                            # Guardar en session_state y query_params para redirección
                             st.session_state["_srv_redirect_pending"] = nombre_servidor
                             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+                            # Limpiar query params anteriores y establecer nuevos
+                            st.query_params.clear()
+                            st.query_params["srv"] = nombre_servidor
+                            st.query_params["p"] = "🖥️ Monitoreo en vivo"
+                            st.query_params["s"] = "1"
+                            st.query_params["rol"] = st.session_state.get("rol", "seguridad")
+                            st.query_params["uid"] = str(st.session_state.get("user_id", 1))
+                            st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
+                            st.query_params["c"] = st.session_state.get("cargo", "Analista")
+                            # Forzar rerun para aplicar los cambios
                             st.rerun()
 
                 st.markdown("---")

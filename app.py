@@ -261,46 +261,23 @@ def main():
     params = st.query_params
     
     # =============================================================
-    # SRV DESDE URL - CAPTURAR Y GUARDAR EN SESSION_STATE
+    # PROCESAR REDIRECCIÓN DESDE SERVIDORES - AL INICIO
     # =============================================================
     srv_desde_url = params.get("srv")
     if srv_desde_url:
-        st.session_state["_srv_redirect"] = srv_desde_url
-        st.session_state["_srv_captured"] = True
-        logging.info(f"SRV capturado desde URL: {srv_desde_url}")
-        
+        logging.info(f"🔍 Procesando redirección desde servidores: {srv_desde_url}")
+        # Establecer todos los estados necesarios
+        st.session_state["_srv_redirect_pending"] = srv_desde_url
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
         st.session_state["servidor_seleccionado"] = srv_desde_url
-        
-        # NO modificar widgets directamente
-        st.session_state["_srv_redirect_pending"] = srv_desde_url
-        
-        try:
-            del st.query_params["srv"]
-        except:
-            pass
-    
-    # =============================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY
-    # =============================================================
-    if "_redirigir_a_monitoreo" in st.session_state:
-        servidor = st.session_state["_redirigir_a_monitoreo"]
-        if servidor:
-            logging.info(f"App.py procesando redirección a: {servidor}")
-            
-            # === FORZAR TODOS LOS ESTADOS ===
-            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-            st.session_state["sb_srv_tab1"] = servidor
-            st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-            st.session_state["filtro_aplicado_tab1"] = True
-            st.session_state["filtro_aplicado_tab2"] = False
-            st.session_state["_srv_mensaje_mostrado"] = True
-            st.session_state["_srv_redirect"] = servidor
-            st.session_state["_srv_redirect_pending"] = servidor
-            
-            del st.session_state["_redirigir_a_monitoreo"]
-            st.rerun()
+        st.session_state["sb_srv_tab1"] = srv_desde_url
+        st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+        st.session_state["filtro_aplicado_tab1"] = True
+        # Limpiar el parámetro para que no se procese de nuevo
+        del st.query_params["srv"]
+        # Forzar rerun para aplicar los cambios
+        st.rerun()
     
     # =============================================================
     # AUTENTICACIÓN
@@ -336,13 +313,13 @@ def main():
     # USUARIO AUTENTICADO - NAVEGACIÓN
     # =============================================================
     
-    # 1. PRIMERO: Obtener la sección de la URL (prioridad máxima)
+    # 1. PRIMERO: Obtener la sección de la URL
     url_seccion = params.get("p")
     if url_seccion:
         st.session_state["seccion_actual"] = url_seccion
     
-    # 2. SEGUNDO: Si hay redirección SRV, forzar monitoreo
-    if st.session_state.get("_srv_redirect"):
+    # 2. SEGUNDO: Si hay redirección pendiente, forzar monitoreo
+    if st.session_state.get("_srv_redirect_pending"):
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
     
     # 3. TERCERO: Si no hay sección, usar Inicio
@@ -350,26 +327,24 @@ def main():
         st.session_state["seccion_actual"] = "🏠 Inicio"
     
     # =============================================================
-    # GENERAR MENÚ (el widget se sincroniza con seccion_actual)
+    # GENERAR MENÚ
     # =============================================================
-    # Pasar la sección actual al menú para que seleccione la opción correcta
-    # El menú usa el valor de seccion_actual para determinar el índice
     generar_menu()
     
     # =============================================================
     # LEER LA SECCIÓN DEL WIDGET Y ACTUALIZAR
     # =============================================================
-    # SOLO actualizar si NO hay una redirección pendiente
-    if not st.session_state.get("_srv_redirect_pending"):
+    # Si hay redirección pendiente, FORZAR monitoreo (sobrescribir el widget)
+    if st.session_state.get("_srv_redirect_pending"):
+        st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+    else:
         if "widget_navegacion" in st.session_state:
             widget_seleccion = st.session_state["widget_navegacion"]
             if widget_seleccion != st.session_state["seccion_actual"]:
                 st.session_state["seccion_actual"] = widget_seleccion
-    # Si hay redirección pendiente, NO modificar widget_navegacion
-    # El menú ya se renderizó con la sección correcta
     
     # =============================================================
-    # LIMPIEZA DE FILTROS (SOLO PARA SECCIONES QUE NO SON MONITOREO)
+    # LIMPIEZA DE FILTROS
     # =============================================================
     if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
@@ -389,7 +364,13 @@ def main():
     # =============================================================
     # RENDERIZAR MÓDULO
     # =============================================================
-    seleccion = st.session_state["seccion_actual"]
+    # Si hay redirección pendiente, forzar monitoreo
+    if st.session_state.get("_srv_redirect_pending"):
+        seleccion = "🖥️ Monitoreo en vivo"
+        st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+    else:
+        seleccion = st.session_state["seccion_actual"]
+    
     placeholder_principal = st.empty()
     
     with placeholder_principal.container():

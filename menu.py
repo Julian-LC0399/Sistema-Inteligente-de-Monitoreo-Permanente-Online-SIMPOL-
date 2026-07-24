@@ -15,67 +15,48 @@ def get_base64_image(image_path):
     return None
 
 def cambiar_pagina():
-    """Manejador seguro para la conmutación de secciones y purga del estado residual"""
+    """Manejador seguro para la conmutación de secciones"""
+    # Si hay redirección pendiente o srv en URL, NO cambiar
+    if st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
+        return
+    
     if "nav_radio" in st.session_state:
         nueva_seccion = st.session_state["nav_radio"]
         seccion_anterior = st.session_state.get("seccion_actual", "🏠 Inicio")
         
-        # Si el usuario realmente cambió de módulo, ejecutamos la purga en el State
         if nueva_seccion != seccion_anterior:
-            
-            # 1. Purga de Alertas
+            # Purga de Alertas
             if seccion_anterior == "🔔 Alertas":
-                claves_alertas = [
-                    "sb_alerta_srv", "filtro_alerta_servidor",
-                    "filtro_alerta_criticidad"
-                ]
+                claves_alertas = ["sb_alerta_srv", "filtro_alerta_servidor", "filtro_alerta_criticidad"]
                 for clave in claves_alertas:
                     if clave in st.session_state:
                         del st.session_state[clave]
             
-            # 🔥 NUEVO: Purga de Umbrales
+            # Purga de Umbrales
             if seccion_anterior == "⚙️ Umbrales":
-                claves_umbrales = [
-                    "filtro_umbral_servidor", 
-                    "filtro_umbral_componente",
-                    "justificacion_umbrales"
-                ]
+                claves_umbrales = ["filtro_umbral_servidor", "filtro_umbral_componente", "justificacion_umbrales"]
                 for clave in claves_umbrales:
                     if clave in st.session_state:
                         del st.session_state[clave]
             
-            # 2. Purga de Infraestructura / Monitoreo
+            # Purga de Infraestructura / Monitoreo
             if seccion_anterior in ["🖥️ Monitoreo en vivo", "🖥️ Servidores"]:
-                claves_infra = [
-                    "filtro_monitoreo_nombre", "filtro_monitoreo_sensor", 
-                    "servidor_seleccionado", "filtro_servidor_nombre", 
-                    "accion_infra"
-                ]
+                claves_infra = ["filtro_monitoreo_nombre", "filtro_monitoreo_sensor", "servidor_seleccionado", "filtro_servidor_nombre", "accion_infra"]
                 for clave in claves_infra:
                     if clave in st.session_state:
                         del st.session_state[clave]
 
-            # Actualizamos la sección actual en el estado maestro
             st.session_state["seccion_actual"] = nueva_seccion
 
 def generar_menu():
-    """Genera la estructura del menú lateral totalmente aislada de app.py"""
+    """Genera la estructura del menú lateral"""
     
-    # ==========================================================================
-    # DETECTOR DE CLIC EN LOGOUT (HTML PARSER)
-    # ==========================================================================
+    # Detectar logout
     if st.query_params.get("logout") == "1":
         st.query_params.clear()
-        st.query_params.update({
-            "s": "0",
-            "p": "🏠 Inicio",
-            "r": "",
-            "uid": "",
-            "n": ""
-        })
+        st.query_params.update({"s": "0", "p": "🏠 Inicio", "r": "", "uid": "", "n": ""})
         st.session_state["autenticado"] = False
         st.session_state["seccion_actual"] = "🏠 Inicio"
-        
         claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "nav_radio"]
         for clave in claves_a_remover:
             if clave in st.session_state:
@@ -95,16 +76,13 @@ def generar_menu():
         
         st.markdown('<div class="sidebar-institucional">', unsafe_allow_html=True)
         
-        # ==========================================================================
-        # 1. CONTROL DE RUTA Y RENDERIZADO DEL LOGO INSTITUCIONAL
-        # ==========================================================================
+        # Logo
         img_path = None
         for ext in [".png", ".jpg", ".jpeg"]:
             posible_ruta = get_resource_path(f"logo-banco{ext}")
             if os.path.exists(posible_ruta):
                 img_path = posible_ruta
                 break
-            
             posible_ruta_local = os.path.abspath(f"logo-banco{ext}")
             if os.path.exists(posible_ruta_local):
                 img_path = posible_ruta_local
@@ -120,9 +98,7 @@ def generar_menu():
         
         st.divider()
 
-        # ==========================================================================
-        # 2. FILTRADO DINÁMICO DE OPCIONES SEGÚN ROL DE SEGURIDAD
-        # ==========================================================================
+        # Opciones del menú
         opciones = [
             "🏠 Inicio", 
             "🖥️ Servidores", 
@@ -137,26 +113,22 @@ def generar_menu():
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # === BLINDAJE ANTI-WARNING Y CONFIGURACIÓN DINÁMICA DEL ESTADO ===
+        # Determinar sección persistente
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
         
-        # Si hay redirección pendiente, forzar selección a monitoreo
-        if st.session_state.get("_srv_redirect_pending"):
+        # Si hay redirección pendiente o srv en URL, forzar monitoreo
+        if st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
             seccion_persistente = "🖥️ Monitoreo en vivo"
         
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
-        # ==========================================================================
-        # 3. NAVEGACIÓN POR RADIO - CON ÍNDICE DINÁMICO
-        # ==========================================================================
-        # Determinar el índice basado en la sección persistente
+        # Radio de navegación
         try:
             default_index = opciones.index(seccion_persistente)
         except ValueError:
             default_index = 0
         
-        # Crear el radio con el índice correcto
         seleccion = st.radio(
             "Navegación del Sistema", 
             options=opciones,
@@ -166,20 +138,13 @@ def generar_menu():
             on_change=cambiar_pagina
         )
         
-        # Garantizamos el estado maestro alineado con la interfaz
-        st.session_state["seccion_actual"] = seleccion
-        
-        # Si hay redirección pendiente, la limpiamos después de establecer la selección
-        if st.session_state.get("_srv_redirect_pending"):
-            # La redirección ya se procesó, limpiamos el flag
-            # No lo limpiamos aquí porque monitoreo.py lo necesita
-            pass
+        # Si NO hay redirección, actualizar seccion_actual
+        if not st.session_state.get("_srv_redirect_pending") and not st.query_params.get("srv"):
+            st.session_state["seccion_actual"] = seleccion
         
         st.divider()
 
-        # ==========================================================================
-        # 4. BOTÓN DE CIERRE DE SESIÓN EN HTML PURO
-        # ==========================================================================
+        # Botón de logout
         html_logout = """
         <a href="?logout=1" target="_self" style="text-decoration: none;">
             <div style="
