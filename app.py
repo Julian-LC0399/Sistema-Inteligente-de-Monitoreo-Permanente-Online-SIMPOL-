@@ -164,6 +164,11 @@ def limpiar_estado_capacity():
             del st.session_state[key]
 
 def gestionar_limpieza_filtros(seccion_destino):
+    # Si es monitoreo y hay un SRV pendiente O filtro aplicado, NO LIMPIAR
+    if seccion_destino == "🖥️ Monitoreo en vivo":
+        if st.session_state.get("_srv_redirect") or st.session_state.get("filtro_aplicado_tab1", False):
+            return
+    
     if "srv" in st.query_params or seccion_destino == "🖥️ Monitoreo en vivo" or st.query_params.get("p") == "🖥️ Monitoreo en vivo":
         return
 
@@ -256,18 +261,47 @@ def main():
     params = st.query_params
     
     # =============================================================
-    # SRV DESDE URL
+    # SRV DESDE URL - CAPTURAR Y GUARDAR EN SESSION_STATE
     # =============================================================
     srv_desde_url = params.get("srv")
     if srv_desde_url:
         st.session_state["_srv_redirect"] = srv_desde_url
+        st.session_state["_srv_captured"] = True
+        logging.info(f"SRV capturado desde URL: {srv_desde_url}")
+        
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
         st.session_state["servidor_seleccionado"] = srv_desde_url
+        
         try:
             del st.query_params["srv"]
         except:
             pass
+    
+    # =============================================================
+    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY (CORREGIDO)
+    # =============================================================
+    if "_redirigir_a_monitoreo" in st.session_state:
+        servidor = st.session_state["_redirigir_a_monitoreo"]
+        if servidor:
+            logging.info(f"App.py procesando redirección a: {servidor}")
+            
+            # === FORZAR TODOS LOS ESTADOS DE MONITOREO ===
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+            st.session_state["sb_srv_tab1"] = servidor
+            st.session_state["sb_srv_tab1_temp"] = servidor
+            st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+            st.session_state["filtro_aplicado_tab1"] = True
+            st.session_state["filtro_aplicado_tab2"] = False
+            st.session_state["_srv_mensaje_mostrado"] = True
+            st.session_state["tab_servidores_activa"] = 0
+            st.session_state["_srv_redirect"] = servidor
+            
+            # Limpiar la redirección
+            del st.session_state["_redirigir_a_monitoreo"]
+            st.query_params["tab_servidores"] = "1"
+            st.rerun()
     
     # =============================================================
     # AUTENTICACIÓN
@@ -311,7 +345,7 @@ def main():
     # 2. SEGUNDO: Si hay redirección SRV, forzar monitoreo
     if st.session_state.get("_srv_redirect"):
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-        st.session_state["_srv_redirect"] = None
+        # NO LIMPIAR _srv_redirect aquí - monitoreo.py lo necesita
     
     # 3. TERCERO: Si no hay sección, usar Inicio
     if "seccion_actual" not in st.session_state:
@@ -327,7 +361,6 @@ def main():
     # =============================================================
     if "widget_navegacion" in st.session_state:
         widget_seleccion = st.session_state["widget_navegacion"]
-        # Si el widget cambió, actualizar seccion_actual
         if widget_seleccion != st.session_state["seccion_actual"]:
             st.session_state["seccion_actual"] = widget_seleccion
     
@@ -341,7 +374,6 @@ def main():
     # =============================================================
     if params.get("p") != st.session_state["seccion_actual"]:
         st.query_params["p"] = st.session_state["seccion_actual"]
-        # NO hacer rerun aquí
     
     st.query_params["s"] = "1"
     st.query_params["rol"] = st.session_state.get("rol", "operador")

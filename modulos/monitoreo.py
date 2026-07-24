@@ -837,7 +837,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state.tab_servidores_activa = 0
 
     # =========================================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY
+    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY (CORREGIDO - CON TODOS LOS ESTADOS)
     # =========================================================================
     if "srv" in st.query_params:
         srv_redireccionado = st.query_params.get("srv")
@@ -847,10 +847,25 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             pass
         
         if srv_redireccionado:
-            servidores_temp = obtener_lista_servidores()
+            # OBTENER TODOS LOS SERVIDORES (NO SOLO ACTIVOS)
+            try:
+                conn = conectar_bd()
+                if conn:
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("SELECT ip, nombre_alias FROM servidores WHERE nombre_alias IS NOT NULL AND nombre_alias != ''")
+                    servidores_temp = cursor.fetchall()
+                    cursor.close()
+                    conn.close()
+                else:
+                    servidores_temp = []
+            except Exception as e:
+                st.error(f"Error al obtener servidores: {e}")
+                servidores_temp = []
+            
             nombres_validos = [s['nombre_alias'] for s in servidores_temp if s.get('nombre_alias')]
             
             if srv_redireccionado in nombres_validos:
+                # === FORZAR TODOS LOS ESTADOS ===
                 st.session_state["sb_srv_tab1"] = srv_redireccionado
                 st.session_state["sb_srv_tab1_temp"] = srv_redireccionado
                 st.session_state["sb_graf_srv"] = srv_redireccionado
@@ -864,6 +879,11 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.session_state["_srv_mensaje_mostrado"] = True
                 st.session_state.tab_servidores_activa = 0
                 st.query_params["tab_servidores"] = "1"
+                
+                # Limpiar flag de redirección
+                if "_srv_redirect" in st.session_state:
+                    del st.session_state["_srv_redirect"]
+                
                 st.rerun()
             else:
                 st.warning(f"⚠️ El servidor '{srv_redireccionado}' no existe en la base de datos.")
