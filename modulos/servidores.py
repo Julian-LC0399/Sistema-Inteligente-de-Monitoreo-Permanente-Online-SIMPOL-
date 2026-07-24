@@ -350,6 +350,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
             logging.info(f"🔍 Redirigiendo a servidor: {servidor}")
             st.session_state["redirigir_servidor"] = None
             st.session_state["_redirigir_a_monitoreo"] = servidor
+            # IMPORTANTE: Sincronizar también los valores temporales para monitoreo
+            st.session_state["sb_srv_tab1_temp"] = servidor
+            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
             st.rerun()
         else:
@@ -584,6 +587,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             use_container_width=True
                         ):
                             st.session_state["redirigir_servidor"] = nombre_servidor
+                            # Sincronizar temporales para monitoreo
+                            st.session_state["sb_srv_tab1_temp"] = nombre_servidor
+                            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
                             st.rerun()
 
                 st.markdown("---")

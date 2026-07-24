@@ -273,32 +273,35 @@ def main():
         st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
         st.session_state["servidor_seleccionado"] = srv_desde_url
         
+        # Sincronizar temporales para monitoreo
+        st.session_state["sb_srv_tab1_temp"] = srv_desde_url
+        st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+        
         try:
             del st.query_params["srv"]
         except:
             pass
     
     # =============================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY (CORREGIDO)
+    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY
     # =============================================================
     if "_redirigir_a_monitoreo" in st.session_state:
         servidor = st.session_state["_redirigir_a_monitoreo"]
         if servidor:
             logging.info(f"App.py procesando redirección a: {servidor}")
             
-            # === FORZAR TODOS LOS ESTADOS DE MONITOREO ===
+            # === FORZAR TODOS LOS ESTADOS ===
             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
             st.session_state["sb_srv_tab1"] = servidor
-            st.session_state["sb_srv_tab1_temp"] = servidor
+            st.session_state["sb_srv_tab1_temp"] = servidor  # Sincronizar temporal
             st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"
+            st.session_state["sb_metrica_tab1_temp"] = "📊 Todas las Métricas"  # Sincronizar temporal
             st.session_state["filtro_aplicado_tab1"] = True
             st.session_state["filtro_aplicado_tab2"] = False
             st.session_state["_srv_mensaje_mostrado"] = True
             st.session_state["tab_servidores_activa"] = 0
             st.session_state["_srv_redirect"] = servidor
             
-            # Limpiar la redirección
             del st.session_state["_redirigir_a_monitoreo"]
             st.query_params["tab_servidores"] = "1"
             st.rerun()
