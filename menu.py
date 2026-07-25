@@ -25,6 +25,15 @@ def cambiar_pagina():
         seccion_anterior = st.session_state.get("seccion_actual", "🏠 Inicio")
         
         if nueva_seccion != seccion_anterior:
+            # Si el usuario selecciona monitoreo manualmente, activar flag
+            if nueva_seccion == "🖥️ Monitoreo en vivo":
+                st.session_state["_monitoreo_activo"] = True
+            else:
+                # Si selecciona otra sección, desactivar monitoreo
+                st.session_state["_monitoreo_activo"] = False
+                if "_srv_redirect_pending" in st.session_state:
+                    del st.session_state["_srv_redirect_pending"]
+            
             # Purga de Alertas
             if seccion_anterior == "🔔 Alertas":
                 claves_alertas = ["sb_alerta_srv", "filtro_alerta_servidor", "filtro_alerta_criticidad"]
@@ -57,7 +66,8 @@ def generar_menu():
         st.query_params.update({"s": "0", "p": "🏠 Inicio", "r": "", "uid": "", "n": ""})
         st.session_state["autenticado"] = False
         st.session_state["seccion_actual"] = "🏠 Inicio"
-        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "nav_radio"]
+        st.session_state["_monitoreo_activo"] = False
+        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "nav_radio", "_srv_redirect_pending"]
         for clave in claves_a_remover:
             if clave in st.session_state:
                 del st.session_state[clave]
@@ -70,6 +80,20 @@ def generar_menu():
                 div[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] p {
                     color: #003366 !important;
                     font-weight: bold !important;
+                }
+                /* 🔥 Estilo para resaltar la opción activa del menú */
+                div[data-testid="stSidebar"] div[data-testid="stRadio"] label {
+                    padding: 8px 12px !important;
+                    border-radius: 4px !important;
+                    transition: all 0.2s ease !important;
+                }
+                div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-selected="true"] {
+                    background-color: #003366 !important;
+                    color: white !important;
+                    font-weight: bold !important;
+                }
+                div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-selected="true"] p {
+                    color: white !important;
                 }
             </style>
         """, unsafe_allow_html=True)
@@ -113,16 +137,23 @@ def generar_menu():
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # Determinar sección persistente
+        # 🔥 Determinar sección persistente
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
         
-        # Si hay redirección pendiente o srv en URL, forzar monitoreo
-        if st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
+        # 🔥 CRÍTICO: Verificar _monitoreo_activo (lo establece app.py)
+        if st.session_state.get("_monitoreo_activo", False):
             seccion_persistente = "🖥️ Monitoreo en vivo"
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+        elif st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
+            seccion_persistente = "🖥️ Monitoreo en vivo"
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
+        # 🔥 KEY DINÁMICA: Cambia cuando seccion_persistente cambia
+        radio_key = f"nav_radio_{seccion_persistente.replace(' ', '_').replace('🖥️', 'monitoreo')}"
+        
         # Radio de navegación
         try:
             default_index = opciones.index(seccion_persistente)
@@ -133,14 +164,28 @@ def generar_menu():
             "Navegación del Sistema", 
             options=opciones,
             index=default_index,
-            key="nav_radio",
+            key=radio_key,  # 🔥 Key dinámica para forzar actualización
             label_visibility="collapsed",
             on_change=cambiar_pagina
         )
         
-        # Si NO hay redirección, actualizar seccion_actual
+        # 🔥 Guardar la selección en una key fija para que otros componentes puedan acceder
+        st.session_state["nav_radio"] = seleccion
+        
+        # 🔥 Si NO hay redirección, actualizar seccion_actual
         if not st.session_state.get("_srv_redirect_pending") and not st.query_params.get("srv"):
-            st.session_state["seccion_actual"] = seleccion
+            # Si el usuario seleccionó manualmente y no estamos en redirección
+            if seleccion != st.session_state.get("seccion_actual", "🏠 Inicio"):
+                # Si selecciona monitoreo, activar flag
+                if seleccion == "🖥️ Monitoreo en vivo":
+                    st.session_state["_monitoreo_activo"] = True
+                else:
+                    # Si selecciona otra sección, desactivar monitoreo
+                    st.session_state["_monitoreo_activo"] = False
+                    if "_srv_redirect_pending" in st.session_state:
+                        del st.session_state["_srv_redirect_pending"]
+                
+                st.session_state["seccion_actual"] = seleccion
         
         st.divider()
 

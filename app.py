@@ -257,6 +257,13 @@ def gestionar_limpieza_filtros(seccion_destino):
         elif seccion_destino == "📈 Capacity planning":
             st.query_params["tab_capacity"] = tab_actual
 
+def limpiar_parametros_monitoreo_url():
+    """Limpia los parámetros de monitoreo de la URL"""
+    params_to_remove = ['srv', 'srv_mon', 'srv_select', 'metrica_select']
+    for param in params_to_remove:
+        if param in st.query_params:
+            del st.query_params[param]
+
 def main():
     params = st.query_params
     
@@ -275,7 +282,9 @@ def main():
         st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
         st.session_state["filtro_aplicado_tab1"] = True
         del st.query_params["srv"]
+        # 🔥 IMPORTANTE: Forzar rerun para que el menú se actualice
         st.rerun()
+        return  # 🔥 Salir para que no continúe ejecutando
     
     # =============================================================
     # AUTENTICACIÓN
@@ -355,6 +364,8 @@ def main():
     # Solo limpiar filtros si NO estamos en monitoreo
     if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
+        # Limpiar parámetros de monitoreo de la URL
+        limpiar_parametros_monitoreo_url()
     
     # =============================================================
     # SINCRONIZAR URL - PRESERVAR MONITOREO
