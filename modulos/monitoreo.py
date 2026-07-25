@@ -835,8 +835,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     # 🔥 ELIMINADO: Lógica de redirección duplicada
     # La redirección ahora es manejada EXCLUSIVAMENTE por app.py
     # =========================================================================
-    # Ya no detectamos srv en URL ni procesamos _srv_redirect_pending aquí
-    # app.py se encarga de establecer sb_srv_tab1 y otros estados
 
     servidores_activos = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores_activos if s.get('nombre_alias')])))
@@ -992,8 +990,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.session_state["sb_srv_tab1"] = st.session_state["sb_srv_tab1_temp"]
                     st.session_state["sb_metrica_tab1"] = st.session_state["sb_metrica_tab1_temp"]
                     st.session_state["filtro_aplicado_tab1"] = True
-                    st.session_state["_monitoreo_activo"] = True
-                    st.rerun(scope="app")
+                    # 🔥 ELIMINADO: st.session_state["_monitoreo_activo"] = True
+                    st.rerun()
             
             with col_limpiar:
                 if st.button("🧹 Limpiar", key="btn_limpiar_tab1", use_container_width=True):
@@ -1072,8 +1070,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.session_state["sb_graf_srv"] = st.session_state["sb_graf_srv_temp"]
                 st.session_state["sb_graf_sensor"] = st.session_state["sb_graf_sensor_temp"]
                 st.session_state["filtro_aplicado_tab2"] = True
-                st.session_state["_monitoreo_activo"] = True
-                st.rerun(scope="app")
+                # 🔥 ELIMINADO: st.session_state["_monitoreo_activo"] = True
+                st.rerun()
         
         with col_limpiar_2:
             if st.button("🧹 Limpiar", key="btn_limpiar_tab2", use_container_width=True):

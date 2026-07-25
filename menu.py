@@ -14,49 +14,6 @@ def get_base64_image(image_path):
         return None
     return None
 
-def cambiar_pagina():
-    """Manejador seguro para la conmutación de secciones"""
-    # Si hay redirección pendiente o srv en URL, NO cambiar
-    if st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
-        return
-    
-    if "nav_radio" in st.session_state:
-        nueva_seccion = st.session_state["nav_radio"]
-        seccion_anterior = st.session_state.get("seccion_actual", "🏠 Inicio")
-        
-        if nueva_seccion != seccion_anterior:
-            # Si el usuario selecciona monitoreo manualmente, activar flag
-            if nueva_seccion == "🖥️ Monitoreo en vivo":
-                st.session_state["_monitoreo_activo"] = True
-            else:
-                # Si selecciona otra sección, desactivar monitoreo
-                st.session_state["_monitoreo_activo"] = False
-                if "_srv_redirect_pending" in st.session_state:
-                    del st.session_state["_srv_redirect_pending"]
-            
-            # Purga de Alertas
-            if seccion_anterior == "🔔 Alertas":
-                claves_alertas = ["sb_alerta_srv", "filtro_alerta_servidor", "filtro_alerta_criticidad"]
-                for clave in claves_alertas:
-                    if clave in st.session_state:
-                        del st.session_state[clave]
-            
-            # Purga de Umbrales
-            if seccion_anterior == "⚙️ Umbrales":
-                claves_umbrales = ["filtro_umbral_servidor", "filtro_umbral_componente", "justificacion_umbrales"]
-                for clave in claves_umbrales:
-                    if clave in st.session_state:
-                        del st.session_state[clave]
-            
-            # Purga de Infraestructura / Monitoreo
-            if seccion_anterior in ["🖥️ Monitoreo en vivo", "🖥️ Servidores"]:
-                claves_infra = ["filtro_monitoreo_nombre", "filtro_monitoreo_sensor", "servidor_seleccionado", "filtro_servidor_nombre", "accion_infra"]
-                for clave in claves_infra:
-                    if clave in st.session_state:
-                        del st.session_state[clave]
-
-            st.session_state["seccion_actual"] = nueva_seccion
-
 def generar_menu():
     """Genera la estructura del menú lateral"""
     
@@ -67,7 +24,7 @@ def generar_menu():
         st.session_state["autenticado"] = False
         st.session_state["seccion_actual"] = "🏠 Inicio"
         st.session_state["_monitoreo_activo"] = False
-        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "nav_radio", "_srv_redirect_pending"]
+        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "_srv_redirect_pending", "_procesando_cambio"]
         for clave in claves_a_remover:
             if clave in st.session_state:
                 del st.session_state[clave]
@@ -81,7 +38,6 @@ def generar_menu():
                     color: #003366 !important;
                     font-weight: bold !important;
                 }
-                /* 🔥 Estilo para resaltar la opción activa del menú */
                 div[data-testid="stSidebar"] div[data-testid="stRadio"] label {
                     padding: 8px 12px !important;
                     border-radius: 4px !important;
@@ -137,55 +93,42 @@ def generar_menu():
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # 🔥 Determinar sección persistente
+        # Determinar sección persistente para el radio
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
         
-        # 🔥 CRÍTICO: Verificar _monitoreo_activo (lo establece app.py)
+        # Verificar _monitoreo_activo
         if st.session_state.get("_monitoreo_activo", False):
             seccion_persistente = "🖥️ Monitoreo en vivo"
-            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         elif st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
             seccion_persistente = "🖥️ Monitoreo en vivo"
-            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
-        # 🔥 KEY DINÁMICA: Cambia cuando seccion_persistente cambia
-        radio_key = f"nav_radio_{seccion_persistente.replace(' ', '_').replace('🖥️', 'monitoreo')}"
-        
-        # Radio de navegación
+        # Key FIJA para el radio
         try:
             default_index = opciones.index(seccion_persistente)
         except ValueError:
             default_index = 0
         
+        # 🔥 Radio CON on_change para manejar cambios
+        def on_radio_change():
+            """Callback cuando el radio cambia"""
+            if "nav_radio" in st.session_state:
+                nueva_seccion = st.session_state["nav_radio"]
+                # Guardar en un flag temporal para que app.py lo procese
+                st.session_state["_cambio_pendiente"] = nueva_seccion
+                # Forzar rerun
+                st.rerun()
+        
         seleccion = st.radio(
             "Navegación del Sistema", 
             options=opciones,
             index=default_index,
-            key=radio_key,  # 🔥 Key dinámica para forzar actualización
+            key="nav_radio",
             label_visibility="collapsed",
-            on_change=cambiar_pagina
+            on_change=on_radio_change
         )
-        
-        # 🔥 Guardar la selección en una key fija para que otros componentes puedan acceder
-        st.session_state["nav_radio"] = seleccion
-        
-        # 🔥 Si NO hay redirección, actualizar seccion_actual
-        if not st.session_state.get("_srv_redirect_pending") and not st.query_params.get("srv"):
-            # Si el usuario seleccionó manualmente y no estamos en redirección
-            if seleccion != st.session_state.get("seccion_actual", "🏠 Inicio"):
-                # Si selecciona monitoreo, activar flag
-                if seleccion == "🖥️ Monitoreo en vivo":
-                    st.session_state["_monitoreo_activo"] = True
-                else:
-                    # Si selecciona otra sección, desactivar monitoreo
-                    st.session_state["_monitoreo_activo"] = False
-                    if "_srv_redirect_pending" in st.session_state:
-                        del st.session_state["_srv_redirect_pending"]
-                
-                st.session_state["seccion_actual"] = seleccion
         
         st.divider()
 

@@ -163,6 +163,36 @@ def limpiar_estado_capacity():
         if key in st.session_state:
             del st.session_state[key]
 
+def limpiar_parametros_monitoreo():
+    """Limpia TODOS los parámetros y estados de monitoreo"""
+    # Limpiar parámetros de URL
+    params_to_remove = ['srv', 'srv_mon', 'srv_select', 'metrica_select', 'tab_servidores']
+    for param in params_to_remove:
+        if param in st.query_params:
+            del st.query_params[param]
+    
+    # Limpiar estados de monitoreo
+    keys_to_clear = [
+        '_monitoreo_activo',
+        '_srv_redirect_pending',
+        'filtro_monitoreo_nombre',
+        'filtro_monitoreo_sensor',
+        'servidor_seleccionado',
+        'sb_srv_tab1',
+        'sb_metrica_tab1',
+        'filtro_aplicado_tab1',
+        'filtro_aplicado_tab2',
+        '_srv_mensaje_mostrado'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # Resetear estados de monitoreo a valores por defecto
+    st.session_state["_monitoreo_activo"] = False
+    st.session_state["filtro_aplicado_tab1"] = False
+    st.session_state["filtro_aplicado_tab2"] = False
+
 def gestionar_limpieza_filtros(seccion_destino):
     # Si es monitoreo, NO LIMPIAR NADA
     if seccion_destino == "🖥️ Monitoreo en vivo":
@@ -257,18 +287,36 @@ def gestionar_limpieza_filtros(seccion_destino):
         elif seccion_destino == "📈 Capacity planning":
             st.query_params["tab_capacity"] = tab_actual
 
-def limpiar_parametros_monitoreo_url():
-    """Limpia los parámetros de monitoreo de la URL"""
-    params_to_remove = ['srv', 'srv_mon', 'srv_select', 'metrica_select']
-    for param in params_to_remove:
-        if param in st.query_params:
-            del st.query_params[param]
-
 def main():
     params = st.query_params
     
     # =============================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES - AL INICIO
+    # 🔥 PROCESAR CAMBIO PENDIENTE DEL MENÚ (prioridad máxima)
+    # =============================================================
+    cambio_pendiente = st.session_state.get("_cambio_pendiente")
+    if cambio_pendiente:
+        # Limpiar el flag
+        st.session_state["_cambio_pendiente"] = None
+        
+        # Verificar que no haya redirección pendiente ACTIVA
+        if not st.session_state.get("_srv_redirect_pending") and not params.get("srv"):
+            # Si selecciona monitoreo, activar flag
+            if cambio_pendiente == "🖥️ Monitoreo en vivo":
+                st.session_state["_monitoreo_activo"] = True
+            else:
+                # Si selecciona otra sección, DESACTIVAR monitoreo
+                st.session_state["_monitoreo_activo"] = False
+                if "_srv_redirect_pending" in st.session_state:
+                    del st.session_state["_srv_redirect_pending"]
+                limpiar_parametros_monitoreo()
+            
+            st.session_state["seccion_actual"] = cambio_pendiente
+            st.query_params["p"] = cambio_pendiente
+            st.rerun()
+            return
+    
+    # =============================================================
+    # PROCESAR REDIRECCIÓN DESDE SERVIDORES
     # =============================================================
     srv_desde_url = params.get("srv")
     if srv_desde_url:
@@ -281,10 +329,10 @@ def main():
         st.session_state["sb_srv_tab1"] = srv_desde_url
         st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
         st.session_state["filtro_aplicado_tab1"] = True
+        # Eliminar srv de la URL
         del st.query_params["srv"]
-        # 🔥 IMPORTANTE: Forzar rerun para que el menú se actualice
         st.rerun()
-        return  # 🔥 Salir para que no continúe ejecutando
+        return
     
     # =============================================================
     # AUTENTICACIÓN
@@ -344,31 +392,14 @@ def main():
     generar_menu()
     
     # =============================================================
-    # LEER LA SECCIÓN DEL WIDGET Y ACTUALIZAR
-    # =============================================================
-    # Si hay redirección pendiente o monitoreo activo, FORZAR monitoreo
-    if st.session_state.get("_srv_redirect_pending") or st.session_state.get("_monitoreo_activo", False):
-        st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-    else:
-        if "widget_navegacion" in st.session_state:
-            widget_seleccion = st.session_state["widget_navegacion"]
-            if widget_seleccion != st.session_state["seccion_actual"]:
-                st.session_state["seccion_actual"] = widget_seleccion
-                # Limpiar flag de monitoreo cuando se cambia de sección
-                if "_monitoreo_activo" in st.session_state:
-                    st.session_state["_monitoreo_activo"] = False
-    
-    # =============================================================
     # LIMPIEZA DE FILTROS - PRESERVAR MONITOREO
     # =============================================================
-    # Solo limpiar filtros si NO estamos en monitoreo
     if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
-        # Limpiar parámetros de monitoreo de la URL
-        limpiar_parametros_monitoreo_url()
+        limpiar_parametros_monitoreo()
     
     # =============================================================
-    # SINCRONIZAR URL - PRESERVAR MONITOREO
+    # SINCRONIZAR URL
     # =============================================================
     if params.get("p") != st.session_state["seccion_actual"]:
         st.query_params["p"] = st.session_state["seccion_actual"]
@@ -379,21 +410,10 @@ def main():
     st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
     st.query_params["c"] = st.session_state.get("cargo", "Analista")
     
-    # Si estamos en monitoreo, preservar el servidor en URL
-    if st.session_state["seccion_actual"] == "🖥️ Monitoreo en vivo":
-        servidor_actual = st.session_state.get("sb_srv_tab1", "")
-        if servidor_actual and servidor_actual not in ["-- Seleccione un Servidor para empezar --", "-- Todos los Servidores --"]:
-            st.query_params["srv_mon"] = servidor_actual
-    
     # =============================================================
     # RENDERIZAR MÓDULO
     # =============================================================
-    # Si hay redirección pendiente o monitoreo activo, forzar monitoreo
-    if st.session_state.get("_srv_redirect_pending") or st.session_state.get("_monitoreo_activo", False):
-        seleccion = "🖥️ Monitoreo en vivo"
-        st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-    else:
-        seleccion = st.session_state["seccion_actual"]
+    seleccion = st.session_state["seccion_actual"]
     
     placeholder_principal = st.empty()
     
