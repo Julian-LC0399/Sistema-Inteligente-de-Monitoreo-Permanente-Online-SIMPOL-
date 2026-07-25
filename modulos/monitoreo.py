@@ -815,7 +815,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             del st.query_params["_srv_select"]
         if "_metrica_select" in st.query_params:
             del st.query_params["_metrica_select"]
-        # Eliminar tab_servidores para que no interfiera
         if "tab_servidores" in st.query_params:
             del st.query_params["tab_servidores"]
         del st.query_params["_limpiar_tab1"]
@@ -827,66 +826,17 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state["filtro_aplicado_tab2"] = False
         if "_srv_mensaje_mostrado" in st.session_state:
             del st.session_state["_srv_mensaje_mostrado"]
-        # Eliminar tab_servidores para que no interfiera
         if "tab_servidores" in st.query_params:
             del st.query_params["tab_servidores"]
         del st.query_params["_limpiar_tab2_global"]
         st.rerun()
 
     # =========================================================================
-    # DETECTAR REDIRECCIÓN DESDE SERVIDORES (PARÁMETRO "srv" EN URL)
+    # 🔥 ELIMINADO: Lógica de redirección duplicada
+    # La redirección ahora es manejada EXCLUSIVAMENTE por app.py
     # =========================================================================
-    srv_desde_url = st.query_params.get("srv")
-    if srv_desde_url and not st.session_state.get("_srv_redirect_pending"):
-        st.session_state["_srv_redirect_pending"] = srv_desde_url
-
-    # =========================================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES.PY
-    # =========================================================================
-    if "_srv_redirect_pending" in st.session_state and st.session_state["_srv_redirect_pending"]:
-        srv_redireccionado = st.session_state["_srv_redirect_pending"]
-        
-        # Verificar que el servidor existe
-        try:
-            conn = conectar_bd()
-            if conn:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT nombre_alias FROM servidores WHERE nombre_alias = %s", (srv_redireccionado,))
-                existe = cursor.fetchone()
-                cursor.close()
-                conn.close()
-            else:
-                existe = None
-        except Exception as e:
-            st.error(f"Error al verificar servidor: {e}")
-            existe = None
-        
-        if existe:
-            # Establecer los estados (NO modificar widgets)
-            st.session_state["sb_srv_tab1"] = srv_redireccionado
-            st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-            st.session_state["filtro_aplicado_tab1"] = True
-            st.session_state["_srv_mensaje_mostrado"] = True
-            
-            # Limpiar el flag
-            st.session_state["_srv_redirect_pending"] = False
-            
-            # Eliminar el parámetro de la URL
-            if "srv" in st.query_params:
-                del st.query_params["srv"]
-            # Eliminar tab_servidores para que no interfiera
-            if "tab_servidores" in st.query_params:
-                del st.query_params["tab_servidores"]
-            
-            # Forzar actualización
-            st.rerun()
-        else:
-            st.warning(f"⚠️ El servidor '{srv_redireccionado}' no existe en la base de datos.")
-            st.session_state["_srv_redirect_pending"] = False
-            if "srv" in st.query_params:
-                del st.query_params["srv"]
-            if "tab_servidores" in st.query_params:
-                del st.query_params["tab_servidores"]
+    # Ya no detectamos srv en URL ni procesamos _srv_redirect_pending aquí
+    # app.py se encarga de establecer sb_srv_tab1 y otros estados
 
     servidores_activos = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores_activos if s.get('nombre_alias')])))
@@ -965,7 +915,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             col_srv, col_metrica, col_filtrar, col_limpiar = st.columns([3, 2, 1, 1])
             
             with col_srv:
-                # Determinar el índice basado en el valor actual
                 default_index = 0
                 if st.session_state.get("sb_srv_tab1_temp") in opciones_servidores_tab1:
                     default_index = opciones_servidores_tab1.index(st.session_state["sb_srv_tab1_temp"])
@@ -988,10 +937,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 servidor_seleccionado_temp = (seleccion_srv_temp != "-- Seleccione un Servidor para empezar --")
                 es_vista_global_temp = (seleccion_srv_temp == "-- Todos los Servidores --")
                 
-                # Determinar el índice de métrica
                 default_metrica_index = 0
                 
-                # Si es vista global, mostrar opciones de métricas globales
                 if es_vista_global_temp:
                     opciones_metricas_globales = obtener_opciones_metricas_globales(servidores_activos)
                     opciones_metricas_con_placeholder = ["📊 Todas las Métricas"] + opciones_metricas_globales
@@ -1045,13 +992,12 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.session_state["sb_srv_tab1"] = st.session_state["sb_srv_tab1_temp"]
                     st.session_state["sb_metrica_tab1"] = st.session_state["sb_metrica_tab1_temp"]
                     st.session_state["filtro_aplicado_tab1"] = True
-                    st.session_state["_monitoreo_activo"] = True  # <-- AGREGADO
-                    st.rerun(scope="app")  # <-- CAMBIADO a scope="app"
+                    st.session_state["_monitoreo_activo"] = True
+                    st.rerun(scope="app")
             
             with col_limpiar:
                 if st.button("🧹 Limpiar", key="btn_limpiar_tab1", use_container_width=True):
                     st.query_params["_limpiar_tab1"] = "1"
-                    # Eliminar tab_servidores para que no interfiera
                     if "tab_servidores" in st.query_params:
                         del st.query_params["tab_servidores"]
                     st.rerun()
@@ -1126,13 +1072,12 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.session_state["sb_graf_srv"] = st.session_state["sb_graf_srv_temp"]
                 st.session_state["sb_graf_sensor"] = st.session_state["sb_graf_sensor_temp"]
                 st.session_state["filtro_aplicado_tab2"] = True
-                st.session_state["_monitoreo_activo"] = True  # <-- AGREGADO
-                st.rerun(scope="app")  # <-- CAMBIADO a scope="app"
+                st.session_state["_monitoreo_activo"] = True
+                st.rerun(scope="app")
         
         with col_limpiar_2:
             if st.button("🧹 Limpiar", key="btn_limpiar_tab2", use_container_width=True):
                 st.query_params["_limpiar_tab2_global"] = "1"
-                # Eliminar tab_servidores para que no interfiera
                 if "tab_servidores" in st.query_params:
                     del st.query_params["tab_servidores"]
                 st.rerun()
