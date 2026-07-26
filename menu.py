@@ -24,7 +24,7 @@ def generar_menu():
         st.session_state["autenticado"] = False
         st.session_state["seccion_actual"] = "🏠 Inicio"
         st.session_state["_monitoreo_activo"] = False
-        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "_srv_redirect_pending", "_cambio_pendiente", "_menu_cambio"]
+        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "_srv_redirect_pending"]
         for clave in claves_a_remover:
             if clave in st.session_state:
                 del st.session_state[clave]
@@ -99,7 +99,6 @@ def generar_menu():
         # 🔥 CRÍTICO: Verificar _monitoreo_activo para actualizar el menú
         if st.session_state.get("_monitoreo_activo", False):
             seccion_persistente = "🖥️ Monitoreo en vivo"
-            # 🔥 Forzar seccion_actual para sincronizar
             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         elif st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
             seccion_persistente = "🖥️ Monitoreo en vivo"
@@ -108,18 +107,20 @@ def generar_menu():
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
-        # 🔥 Key FIJA para el radio
+        # 🔥 Key DINÁMICA basada en seccion_persistente para forzar actualización
+        radio_key = f"nav_radio_{seccion_persistente.replace(' ', '_').replace('🖥️', 'monitoreo')}"
+        
         try:
             default_index = opciones.index(seccion_persistente)
         except ValueError:
             default_index = 0
         
-        # 🔥 Radio con key fija
+        # 🔥 Radio con key dinámica
         seleccion = st.radio(
             "Navegación del Sistema", 
             options=opciones,
             index=default_index,
-            key="nav_radio",
+            key=radio_key,
             label_visibility="collapsed"
         )
         

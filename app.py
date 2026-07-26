@@ -296,7 +296,6 @@ def main():
     srv_desde_url = params.get("srv")
     if srv_desde_url:
         logging.info(f"🔍 Procesando redirección desde servidores: {srv_desde_url}")
-        st.session_state["_srv_redirect_pending"] = srv_desde_url
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         st.session_state["_monitoreo_activo"] = True
         st.session_state["filtro_monitoreo_nombre"] = srv_desde_url
@@ -304,7 +303,20 @@ def main():
         st.session_state["sb_srv_tab1"] = srv_desde_url
         st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
         st.session_state["filtro_aplicado_tab1"] = True
+        # Eliminar srv de la URL
         del st.query_params["srv"]
+        # Eliminar cualquier rastro de srv_mon
+        if "srv_mon" in st.query_params:
+            del st.query_params["srv_mon"]
+        st.rerun()
+        return
+    
+    # =============================================================
+    # 🔥 Si hay srv_mon en URL, limpiarlo (ya estamos en monitoreo)
+    # =============================================================
+    if "srv_mon" in st.query_params:
+        # Ya estamos en monitoreo, eliminar srv_mon para evitar bucles
+        del st.query_params["srv_mon"]
         st.rerun()
         return
     
@@ -347,16 +359,11 @@ def main():
     if url_seccion:
         st.session_state["seccion_actual"] = url_seccion
     
-    # 2. SEGUNDO: Si hay redirección pendiente, forzar monitoreo
-    if st.session_state.get("_srv_redirect_pending"):
-        st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-        st.session_state["_monitoreo_activo"] = True
-    
-    # 3. TERCERO: Si hay flag de monitoreo activo, mantener monitoreo
+    # 2. SEGUNDO: Si hay flag de monitoreo activo, mantener monitoreo
     if st.session_state.get("_monitoreo_activo", False):
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
     
-    # 4. CUARTO: Si no hay sección, usar Inicio
+    # 3. TERCERO: Si no hay sección, usar Inicio
     if "seccion_actual" not in st.session_state:
         st.session_state["seccion_actual"] = "🏠 Inicio"
     
