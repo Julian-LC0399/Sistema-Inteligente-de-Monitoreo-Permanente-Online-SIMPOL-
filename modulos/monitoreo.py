@@ -990,7 +990,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.session_state["sb_srv_tab1"] = st.session_state["sb_srv_tab1_temp"]
                     st.session_state["sb_metrica_tab1"] = st.session_state["sb_metrica_tab1_temp"]
                     st.session_state["filtro_aplicado_tab1"] = True
-                    # 🔥 ELIMINADO: st.session_state["_monitoreo_activo"] = True
+                    # 🔥 Solo rerun simple - sin tocar _monitoreo_activo
                     st.rerun()
             
             with col_limpiar:
@@ -1070,7 +1070,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.session_state["sb_graf_srv"] = st.session_state["sb_graf_srv_temp"]
                 st.session_state["sb_graf_sensor"] = st.session_state["sb_graf_sensor_temp"]
                 st.session_state["filtro_aplicado_tab2"] = True
-                # 🔥 ELIMINADO: st.session_state["_monitoreo_activo"] = True
+                # 🔥 Solo rerun simple - sin tocar _monitoreo_activo
                 st.rerun()
         
         with col_limpiar_2:

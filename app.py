@@ -291,32 +291,7 @@ def main():
     params = st.query_params
     
     # =============================================================
-    # 🔥 PROCESAR CAMBIO PENDIENTE DEL MENÚ (prioridad máxima)
-    # =============================================================
-    cambio_pendiente = st.session_state.get("_cambio_pendiente")
-    if cambio_pendiente:
-        # Limpiar el flag
-        st.session_state["_cambio_pendiente"] = None
-        
-        # Verificar que no haya redirección pendiente ACTIVA
-        if not st.session_state.get("_srv_redirect_pending") and not params.get("srv"):
-            # Si selecciona monitoreo, activar flag
-            if cambio_pendiente == "🖥️ Monitoreo en vivo":
-                st.session_state["_monitoreo_activo"] = True
-            else:
-                # Si selecciona otra sección, DESACTIVAR monitoreo
-                st.session_state["_monitoreo_activo"] = False
-                if "_srv_redirect_pending" in st.session_state:
-                    del st.session_state["_srv_redirect_pending"]
-                limpiar_parametros_monitoreo()
-            
-            st.session_state["seccion_actual"] = cambio_pendiente
-            st.query_params["p"] = cambio_pendiente
-            st.rerun()
-            return
-    
-    # =============================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES
+    # 🔥 PROCESAR REDIRECCIÓN DESDE SERVIDORES ("Ver en vivo")
     # =============================================================
     srv_desde_url = params.get("srv")
     if srv_desde_url:
@@ -329,7 +304,6 @@ def main():
         st.session_state["sb_srv_tab1"] = srv_desde_url
         st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
         st.session_state["filtro_aplicado_tab1"] = True
-        # Eliminar srv de la URL
         del st.query_params["srv"]
         st.rerun()
         return

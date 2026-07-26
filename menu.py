@@ -24,7 +24,7 @@ def generar_menu():
         st.session_state["autenticado"] = False
         st.session_state["seccion_actual"] = "🏠 Inicio"
         st.session_state["_monitoreo_activo"] = False
-        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "_srv_redirect_pending", "_procesando_cambio"]
+        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "_srv_redirect_pending", "_cambio_pendiente", "_menu_cambio"]
         for clave in claves_a_remover:
             if clave in st.session_state:
                 del st.session_state[clave]
@@ -93,42 +93,50 @@ def generar_menu():
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # Determinar sección persistente para el radio
+        # 🔥 Determinar sección persistente para el radio
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
         
-        # Verificar _monitoreo_activo
+        # 🔥 CRÍTICO: Verificar _monitoreo_activo para actualizar el menú
         if st.session_state.get("_monitoreo_activo", False):
             seccion_persistente = "🖥️ Monitoreo en vivo"
+            # 🔥 Forzar seccion_actual para sincronizar
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         elif st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
             seccion_persistente = "🖥️ Monitoreo en vivo"
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
-        # Key FIJA para el radio
+        # 🔥 Key FIJA para el radio
         try:
             default_index = opciones.index(seccion_persistente)
         except ValueError:
             default_index = 0
         
-        # 🔥 Radio CON on_change para manejar cambios
-        def on_radio_change():
-            """Callback cuando el radio cambia"""
-            if "nav_radio" in st.session_state:
-                nueva_seccion = st.session_state["nav_radio"]
-                # Guardar en un flag temporal para que app.py lo procese
-                st.session_state["_cambio_pendiente"] = nueva_seccion
-                # Forzar rerun
-                st.rerun()
-        
+        # 🔥 Radio con key fija
         seleccion = st.radio(
             "Navegación del Sistema", 
             options=opciones,
             index=default_index,
             key="nav_radio",
-            label_visibility="collapsed",
-            on_change=on_radio_change
+            label_visibility="collapsed"
         )
+        
+        # 🔥 DETECTAR CAMBIO MANUAL
+        if seleccion != st.session_state.get("seccion_actual", "🏠 Inicio"):
+            # Si el usuario selecciona monitoreo, activar flag
+            if seleccion == "🖥️ Monitoreo en vivo":
+                st.session_state["_monitoreo_activo"] = True
+            else:
+                # Si selecciona otra sección, desactivar monitoreo
+                st.session_state["_monitoreo_activo"] = False
+                if "_srv_redirect_pending" in st.session_state:
+                    del st.session_state["_srv_redirect_pending"]
+            
+            st.session_state["seccion_actual"] = seleccion
+            st.query_params["p"] = seleccion
+            st.rerun()
         
         st.divider()
 
