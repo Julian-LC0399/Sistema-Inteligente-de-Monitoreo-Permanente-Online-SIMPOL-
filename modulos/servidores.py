@@ -31,6 +31,43 @@ def validar_ip(ip_str):
     patron = r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
     return bool(re.match(patron, ip_str.strip()))
 
+def limpiar_estados_servidores():
+    """Limpia los estados de los filtros de servidores"""
+    keys_to_clear = [
+        'filtro_servidor_nombre',
+        'filtro_aplicado_srv',
+        'accion_infra',
+        'filtro_adicional_nombre',
+        'accion_adicional',
+        'tab_servidores_activa',
+        'sb_filtro_p1',
+        '_limpiar_filtro_srv',
+        '_limpiar_filtro_ad'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # Resetear valores por defecto
+    st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
+    st.session_state["filtro_aplicado_srv"] = False
+    st.session_state["accion_infra"] = None
+    st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+    st.session_state["accion_adicional"] = None
+    st.session_state["tab_servidores_activa"] = 0
+
+def limpiar_estado_capacity():
+    keys_to_clear = [
+        'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
+        'p1_filtros_aplicados', 'p1_reporte_generado',
+        'p2_servidor_seleccionado', 'p2_metrica_filtro',
+        'p2_formato_filtro', 'p2_mostrar_tabla',
+        'modulo_capacity_activo'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
 # ==========================================================================
 # FRAGMENTO PARA LA PESTAÑA 2 - DATOS ADICIONALES
 # ==========================================================================
@@ -587,6 +624,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             key=f"btn_vivo_{nombre_servidor}", 
                             use_container_width=True
                         ):
+                            # 🔥 LIMPIAR ESTADOS DE SERVIDORES ANTES DE REDIRIGIR
+                            limpiar_estados_servidores()
+                            
                             # Guardar en session_state y query_params para redirección
                             st.session_state["_srv_redirect_pending"] = nombre_servidor
                             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
