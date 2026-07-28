@@ -2,6 +2,57 @@ import streamlit as st
 from fpdf import FPDF
 from database import conectar_bd
 from datetime import datetime, timedelta, time
+import re
+
+# =====================================================================
+# FUNCIÓN AUXILIAR PARA NORMALIZAR COMPONENTES
+# =====================================================================
+def normalizar_componente(nombre):
+    """
+    Normaliza el nombre del componente para comparación entre alertas y reportes.
+    
+    Ejemplos:
+        "C:" -> "DISCO1"
+        "D:" -> "DISCO2"
+        "CPU" -> "CPU"
+        "Servicio_1" -> "SERVICIO1"
+    """
+    if nombre is None:
+        return ""
+    
+    nombre = str(nombre).strip()
+    
+    # Mapeo de discos (ALERTA -> REPORTE)
+    discos_map = {
+        "C:": "DISCO1", "C:\\": "DISCO1", "C": "DISCO1",
+        "D:": "DISCO2", "D:\\": "DISCO2", "D": "DISCO2",
+        "E:": "DISCO3", "E:\\": "DISCO3", "E": "DISCO3",
+        "F:": "DISCO4", "F:\\": "DISCO4", "F": "DISCO4",
+        "G:": "DISCO5", "G:\\": "DISCO5", "G": "DISCO5",
+        "Y:": "DISCO6", "Y:\\": "DISCO6", "Y": "DISCO6",
+    }
+    
+    # Si es un disco, devolver el mapeo
+    if nombre in discos_map:
+        return discos_map[nombre]
+    
+    # Si contiene DISCO, devolverlo tal cual
+    if "DISCO" in nombre.upper():
+        return nombre.upper()
+    
+    # CPU, RAM, LATENCIA
+    if nombre.upper() in ["CPU", "RAM", "LATENCIA", "PING"]:
+        return nombre.upper()
+    
+    # Servicios
+    if "SERVICIO" in nombre.upper():
+        match = re.search(r'SERVICIO[_]?(\d+)', nombre.upper())
+        if match:
+            return f"SERVICIO{match.group(1)}"
+        return nombre.upper()
+    
+    # Si no coincide con nada, limpiar caracteres especiales
+    return nombre.upper().replace("_", "").replace(" ", "").replace(":", "").replace("\\", "")
 
 # =====================================================================
 # CLASE DE CONFIGURACIÓN GRÁFICA DEL REPORTE PDF (ESTILO BANCO CARONÍ)
@@ -91,7 +142,9 @@ def guardar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_bl
             snap_srv = ultima_muestra.get('estado_servicio_1')
 
         id_alerta = alerta_vinculada.get('id') if alerta_vinculada else None
-        tipo_alerta_txt = alerta_vinculada.get('tipo_alerta', 'ESTABLE') if alerta_vinculada else 'ESTABLE'
+        tipo_alerta_txt = 'ESTABLE'
+        if alerta_vinculada and alerta_vinculada.get('tipo_alerta'):
+            tipo_alerta_txt = str(alerta_vinculada['tipo_alerta']).upper().strip()
 
         query = """
             INSERT INTO reportes_archivados 
@@ -464,9 +517,10 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                         f_text = f_registro.strftime("%d/%m/%Y %H:%M") if hasattr(f_registro, 'strftime') else str(f_registro)
                                         
                                         alerta_activa = None
+                                        # 🔥 CORREGIDO: Usar normalizar_componente()
                                         for al in lista_alertas_servidor:
-                                            comp_bd = str(al['componente']).upper().replace("_", "").strip()
-                                            comp_rep = str(p_sub).upper().replace("_", "").strip()
+                                            comp_bd = normalizar_componente(al['componente'])
+                                            comp_rep = normalizar_componente(p_sub)
                                             
                                             if comp_bd == comp_rep:
                                                 f_ini = al['fecha_inicio']
@@ -477,7 +531,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                                 
                                                 if f_registro >= inicio_tolerante and (fin_tolerante is None or f_registro <= fin_tolerante):
                                                     alerta_activa = al
-                                                    if not alerta_detectada_global: alerta_detectada_global = al
+                                                    if not alerta_detectada_global: 
+                                                        alerta_detectada_global = al
                                                     break
 
                                         msg_alerta = str(alerta_activa['tipo_alerta']).upper().strip() if alerta_activa else "ESTABLE"
@@ -581,13 +636,18 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                         f_t = f_registro.strftime("%Y-%m-%d %H:%M:%S") if hasattr(f_registro, 'strftime') else str(f_registro)
                                         
                                         alerta_activa = None
+                                        # 🔥 CORREGIDO: Usar normalizar_componente()
                                         for al in lista_alertas_servidor:
-                                            if str(al['componente']).upper().replace("_", "").strip() == str(bloque["prefix"]).upper().replace("_", "").strip():
+                                            comp_bd = normalizar_componente(al['componente'])
+                                            comp_rep = normalizar_componente(bloque["prefix"])
+                                            
+                                            if comp_bd == comp_rep:
                                                 f_ini = al['fecha_inicio']
                                                 f_fin = al['fecha_fin']
                                                 if f_registro >= (f_ini - timedelta(minutes=2)) and (f_fin is None or f_registro <= (f_fin + timedelta(minutes=2))):
                                                     alerta_activa = al
-                                                    if not alerta_detectada_global: alerta_detectada_global = al
+                                                    if not alerta_detectada_global: 
+                                                        alerta_detectada_global = al
                                                     break
 
                                         txt_alerta_csv = str(alerta_activa['tipo_alerta']).upper().strip() if alerta_activa else "ESTABLE"
