@@ -14,69 +14,17 @@ def get_base64_image(image_path):
         return None
     return None
 
-def cambiar_pagina():
-    """Manejador seguro para la conmutación de secciones y purga del estado residual"""
-    if "nav_radio" in st.session_state:
-        nueva_seccion = st.session_state["nav_radio"]
-        seccion_anterior = st.session_state.get("seccion_actual", "🏠 Inicio")
-        
-        # Si el usuario realmente cambió de módulo, ejecutamos la purga en el State
-        if nueva_seccion != seccion_anterior:
-            
-            # 1. Purga de Alertas
-            if seccion_anterior == "🔔 Alertas":
-                claves_alertas = [
-                    "sb_alerta_srv", "filtro_alerta_servidor",
-                    "filtro_alerta_criticidad"
-                ]
-                for clave in claves_alertas:
-                    if clave in st.session_state:
-                        del st.session_state[clave]
-            
-            # 🔥 NUEVO: Purga de Umbrales
-            if seccion_anterior == "⚙️ Umbrales":
-                claves_umbrales = [
-                    "filtro_umbral_servidor", 
-                    "filtro_umbral_componente",
-                    "justificacion_umbrales"
-                ]
-                for clave in claves_umbrales:
-                    if clave in st.session_state:
-                        del st.session_state[clave]
-            
-            # 2. Purga de Infraestructura / Monitoreo
-            if seccion_anterior in ["🖥️ Monitoreo en vivo", "🖥️ Servidores"]:
-                claves_infra = [
-                    "filtro_monitoreo_nombre", "filtro_monitoreo_sensor", 
-                    "servidor_seleccionado", "filtro_servidor_nombre", 
-                    "accion_infra"
-                ]
-                for clave in claves_infra:
-                    if clave in st.session_state:
-                        del st.session_state[clave]
-
-            # Actualizamos la sección actual en el estado maestro
-            st.session_state["seccion_actual"] = nueva_seccion
-
 def generar_menu():
-    """Genera la estructura del menú lateral totalmente aislada de app.py"""
+    """Genera la estructura del menú lateral"""
     
-    # ==========================================================================
-    # DETECTOR DE CLIC EN LOGOUT (HTML PARSER)
-    # ==========================================================================
+    # Detectar logout
     if st.query_params.get("logout") == "1":
         st.query_params.clear()
-        st.query_params.update({
-            "s": "0",
-            "p": "🏠 Inicio",
-            "r": "",
-            "uid": "",
-            "n": ""
-        })
+        st.query_params.update({"s": "0", "p": "🏠 Inicio", "r": "", "uid": "", "n": ""})
         st.session_state["autenticado"] = False
         st.session_state["seccion_actual"] = "🏠 Inicio"
-        
-        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "nav_radio"]
+        st.session_state["_monitoreo_activo"] = False
+        claves_a_remover = ["rol", "user_id", "user_actual", "nombre_analista", "permisos", "accion_personal", "_srv_redirect_pending"]
         for clave in claves_a_remover:
             if clave in st.session_state:
                 del st.session_state[clave]
@@ -90,21 +38,31 @@ def generar_menu():
                     color: #003366 !important;
                     font-weight: bold !important;
                 }
+                div[data-testid="stSidebar"] div[data-testid="stRadio"] label {
+                    padding: 8px 12px !important;
+                    border-radius: 4px !important;
+                    transition: all 0.2s ease !important;
+                }
+                div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-selected="true"] {
+                    background-color: #003366 !important;
+                    color: white !important;
+                    font-weight: bold !important;
+                }
+                div[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-selected="true"] p {
+                    color: white !important;
+                }
             </style>
         """, unsafe_allow_html=True)
         
         st.markdown('<div class="sidebar-institucional">', unsafe_allow_html=True)
         
-        # ==========================================================================
-        # 1. CONTROL DE RUTA Y RENDERIZADO DEL LOGO INSTITUCIONAL
-        # ==========================================================================
+        # Logo
         img_path = None
         for ext in [".png", ".jpg", ".jpeg"]:
             posible_ruta = get_resource_path(f"logo-banco{ext}")
             if os.path.exists(posible_ruta):
                 img_path = posible_ruta
                 break
-            
             posible_ruta_local = os.path.abspath(f"logo-banco{ext}")
             if os.path.exists(posible_ruta_local):
                 img_path = posible_ruta_local
@@ -120,17 +78,14 @@ def generar_menu():
         
         st.divider()
 
-        # ==========================================================================
-        # 2. FILTRADO DINÁMICO DE OPCIONES SEGÚN ROL DE SEGURIDAD
-        # ==========================================================================
-        # 🔥 NUEVO: Agregar "⚙️ Umbrales" como opción independiente
+        # Opciones del menú
         opciones = [
             "🏠 Inicio", 
             "🖥️ Servidores", 
             "🖥️ Monitoreo en vivo", 
             "📈 Capacity planning", 
             "🔔 Alertas",
-            "⚙️ Umbrales",  # NUEVA OPCIÓN
+            "⚙️ Umbrales",
             "📄 Reportes"
         ]
         
@@ -138,30 +93,55 @@ def generar_menu():
         if rol_usuario in ["admin", "seguridad", "oficial", "oficial_seguridad"]:
             opciones += ["👥 Gestión de usuarios", "🕵️ Auditoría"]
         
-        # === BLINDAJE ANTI-WARNING Y CONFIGURACIÓN DINÁMICA DEL ESTADO ===
+        # 🔥 Determinar sección persistente para el radio
         seccion_persistente = st.session_state.get("seccion_actual", "🏠 Inicio")
+        
+        # 🔥 CRÍTICO: Verificar _monitoreo_activo para actualizar el menú
+        if st.session_state.get("_monitoreo_activo", False):
+            seccion_persistente = "🖥️ Monitoreo en vivo"
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+        elif st.session_state.get("_srv_redirect_pending") or st.query_params.get("srv"):
+            seccion_persistente = "🖥️ Monitoreo en vivo"
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+        
         if seccion_persistente not in opciones:
             seccion_persistente = "🏠 Inicio"
 
-        # Sincronizamos la clave del widget antes de declararlo para que herede la selección
-        st.session_state["nav_radio"] = seccion_persistente
-
-        # Componente de navegación por Radio Nativo
+        # 🔥 Key DINÁMICA basada en seccion_persistente para forzar actualización
+        radio_key = f"nav_radio_{seccion_persistente.replace(' ', '_').replace('🖥️', 'monitoreo')}"
+        
+        try:
+            default_index = opciones.index(seccion_persistente)
+        except ValueError:
+            default_index = 0
+        
+        # 🔥 Radio con key dinámica
         seleccion = st.radio(
             "Navegación del Sistema", 
-            opciones, 
-            key="nav_radio", 
-            label_visibility="collapsed",
-            on_change=cambiar_pagina
+            options=opciones,
+            index=default_index,
+            key=radio_key,
+            label_visibility="collapsed"
         )
         
-        # Garantizamos el estado maestro alineado con la interfaz
-        st.session_state["seccion_actual"] = seleccion
+        # 🔥 DETECTAR CAMBIO MANUAL
+        if seleccion != st.session_state.get("seccion_actual", "🏠 Inicio"):
+            # Si el usuario selecciona monitoreo, activar flag
+            if seleccion == "🖥️ Monitoreo en vivo":
+                st.session_state["_monitoreo_activo"] = True
+            else:
+                # Si selecciona otra sección, desactivar monitoreo
+                st.session_state["_monitoreo_activo"] = False
+                if "_srv_redirect_pending" in st.session_state:
+                    del st.session_state["_srv_redirect_pending"]
+            
+            st.session_state["seccion_actual"] = seleccion
+            st.query_params["p"] = seleccion
+            st.rerun()
+        
         st.divider()
 
-        # ==========================================================================
-        # 3. BOTÓN DE CIERRE DE SESIÓN EN HTML PURO
-        # ==========================================================================
+        # Botón de logout
         html_logout = """
         <a href="?logout=1" target="_self" style="text-decoration: none;">
             <div style="

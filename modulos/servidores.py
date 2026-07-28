@@ -3,6 +3,10 @@ from database import conectar_bd
 import re
 import urllib.parse
 import time
+import logging
+
+# Configurar logging para depuración
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ==========================================================================
 # OPTIMIZACIÓN DE RENDIMIENTO: Caché para evitar consultas pesadas recurrentes
@@ -27,6 +31,43 @@ def validar_ip(ip_str):
     patron = r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
     return bool(re.match(patron, ip_str.strip()))
 
+def limpiar_estados_servidores():
+    """Limpia los estados de los filtros de servidores"""
+    keys_to_clear = [
+        'filtro_servidor_nombre',
+        'filtro_aplicado_srv',
+        'accion_infra',
+        'filtro_adicional_nombre',
+        'accion_adicional',
+        'tab_servidores_activa',
+        'sb_filtro_p1',
+        '_limpiar_filtro_srv',
+        '_limpiar_filtro_ad'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # Resetear valores por defecto
+    st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
+    st.session_state["filtro_aplicado_srv"] = False
+    st.session_state["accion_infra"] = None
+    st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+    st.session_state["accion_adicional"] = None
+    st.session_state["tab_servidores_activa"] = 0
+
+def limpiar_estado_capacity():
+    keys_to_clear = [
+        'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
+        'p1_filtros_aplicados', 'p1_reporte_generado',
+        'p2_servidor_seleccionado', 'p2_metrica_filtro',
+        'p2_formato_filtro', 'p2_mostrar_tabla',
+        'modulo_capacity_activo'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
 # ==========================================================================
 # FRAGMENTO PARA LA PESTAÑA 2 - DATOS ADICIONALES
 # ==========================================================================
@@ -48,9 +89,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         lista_nombres_bd_ad = obtener_lista_nombres_servidores()
         opciones_selectbox_ad = ["-- Seleccione un Servidor Base --", "-- Ver Todos los Servidores Base --"] + lista_nombres_bd_ad
 
-        # =============================================================
-        # CONTAR REGISTROS ANTES DE MOSTRAR FILTROS
-        # =============================================================
         conn_ad = conectar_bd()
         cursor_ad = conn_ad.cursor(dictionary=True)
         
@@ -58,9 +96,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         total_registros = cursor_ad.fetchone()['total']
         hay_registros = total_registros > 0
 
-        # =============================================================
-        # FILTRO CON BOTON FILTRAR - SOLO APARECE SI HAY REGISTROS
-        # =============================================================
         if hay_registros:
             col_f_ad1, col_f_ad2, col_f_ad3 = st.columns([3, 1, 1])
             
@@ -84,7 +119,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
             st.info("📭 No hay registros de máquinas virtuales o parámetros adicionales en la base de datos.")
             st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
 
-        # Procesar limpieza dentro del fragmento
         if "_limpiar_filtro_ad" in st.query_params and st.query_params["_limpiar_filtro_ad"] == "1":
             st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
             st.session_state.accion_adicional = None
@@ -344,12 +378,20 @@ def mostrar_tabla_servidores(rol_usuario=None):
     rol_sanitizado = str(rol_usuario).strip().upper() if rol_usuario else ""
     es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
 
+    # ==========================================================================
+    # PROCESAR REDIRECCIÓN A MONITOREO (USANDO SESSION_STATE)
+    # ==========================================================================
     if "redirigir_servidor" in st.session_state and st.session_state["redirigir_servidor"]:
         servidor = st.session_state["redirigir_servidor"]
-        st.session_state["redirigir_servidor"] = None
-        st.query_params["p"] = "monitoreo"
-        st.query_params["srv"] = servidor
-        st.rerun()
+        if servidor and servidor != "-- Seleccione un Servidor --":
+            logging.info(f"🔍 Redirigiendo a servidor: {servidor}")
+            st.session_state["redirigir_servidor"] = None
+            # Usar flag en lugar de modificar widgets directamente
+            st.session_state["_srv_redirect_pending"] = servidor
+            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+            st.rerun()
+        else:
+            st.session_state["redirigir_servidor"] = None
 
     if "tab_servidores_activa" not in st.session_state:
         st.session_state.tab_servidores_activa = 0
@@ -360,9 +402,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
     elif tab_param == "1":
         st.session_state.tab_servidores_activa = 0
 
-    # ==========================================================================
-    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS
-    # ==========================================================================
     if "_limpiar_filtro_srv" in st.query_params and st.query_params["_limpiar_filtro_srv"] == "1":
         st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
         st.session_state.accion_infra = None
@@ -370,9 +409,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
         del st.query_params["_limpiar_filtro_srv"]
         st.rerun()
 
-    # ==========================================================================
-    # INICIALIZAR ESTADOS
-    # ==========================================================================
     if "filtro_servidor_nombre" not in st.session_state:
         st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
     if "accion_infra" not in st.session_state:
@@ -382,13 +418,13 @@ def mostrar_tabla_servidores(rol_usuario=None):
 
     tab1, tab2 = st.tabs(["📊 Infraestructura y Sensores", "⚙️ Datos Adicionales"])
 
-    # ==========================================================================
-    # PESTAÑA 1: CONTROL TOTAL DE INFRAESTRUCTURA
-    # ==========================================================================
     with tab1:
         st.session_state.tab_servidores_activa = 0
-        if st.query_params.get("tab_servidores") != "1":
-            st.query_params["tab_servidores"] = "1"
+        # IMPORTANTE: Solo establecer tab_servidores si NO estamos en monitoreo
+        # El flag _en_monitoreo se establece en monitoreo.py
+        if not st.session_state.get("_en_monitoreo", False):
+            if st.query_params.get("tab_servidores") != "1":
+                st.query_params["tab_servidores"] = "1"
 
         conn = None
         cursor = None
@@ -401,9 +437,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
             if st.session_state["filtro_servidor_nombre"] in opciones_selectbox:
                 idx_actual = opciones_selectbox.index(st.session_state["filtro_servidor_nombre"])
 
-            # =============================================================
-            # FILTRO CON BOTON FILTRAR
-            # =============================================================
             col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
             
             with col_f1:
@@ -585,12 +618,28 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 for idx, s in enumerate(servidores_para_botones):
                     col_idx = idx % num_columnas
                     with cols_botones[col_idx]:
+                        nombre_servidor = s['nombre_alias']
                         if st.button(
-                            f"📊 {s['nombre_alias']}", 
-                            key=f"btn_vivo_{s['nombre_alias']}", 
+                            f"📊 {nombre_servidor}", 
+                            key=f"btn_vivo_{nombre_servidor}", 
                             use_container_width=True
                         ):
-                            st.session_state["redirigir_servidor"] = s["nombre_alias"]
+                            # 🔥 LIMPIAR ESTADOS DE SERVIDORES ANTES DE REDIRIGIR
+                            limpiar_estados_servidores()
+                            
+                            # Guardar en session_state y query_params para redirección
+                            st.session_state["_srv_redirect_pending"] = nombre_servidor
+                            st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
+                            # Limpiar query params anteriores y establecer nuevos
+                            st.query_params.clear()
+                            st.query_params["srv"] = nombre_servidor
+                            st.query_params["p"] = "🖥️ Monitoreo en vivo"
+                            st.query_params["s"] = "1"
+                            st.query_params["rol"] = st.session_state.get("rol", "seguridad")
+                            st.query_params["uid"] = str(st.session_state.get("user_id", 1))
+                            st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
+                            st.query_params["c"] = st.session_state.get("cargo", "Analista")
+                            # Forzar rerun para aplicar los cambios
                             st.rerun()
 
                 st.markdown("---")
@@ -727,28 +776,20 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 if cursor_status: cursor_status.close()
                                 if conn_status: conn_status.close()
 
-            # =============================================================
-            # BOTON REGISTRAR (si no hay filtro)
-            # =============================================================
             if es_seguridad and not hay_filtro:
                 if st.button("➕ Registrar Servidor", use_container_width=True, key="btn_crud_registrar"):
                     st.session_state.accion_infra = "registrar"
                     st.rerun()
 
-            # =============================================================
-            # FORMULARIO DE REGISTRO COMPLETO (SOLO IP Y NOMBRE OBLIGATORIOS)
-            # =============================================================
             if st.session_state.accion_infra == "registrar" and not hay_filtro:
                 st.markdown("### 📥 Registrar Nuevo Servidor Institucional")
                 with st.form("form_registro_srv"):
                     st.markdown("<div class='subtitulo-formulario'>📋 Datos Principales del Nodo</div>", unsafe_allow_html=True)
                     
-                    # CAMPOS OBLIGATORIOS
                     col_reg_p1, col_reg_p2 = st.columns(2)
                     reg_ip = col_reg_p1.text_input("Dirección IP (Campo Requerido)", placeholder="Ej: 10.10.1.50")
                     reg_alias = col_reg_p2.text_input("Nombre / Alias del Servidor (Requerido)", placeholder="Ej: SRV-PROD-BD")
                     
-                    # CAMPOS OPCIONALES
                     col_reg_p3, col_reg_p4 = st.columns(2)
                     reg_so = col_reg_p3.selectbox("Sistema Operativo Base Instalado", ["Windows", "Linux", "No especificado"])
                     reg_tipo = col_reg_p4.selectbox("Tipo de Infraestructura", ["Virtual", "Fisico", "No especificado"])
@@ -794,11 +835,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     reg_s7 = col_s7.number_input("ID Sensor - Servicio 7", value=0, step=None)
                     reg_s8 = col_s8.number_input("ID Sensor - Servicio 8", value=0, step=None)
                     
-                    # BOTONES
                     col_btn_reg1, col_btn_reg2 = st.columns(2)
                     
                     if col_btn_reg1.form_submit_button("💾 Guardar Servidor", use_container_width=True):
-                        # Validacion SOLO de IP y Nombre
                         if not reg_ip.strip() or not reg_alias.strip():
                             st.error("❌ Error: La Dirección IP y el nombre son campos obligatorios.")
                         elif not validar_ip(reg_ip):
@@ -860,9 +899,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 try: conn.close()
                 except: pass
 
-    # ==========================================================================
-    # PESTAÑA 2: DATOS ADICIONALES (FRAGMENTO)
-    # ==========================================================================
     with tab2:
         renderizar_pestana_datos_adicionales(es_seguridad)
 

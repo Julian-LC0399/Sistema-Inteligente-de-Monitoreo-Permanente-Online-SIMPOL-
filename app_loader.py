@@ -49,6 +49,22 @@ def setup_logging():
 logger = None
 
 # =============================================================================
+# FUNCION PARA FILTRAR SALIDA DE STREAMLIT (OCULTA LOCAL URL)
+# =============================================================================
+
+class FilterStreamlitOutput:
+    """Filtra la salida de Streamlit para ocultar el Local URL"""
+    def __init__(self, original):
+        self.original = original
+    
+    def write(self, text):
+        if "Local URL" not in text:
+            self.original.write(text)
+    
+    def flush(self):
+        self.original.flush()
+
+# =============================================================================
 # MANEJO DE INSTANCIA UNICA (LOCK FILE)
 # =============================================================================
 
@@ -169,24 +185,40 @@ def ejecutar_streamlit():
             logger.error(f"[STREAMLIT] No se encontro app.py en: {script_path}")
             return False
         
-        sys.argv = [
-            "streamlit",
-            "run",
-            script_path,
-            "--server.headless=true",
-            "--client.toolbarMode=viewer",
-            "--server.port=8501",
-            "--browser.gatherUsageStats=false",
-            "--global.developmentMode=false",
-            "--server.address=127.0.0.1",
-            "--server.enableCORS=false",
-            "--server.enableXsrfProtection=false",
-            "--server.maxUploadSize=200",
-            "--server.enableWebsocketCompression=false"
-        ]
+        # =============================================================
+        # REDIRIGIR SALIDA PARA FILTRAR LOCAL URL
+        # =============================================================
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
         
-        logger.info("[STREAMLIT] Ejecutando servidor...")
-        stcli.main()
+        # Redirigir stdout para filtrar
+        sys.stdout = FilterStreamlitOutput(original_stdout)
+        sys.stderr = FilterStreamlitOutput(original_stderr)
+        
+        try:
+            sys.argv = [
+                "streamlit",
+                "run",
+                script_path,
+                "--server.headless=true",
+                "--client.toolbarMode=viewer",
+                "--server.port=8501",
+                "--browser.gatherUsageStats=false",
+                "--global.developmentMode=false",
+                "--server.address=0.0.0.0",
+                "--server.enableCORS=false",
+                "--server.enableXsrfProtection=false",
+                "--server.maxUploadSize=200",
+                "--server.enableWebsocketCompression=false"
+            ]
+            
+            logger.info("[STREAMLIT] Ejecutando servidor...")
+            stcli.main()
+            
+        finally:
+            # Restaurar salida original
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
         
     except KeyboardInterrupt:
         logger.info("[STREAMLIT] Interrupcion manual")
@@ -196,7 +228,7 @@ def ejecutar_streamlit():
         logger.error(traceback.format_exc())
 
 # =============================================================================
-# FUNCION PARA EJECUTAR EL ENVIADOR DE MENSAJES (VERSIÓN CORREGIDA)
+# FUNCION PARA EJECUTAR EL ENVIADOR DE MENSAJES
 # =============================================================================
 
 def ejecutar_enviador_mensajes():
