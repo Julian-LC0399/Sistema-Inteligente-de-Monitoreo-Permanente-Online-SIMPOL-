@@ -2,6 +2,8 @@ import streamlit as st
 import io
 import traceback
 import os
+import math
+import tempfile
 from datetime import datetime
 from fpdf import FPDF
 from database import conectar_bd, obtener_lista_servidores, obtener_datos_historicos
@@ -87,6 +89,37 @@ class PDF(FPDF):
 
     def circle(self, x, y, r, style=""):
         self.ellipse(x, y, r, r, style)
+
+    def _dashed_line(self, x1, y1, x2, y2, dash_length=2, gap_length=2):
+        """Dibuja una línea discontinua manualmente"""
+        dx = x2 - x1
+        dy = y2 - y1
+        length = math.sqrt(dx*dx + dy*dy)
+        
+        if length == 0:
+            return
+        
+        # Calcular vector unitario
+        ux = dx / length
+        uy = dy / length
+        
+        # Parámetros del patrón
+        pattern_length = dash_length + gap_length
+        num_segments = int(length / pattern_length) + 1
+        
+        for i in range(num_segments):
+            start_t = i * pattern_length
+            end_t = min(start_t + dash_length, length)
+            
+            if start_t >= length:
+                break
+            
+            x_start = x1 + ux * start_t
+            y_start = y1 + uy * start_t
+            x_end = x1 + ux * end_t
+            y_end = y1 + uy * end_t
+            
+            self.line(x_start, y_start, x_end, y_end)
 
     def dibujar_grafico_tendencia(self, data_points, titulo="Tendencia", max_valor=None, ancho=170, alto=45):
         if not data_points or len(data_points) < 2:
@@ -241,26 +274,29 @@ class PDF(FPDF):
         x_proy = x_inicio + 5 + (len(historico) * paso)
         y_proy = y_inicio + alto - ((min(proyectado, max_val) / max_val) * (alto - 10))
         
+        # Línea histórica (azul)
         self.set_draw_color(0, 51, 102)
         self.set_line_width(1.5)
         for i in range(len(puntos_hist) - 1):
             self.line(puntos_hist[i][0], puntos_hist[i][1], puntos_hist[i+1][0], puntos_hist[i+1][1])
         
+        # Línea de proyección (rojo discontinua) - usando método manual
         self.set_draw_color(200, 0, 0)
         self.set_line_width(1.2)
-        self.set_dash_pattern(2, 2)
-        self.line(puntos_hist[-1][0], puntos_hist[-1][1], x_proy, y_proy)
-        self.set_dash_pattern()
+        self._dashed_line(puntos_hist[-1][0], puntos_hist[-1][1], x_proy, y_proy, 3, 3)
         
+        # Puntos históricos
         for i, (x, y) in enumerate(puntos_hist):
             self.set_fill_color(0, 51, 102)
             self.set_draw_color(0, 51, 102)
             self.circle(x, y, 1.8, "F")
         
+        # Punto proyectado
         self.set_fill_color(200, 0, 0)
         self.set_draw_color(200, 0, 0)
         self.circle(x_proy, y_proy, 2.5, "F")
         
+        # Etiquetas
         self.set_font(family='ArialUnicode', style='I', size=6)
         self.set_xy(x_inicio + 5, y_inicio - 8)
         self.set_text_color(0, 51, 102)
@@ -270,6 +306,7 @@ class PDF(FPDF):
         self.set_text_color(200, 0, 0)
         self.cell(30, 4, "Proyeccion", 0, 0, "R")
         
+        # Valor proyectado
         self.set_font(family='ArialUnicode', style='B', size=7)
         self.set_text_color(200, 0, 0)
         self.set_xy(x_proy - 12, y_proy - 14)
@@ -498,7 +535,7 @@ def reset_reporte():
     st.session_state.reporte_generado = False
 
 # =====================================================================
-# GENERAR PDF
+# GENERAR PDF - CORREGIDO
 # =====================================================================
 def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
                              detalle_veredicto, pct_actual, pct_final_proyectado,
@@ -703,6 +740,26 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
     pdf.cell(0, 4, f"Documento generado por SIMPOL v4.0.3 | ID: {datetime.now().strftime('%Y%m%d%H%M%S')}", 0, 1, "C")
     
     return pdf
+
+# =====================================================================
+# FUNCIÓN PARA OBTENER BYTES DEL PDF (CORREGIDA)
+# =====================================================================
+def obtener_bytes_pdf(pdf):
+    """Convierte un objeto PDF a bytes de manera compatible"""
+    try:
+        # Intentar método para fpdf2 (versiones modernas)
+        pdf_bytes = pdf.output(dest='S')
+        if isinstance(pdf_bytes, str):
+            return pdf_bytes.encode('latin1')
+        return pdf_bytes
+    except:
+        # Fallback usando tempfile para versiones antiguas
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            pdf.output(tmp_file.name)
+            with open(tmp_file.name, 'rb') as f:
+                bytes_pdf = f.read()
+            os.unlink(tmp_file.name)
+            return bytes_pdf
 
 # =====================================================================
 # FUNCIÓN PARA LIMPIAR EL ESTADO DEL MÓDULO CAPACITY
@@ -1089,9 +1146,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             valores_historicos=valores_historicos
                         )
 
-                        pdf_buffer = io.BytesIO()
-                        pdf.output(pdf_buffer)
-                        bytes_pdf = pdf_buffer.getvalue()
+                        # ===== CORRECCIÓN: Obtener bytes del PDF de manera compatible =====
+                        bytes_pdf = obtener_bytes_pdf(pdf)
 
                         csv_lineas = [
                             "PROPIEDAD,VALOR",
