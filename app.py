@@ -151,13 +151,43 @@ st.markdown("""
 import auth
 from menu import generar_menu
 
+# =============================================================
+# FUNCIONES DE LIMPIEZA DE ESTADO
+# =============================================================
 def limpiar_estado_capacity():
+    """Limpia todas las variables de estado del módulo capacity"""
     keys_to_clear = [
         'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
         'p1_filtros_aplicados', 'p1_reporte_generado',
         'p2_servidor_seleccionado', 'p2_metrica_filtro',
         'p2_formato_filtro', 'p2_mostrar_tabla',
         'modulo_capacity_activo'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+def limpiar_estado_reportes():
+    """Limpia todas las variables de estado del módulo reportes"""
+    keys_to_clear = [
+        'rep_listo',
+        'rep_csv',
+        'rep_pdf',
+        'rep_name_csv',
+        'rep_name_pdf',
+        'key_semilla_selectbox',
+        'filtros_aplicados',
+        'temp_servidor',
+        'temp_sensor',
+        'temp_fecha_i',
+        'temp_fecha_f',
+        'temp_formato',
+        'servidor_seleccionado_reporte',
+        'filtro_sensor_general',
+        'filtro_fecha_i',
+        'filtro_fecha_f',
+        'filtro_formato_salida',
+        'modulo_reportes_activo'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -194,6 +224,7 @@ def limpiar_parametros_monitoreo():
     st.session_state["filtro_aplicado_tab2"] = False
 
 def gestionar_limpieza_filtros(seccion_destino):
+    """Gestiona la limpieza de filtros al cambiar de módulo"""
     # Si es monitoreo, NO LIMPIAR NADA
     if seccion_destino == "🖥️ Monitoreo en vivo":
         return
@@ -210,6 +241,11 @@ def gestionar_limpieza_filtros(seccion_destino):
     elif seccion_destino == "📈 Capacity planning":
         tab_actual = st.query_params.get("tab_capacity")
 
+    # =============================================================
+    # LIMPIEZA DE FILTROS POR MÓDULO
+    # =============================================================
+    
+    # LIMPIAR MONITOREO (si no estamos en monitoreo)
     if seccion_destino != "🖥️ Monitoreo en vivo":
         if "filtro_monitoreo_nombre" in st.session_state:
             st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor--"
@@ -217,13 +253,23 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
         if "servidor_seleccionado" in st.session_state:
             st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
+        if "sb_srv_tab1" in st.session_state:
+            st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor --"
+        if "sb_metrica_tab1" in st.session_state:
+            st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
+        if "filtro_aplicado_tab1" in st.session_state:
+            st.session_state["filtro_aplicado_tab1"] = False
+        if "filtro_aplicado_tab2" in st.session_state:
+            st.session_state["filtro_aplicado_tab2"] = False
 
+    # LIMPIAR GESTIÓN DE USUARIOS
     if seccion_destino != "👥 Gestión de usuarios":
         if "filtro_analista" in st.session_state:
             st.session_state["filtro_analista"] = "-- Seleccione un Analista --"
         if "accion_personal" in st.session_state:
             st.session_state["accion_personal"] = None
 
+    # LIMPIAR SERVIDORES
     if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
@@ -234,16 +280,11 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "accion_adicional" in st.session_state:
             st.session_state["accion_adicional"] = None
 
+    # LIMPIAR REPORTES (AGREGADO)
     if seccion_destino != "📄 Reportes":
-        st.session_state["rep_listo"] = False
-        st.session_state["rep_csv"] = None
-        st.session_state["rep_pdf"] = None
-        st.session_state["rep_name_csv"] = ""
-        st.session_state["rep_name_pdf"] = ""
-        st.session_state["servidor_seleccionado_reporte"] = "-- Seleccione un Servidor --"
-        if "key_semilla_selectbox" in st.session_state:
-            st.session_state["key_semilla_selectbox"] += 1
+        limpiar_estado_reportes()
 
+    # LIMPIAR CAPACITY PLANNING
     if seccion_destino != "📈 Capacity planning":
         limpiar_estado_capacity()
         if "servidor_seleccionado_capacity" in st.session_state:
@@ -252,19 +293,10 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["metrica_seleccionada_capacity"] = "CPU"
         if "dias_prediccion_capacity" in st.session_state:
             st.session_state["dias_prediccion_capacity"] = 30
-        if "temp_servidor_capacity" in st.session_state:
-            del st.session_state["temp_servidor_capacity"]
-        if "temp_metrica_capacity" in st.session_state:
-            del st.session_state["temp_metrica_capacity"]
-        if "temp_dias_capacity" in st.session_state:
-            del st.session_state["temp_dias_capacity"]
-        if "temp_ajuste_capacity" in st.session_state:
-            del st.session_state["temp_ajuste_capacity"]
-        if "filtros_aplicados_capacity" in st.session_state:
-            del st.session_state["filtros_aplicados_capacity"]
         if "reporte_generado" in st.session_state:
             st.session_state["reporte_generado"] = False
 
+    # LIMPIAR ALERTAS
     if seccion_destino != "🔔 Alertas":
         if "sb_alerta_srv" in st.session_state:
             st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
@@ -273,12 +305,14 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "filtro_alerta_estado" in st.session_state:
             st.session_state["filtro_alerta_estado"] = "No Resueltas"
 
+    # LIMPIAR UMBRALES
     if seccion_destino != "⚙️ Umbrales":
         if "filtro_umbral_servidor" in st.session_state:
             st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
         if "filtro_umbral_componente" in st.session_state:
             st.session_state["filtro_umbral_componente"] = "-- Seleccione un Componente --"
 
+    # Restaurar pestañas activas
     if tab_actual:
         if seccion_destino == "🖥️ Servidores":
             st.query_params["tab_servidores"] = tab_actual
@@ -392,6 +426,22 @@ def main():
     st.query_params["c"] = st.session_state.get("cargo", "Analista")
     
     # =============================================================
+    # ESTABLECER MÓDULO ACTUAL PARA LIMPIEZA AUTOMÁTICA
+    # =============================================================
+    modulo_map = {
+        "🏠 Inicio": "inicio",
+        "🖥️ Servidores": "servidores",
+        "🖥️ Monitoreo en vivo": "monitoreo",
+        "📈 Capacity planning": "capacity",
+        "🔔 Alertas": "alertas",
+        "⚙️ Umbrales": "umbrales",
+        "📄 Reportes": "reportes",
+        "👥 Gestión de usuarios": "gestion",
+        "🕵️ Auditoría": "auditoria"
+    }
+    st.session_state["modulo_actual"] = modulo_map.get(st.session_state["seccion_actual"], "otros")
+    
+    # =============================================================
     # RENDERIZAR MÓDULO
     # =============================================================
     seleccion = st.session_state["seccion_actual"]
@@ -450,6 +500,7 @@ def main():
         except Exception as e:
             logging.error(f"Error crítico cargando sección {seleccion}: {e}")
             st.error(f"Error en la sección {seleccion}. Verifique logs.")
+            st.exception(e)
 
 if __name__ == "__main__":
     main()
