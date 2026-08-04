@@ -2,7 +2,7 @@ import streamlit as st
 import logging
 import time
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import conectar_bd, obtener_lista_servidores
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -89,6 +89,45 @@ def obtener_alertas_activas(ip_servidor=None, criticidad=None, limite=50):
             logging.error(f"Error obteniendo alertas activas: {e}")
     return alertas
 
+def obtener_ultimas_alertas_por_servidor(ip_servidor=None, criticidad=None, limite=5):
+    """
+    Obtiene las últimas 'limite' alertas por servidor.
+    Usado SOLO cuando el agente está inactivo.
+    """
+    conn = conectar_bd()
+    alertas = []
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+                SELECT a.*, s.nombre_alias 
+                FROM alertas a
+                LEFT JOIN servidores s ON a.ip_servidor = s.ip
+                WHERE 1=1
+            """
+            params = []
+            
+            if ip_servidor:
+                query += " AND a.ip_servidor = %s"
+                params.append(ip_servidor)
+            
+            filtro_valor = obtener_parametros_filtro(criticidad)
+            if filtro_valor:
+                query += " AND a.tipo_alerta = %s"
+                params.append(filtro_valor)
+            
+            query += " ORDER BY a.fecha_inicio DESC LIMIT %s"
+            params.append(limite)
+            
+            cursor.execute(query, tuple(params))
+            alertas = cursor.fetchall()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            logging.error(f"Error obteniendo últimas alertas: {e}")
+    return alertas
+
 def obtener_ultimo_monitoreo(ip_servidor):
     conn = conectar_bd()
     registro = None
@@ -121,6 +160,7 @@ def obtener_estado_agente(ip_servidor):
 # =====================================================================
 
 def renderizar_alerta_card(alerta):
+    """Renderiza una tarjeta de alerta con el estilo original"""
     tipo_alerta_raw = alerta.get('tipo_alerta', 'ESTABLE')
     nivel = obtener_nivel_alerta(tipo_alerta_raw)
     
@@ -174,6 +214,7 @@ def renderizar_alerta_card(alerta):
     if val_gb > 0 and val_total > 0:
         detalles += f" | Libre: {val_gb:.1f}/{val_total:.1f} GB"
     
+    # ESTILO ORIGINAL - SIN ESTADO NI BADGE ADICIONAL
     html = f"""
     <div style="
         border-left: 8px solid {color_borde};
@@ -215,7 +256,7 @@ def renderizar_alerta_card(alerta):
 
 
 def renderizar_contenido(placeholder, filtro_servidor, filtro_criticidad, servidores):
-    """Función que renderiza el contenido en el placeholder - SIN CONTADOR NI ACTUALIZACIÓN"""
+    """Función que renderiza el contenido en el placeholder"""
     
     if filtro_servidor == "-- Seleccione un Servidor --":
         with placeholder.container():
@@ -229,22 +270,44 @@ def renderizar_contenido(placeholder, filtro_servidor, filtro_criticidad, servid
         return
     
     ip_filtro = serv_info['ip']
-    agente_activo, _ = obtener_estado_agente(ip_filtro)
+    agente_activo, ultimo_registro = obtener_estado_agente(ip_filtro)
     
-    if not agente_activo:
-        with placeholder.container():
-            st.info("⏳ Agente inactivo. Mostrando ultimos datos registrados.")
-        return
+    # =============================================================
+    # LÓGICA DE OBTENCIÓN DE ALERTAS
+    # =============================================================
+    LIMITE_MOSTRAR = 15  # Para alertas activas
+    LIMITE_HISTORICAS = 5  # Para cuando el agente está inactivo
     
-    # OBTENER ALERTAS
-    LIMITE_MOSTRAR = 15
-    alertas_activas = obtener_alertas_activas(ip_filtro, filtro_criticidad, LIMITE_MOSTRAR)
+    if agente_activo:
+        # AGENTE ACTIVO: Mostrar alertas activas (lógica original)
+        alertas = obtener_alertas_activas(ip_filtro, filtro_criticidad, LIMITE_MOSTRAR)
+    else:
+        # AGENTE INACTIVO: Mostrar las 5 últimas alertas
+        alertas = obtener_ultimas_alertas_por_servidor(ip_filtro, filtro_criticidad, LIMITE_HISTORICAS)
     
     with placeholder.container():
-        # Mostrar las alertas sin ningún mensaje adicional
-        for alerta in alertas_activas:
-            html_card = renderizar_alerta_card(alerta)
-            st.markdown(html_card, unsafe_allow_html=True)
+        # Mostrar mensaje de estado del agente si está inactivo
+        if not agente_activo:
+            fecha_ultimo = ultimo_registro.get('fecha_registro') if ultimo_registro else None
+            if fecha_ultimo:
+                if isinstance(fecha_ultimo, datetime):
+                    fecha_str = fecha_ultimo.strftime("%Y-%m-%d %H:%M:%S")
+                    st.warning(f"⏳ Agente inactivo. Mostrando las últimas {LIMITE_HISTORICAS} alertas registradas. Última conexión: {fecha_str}")
+                else:
+                    st.warning(f"⏳ Agente inactivo. Mostrando las últimas {LIMITE_HISTORICAS} alertas registradas.")
+            else:
+                st.warning(f"⏳ Agente inactivo. Mostrando las últimas {LIMITE_HISTORICAS} alertas registradas.")
+        
+        # Mostrar las alertas
+        if not alertas:
+            if agente_activo:
+                st.info("✅ No hay alertas activas para este servidor.")
+            else:
+                st.info("📭 No hay alertas registradas para este servidor.")
+        else:
+            for alerta in alertas:
+                html_card = renderizar_alerta_card(alerta)
+                st.markdown(html_card, unsafe_allow_html=True)
 
 
 # =====================================================================
@@ -299,14 +362,22 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state["filtro_alerta_criticidad"] = VALOR_TODAS
     if "filtro_aplicado" not in st.session_state:
         st.session_state["filtro_aplicado"] = False
+    if "modulo_alertas_activo" not in st.session_state:
+        st.session_state["modulo_alertas_activo"] = False
 
     # PROCESAR LIMPIEZA DE FILTROS
     if "_limpiar_alertas" in st.query_params and st.query_params["_limpiar_alertas"] == "1":
         st.session_state["filtro_alerta_servidor"] = VALOR_DEFECTO
         st.session_state["filtro_alerta_criticidad"] = VALOR_TODAS
         st.session_state["filtro_aplicado"] = False
+        st.session_state["modulo_alertas_activo"] = False
         del st.query_params["_limpiar_alertas"]
         st.rerun()
+
+    # DETECTAR SI ESTAMOS EN EL MÓDULO CORRECTO
+    if st.session_state.get("modulo_actual", "") != "alertas":
+        if st.session_state.get("modulo_alertas_activo", False):
+            st.session_state["modulo_alertas_activo"] = False
 
     servidores = obtener_lista_servidores()
     lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores if s.get('nombre_alias')])))
@@ -336,6 +407,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     with col_f3:
         if st.button("🔍 Filtrar", key="btn_filtrar_alertas", use_container_width=True):
             st.session_state["filtro_aplicado"] = True
+            st.session_state["modulo_alertas_activo"] = True
             st.rerun()
     with col_f4:
         if st.button("🧹 Limpiar", key="btn_limpiar_alertas", use_container_width=True):

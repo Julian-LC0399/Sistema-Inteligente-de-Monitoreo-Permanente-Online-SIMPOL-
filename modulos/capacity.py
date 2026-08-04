@@ -785,19 +785,23 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     # =============================================================
     # DETECTAR EL MÓDULO ACTUAL Y LIMPIAR SI CAMBIA
     # =============================================================
-    # Obtener el módulo actual desde el session_state o query_params
+    # Obtener el módulo actual desde el session_state
     modulo_actual = st.session_state.get("modulo_actual", "capacity")
     
     # Si el módulo actual no es "capacity" y el módulo capacity estaba activo, limpiar
     if modulo_actual != "capacity" and st.session_state.get("modulo_capacity_activo", False):
         limpiar_estado_capacity()
         st.session_state.modulo_capacity_activo = False
+        # No hacer return, solo limpiar y continuar
+        # Pero como no estamos en capacity, mejor salir
     
     # Si estamos en el módulo capacity, marcarlo como activo
     if modulo_actual == "capacity":
         st.session_state.modulo_capacity_activo = True
     
-    # Inicializar variables si no existen
+    # =============================================================
+    # INICIALIZAR VARIABLES SI NO EXISTEN
+    # =============================================================
     if "p1_servidor" not in st.session_state:
         st.session_state.p1_servidor = "-- Seleccione un Servidor --"
     if "p1_metrica" not in st.session_state:
@@ -953,7 +957,10 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             )
                             st.session_state.p1_ajuste = porcentaje_ajuste_analista
 
-                        col_btn_filtrar, col_btn_limpiar = st.columns(2)
+                        # =============================================================
+                        # BOTONES CON TAMAÑO IGUAL - CORREGIDO
+                        # =============================================================
+                        col_btn_filtrar, col_btn_limpiar = st.columns(2, gap="small")
                         
                         with col_btn_filtrar:
                             if st.button("🔍 Filtrar", use_container_width=True, key="p1_btn_filtrar"):
@@ -1192,14 +1199,60 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             )
 
         # =====================================================================
-        # PESTAÑA 2 - BÓVEDA
+        # PESTAÑA 2 - BÓVEDA CON BOTONES ALINEADOS VERTICALMENTE
         # =====================================================================
         with pestana_boveda:
             st.markdown("#### 📜 Repositorio de Informes Archivados")
             
             st.markdown("##### 🔍 Filtros de Búsqueda")
             
-            col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([2, 1.5, 1, 1, 0.5])
+            # CSS para alinear botones verticalmente con los selectboxes
+            st.markdown("""
+                <style>
+                    /* Contenedor de columnas - alinear todo en la parte inferior */
+                    div[data-testid="column"] {
+                        display: flex !important;
+                        flex-direction: column !important;
+                        justify-content: flex-end !important;
+                        height: 100% !important;
+                        min-height: 80px !important;
+                    }
+                    /* Los selectboxes deben estar en la parte superior de su columna */
+                    div[data-testid="stSelectbox"] {
+                        margin-bottom: auto !important;
+                    }
+                    /* Las etiquetas de los selectboxes */
+                    div[data-testid="stSelectbox"] label {
+                        margin-bottom: 4px !important;
+                    }
+                    /* Los botones deben estar alineados con la base de los selectboxes */
+                    div[data-testid="column"]:has(button) {
+                        justify-content: flex-end !important;
+                        padding-bottom: 0px !important;
+                        min-height: 80px !important;
+                    }
+                    div[data-testid="column"]:has(button) button {
+                        margin-top: auto !important;
+                        margin-bottom: 0px !important;
+                        height: 38px !important;
+                        width: 100% !important;
+                    }
+                    /* Ajustar el contenedor de las columnas */
+                    .row-widget.stColumns {
+                        align-items: flex-end !important;
+                    }
+                    /* Espacio entre los elementos */
+                    .stSelectbox div[data-baseweb="select"] {
+                        margin-top: 0px !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            # =============================================================
+            # FILTROS DE BÓVEDA - COLUMNAS BALANCEADAS
+            # =============================================================
+            # Las columnas 4 y 5 (botones) deben tener el mismo peso que las columnas de los selectboxes
+            col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([2, 1.5, 1.2, 1.2, 1.2])
             
             with col_f1:
                 servidor_boveda = st.selectbox(
@@ -1210,52 +1263,66 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 )
                 st.session_state.p2_servidor_seleccionado = servidor_boveda
             
+            with col_f2:
+                # Mostrar métricas disponibles según el servidor seleccionado
+                if servidor_boveda != "-- Seleccione un Servidor --":
+                    info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_boveda), None)
+                    if info_servidor:
+                        ip_objetivo = str(info_servidor['ip']).strip()
+                        metricas_disponibles = obtener_metricas_disponibles_boveda(ip_objetivo)
+                        opciones_metricas = ["Todas"] + metricas_disponibles
+                    else:
+                        opciones_metricas = ["Todas"]
+                else:
+                    opciones_metricas = ["Todas"]
+                
+                metrica_filtro = st.selectbox(
+                    "Métrica",
+                    options=opciones_metricas,
+                    index=opciones_metricas.index(st.session_state.p2_metrica_filtro) if st.session_state.p2_metrica_filtro in opciones_metricas else 0,
+                    key="p2_filtro_metrica"
+                )
+                st.session_state.p2_metrica_filtro = metrica_filtro
+            
+            with col_f3:
+                opciones_formatos = ["Todos", "PDF", "CSV"]
+                formato_filtro = st.selectbox(
+                    "Formato",
+                    options=opciones_formatos,
+                    index=opciones_formatos.index(st.session_state.p2_formato_filtro) if st.session_state.p2_formato_filtro in opciones_formatos else 0,
+                    key="p2_filtro_formato"
+                )
+                st.session_state.p2_formato_filtro = formato_filtro
+            
+            # =============================================================
+            # BOTONES SIEMPRE VISIBLES CON ALINEACIÓN VERTICAL
+            # =============================================================
+            with col_f4:
+                # Espacio para empujar el botón hacia abajo y alinearlo con los selectboxes
+                st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+                if st.button("🔍 Filtrar", use_container_width=True, key="p2_btn_filtrar"):
+                    st.session_state.p2_mostrar_tabla = True
+                    st.rerun()
+            
+            with col_f5:
+                st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+                if st.button("🧹 Limpiar", use_container_width=True, key="p2_btn_limpiar", help="Limpiar filtros"):
+                    st.session_state.p2_metrica_filtro = "Todas"
+                    st.session_state.p2_formato_filtro = "Todos"
+                    st.session_state.p2_mostrar_tabla = False
+                    st.rerun()
+            
+            # =============================================================
+            # MOSTRAR RESULTADOS (SOLO SI HAY SERVIDOR SELECCIONADO)
+            # =============================================================
             if servidor_boveda == "-- Seleccione un Servidor --":
                 st.info("🖥️ Seleccione un servidor para ver sus reportes archivados.")
             else:
-                info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_boveda), None)
-                if info_servidor:
-                    ip_objetivo = str(info_servidor['ip']).strip()
-                    
-                    metricas_disponibles = obtener_metricas_disponibles_boveda(ip_objetivo)
-                    opciones_metricas = ["Todas"] + metricas_disponibles
-                    opciones_formatos = ["Todos", "PDF", "CSV"]
-                    
-                    with col_f2:
-                        metrica_filtro = st.selectbox(
-                            "📊 Métrica",
-                            options=opciones_metricas,
-                            index=opciones_metricas.index(st.session_state.p2_metrica_filtro) if st.session_state.p2_metrica_filtro in opciones_metricas else 0,
-                            key="p2_filtro_metrica"
-                        )
-                        st.session_state.p2_metrica_filtro = metrica_filtro
-                    
-                    with col_f3:
-                        formato_filtro = st.selectbox(
-                            "📄 Formato",
-                            options=opciones_formatos,
-                            index=opciones_formatos.index(st.session_state.p2_formato_filtro) if st.session_state.p2_formato_filtro in opciones_formatos else 0,
-                            key="p2_filtro_formato"
-                        )
-                        st.session_state.p2_formato_filtro = formato_filtro
-                    
-                    with col_f4:
-                        st.write("")
-                        st.write("")
-                        if st.button("🔍 Filtrar", use_container_width=True, key="p2_btn_filtrar"):
-                            st.session_state.p2_mostrar_tabla = True
-                            st.rerun()
-                    
-                    with col_f5:
-                        st.write("")
-                        st.write("")
-                        if st.button("🧹 Limpiar", use_container_width=True, key="p2_btn_limpiar", help="Limpiar filtros"):
-                            st.session_state.p2_metrica_filtro = "Todas"
-                            st.session_state.p2_formato_filtro = "Todos"
-                            st.session_state.p2_mostrar_tabla = False
-                            st.rerun()
-                    
-                    if st.session_state.p2_mostrar_tabla:
+                if st.session_state.p2_mostrar_tabla:
+                    info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_boveda), None)
+                    if info_servidor:
+                        ip_objetivo = str(info_servidor['ip']).strip()
+                        
                         st.markdown("---")
                         
                         items_historicos = listar_reportes_capacity_bd_con_filtros(
@@ -1312,8 +1379,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                     )
                             
                             st.caption(f"📊 **{len(items_historicos)}** reportes encontrados")
-                    else:
-                        st.info("🔍 Selecciona los filtros y presiona **'Filtrar'** para ver los reportes archivados.")
+                else:
+                    st.info("🔍 Selecciona los filtros y presiona **'Filtrar'** para ver los reportes archivados.")
 
     except Exception as e_main:
         st.error(f"❌ Fallo general critico en la ejecucion de la vista analitica: {e_main}")

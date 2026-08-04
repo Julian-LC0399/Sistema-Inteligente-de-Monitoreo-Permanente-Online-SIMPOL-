@@ -55,6 +55,31 @@ def normalizar_componente(nombre):
     return nombre.upper().replace("_", "").replace(" ", "").replace(":", "").replace("\\", "")
 
 # =====================================================================
+# FUNCIÓN PARA LIMPIAR EL ESTADO DEL MÓDULO REPORTES
+# =====================================================================
+def limpiar_estado_reportes():
+    """Limpia todas las variables de estado del módulo reportes"""
+    keys_to_clear = [
+        'rep_listo',
+        'rep_csv',
+        'rep_pdf',
+        'rep_name_csv',
+        'rep_name_pdf',
+        'key_semilla_selectbox',
+        'reporte_servidor',
+        'reporte_sensor',
+        'reporte_fecha_i',
+        'reporte_fecha_f',
+        'reporte_formato',
+        'filtros_aplicados'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    st.session_state["filtros_aplicados"] = False
+
+# =====================================================================
 # CLASE DE CONFIGURACIÓN GRÁFICA DEL REPORTE PDF (ESTILO BANCO CARONÍ)
 # =====================================================================
 class PDF(FPDF):
@@ -213,6 +238,25 @@ def descargar_contenido_blob(id_archivo):
 # VISTA Y CONTROLADOR PRINCIPAL DEL MÓDULO DE REPORTES
 # =====================================================================
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
+    
+    # =============================================================
+    # INICIO DE LA VISTA
+    # =============================================================
+    
+    # Inicializar variables de estado con nombres únicos para evitar conflictos
+    if "reporte_servidor" not in st.session_state:
+        st.session_state["reporte_servidor"] = "-- Seleccione un Servidor --"
+    if "reporte_sensor" not in st.session_state:
+        st.session_state["reporte_sensor"] = "Reporte Integral (Todas las Variables)"
+    if "reporte_fecha_i" not in st.session_state:
+        st.session_state["reporte_fecha_i"] = datetime.now() - timedelta(days=1)
+    if "reporte_fecha_f" not in st.session_state:
+        st.session_state["reporte_fecha_f"] = datetime.now()
+    if "reporte_formato" not in st.session_state:
+        st.session_state["reporte_formato"] = "PDF"
+    if "filtros_aplicados" not in st.session_state:
+        st.session_state["filtros_aplicados"] = False
+    
     st.markdown("""
         <style>
             .info-analista-reportes {
@@ -249,19 +293,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     if "rep_name_csv" not in st.session_state: st.session_state["rep_name_csv"] = ""
     if "rep_name_pdf" not in st.session_state: st.session_state["rep_name_pdf"] = ""
     if "key_semilla_selectbox" not in st.session_state: st.session_state["key_semilla_selectbox"] = 1000
-    if "filtros_aplicados" not in st.session_state: st.session_state["filtros_aplicados"] = False
-    
-    # Variables temporales para los filtros (no se aplican hasta que se presione "Filtrar")
-    if "temp_servidor" not in st.session_state:
-        st.session_state["temp_servidor"] = "-- Seleccione un Servidor --"
-    if "temp_sensor" not in st.session_state:
-        st.session_state["temp_sensor"] = "Reporte Integral (Todas las Variables)"
-    if "temp_fecha_i" not in st.session_state:
-        st.session_state["temp_fecha_i"] = datetime.now() - timedelta(days=1)
-    if "temp_fecha_f" not in st.session_state:
-        st.session_state["temp_fecha_f"] = datetime.now()
-    if "temp_formato" not in st.session_state:
-        st.session_state["temp_formato"] = "PDF"
 
     from database import obtener_lista_servidores
     servidores = obtener_lista_servidores()
@@ -272,7 +303,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     nombres_servidores = ["-- Seleccione un Servidor --"] + [s['nombre_alias'] for s in servidores]
     
     # =====================================================================
-    # FILTROS - NO HACEN NADA HASTA PRESIONAR "FILTRAR"
+    # FILTROS - Usan variables directas (no temp_*)
     # =====================================================================
     with st.container():
         st.markdown("#### Parámetros de Extracción y Filtrado")
@@ -281,37 +312,37 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         with col_f1:
             fecha_i = st.date_input(
                 "Fecha Inicial:", 
-                value=st.session_state["temp_fecha_i"], 
+                value=st.session_state["reporte_fecha_i"], 
                 key="widget_rep_fi"
             )
-            st.session_state["temp_fecha_i"] = fecha_i
+            st.session_state["reporte_fecha_i"] = fecha_i
             
         with col_f2:
             fecha_f = st.date_input(
                 "Fecha Final:", 
-                value=st.session_state["temp_fecha_f"], 
+                value=st.session_state["reporte_fecha_f"], 
                 key="widget_rep_ff"
             )
-            st.session_state["temp_fecha_f"] = fecha_f
+            st.session_state["reporte_fecha_f"] = fecha_f
             
         with col_f3:
             formatos_lista = ["PDF", "CSV"]
             formato_sel = st.selectbox(
                 "Formato de Exportación:",
                 options=formatos_lista,
-                index=formatos_lista.index(st.session_state["temp_formato"]),
+                index=formatos_lista.index(st.session_state["reporte_formato"]),
                 key="widget_rep_formato"
             )
-            st.session_state["temp_formato"] = formato_sel
+            st.session_state["reporte_formato"] = formato_sel
 
         # Selector de servidor
         serv_seleccionado = st.selectbox(
             "Seleccione el Servidor objetivo:", 
             options=nombres_servidores, 
-            index=nombres_servidores.index(st.session_state["temp_servidor"]) if st.session_state["temp_servidor"] in nombres_servidores else 0,
+            index=nombres_servidores.index(st.session_state["reporte_servidor"]) if st.session_state["reporte_servidor"] in nombres_servidores else 0,
             key=f"sb_srv_reportes_semilla_{st.session_state['key_semilla_selectbox']}"
         )
-        st.session_state["temp_servidor"] = serv_seleccionado
+        st.session_state["reporte_servidor"] = serv_seleccionado
 
         if serv_seleccionado == "-- Seleccione un Servidor --":
             st.info("🖥️ Seleccione un nodo de la lista para activar las herramientas de reportes.")
@@ -339,30 +370,24 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         if serv_info.get('id_sensor_latencia') and int(serv_info['id_sensor_latencia']) > 0:
             sensores_disponibles.append("Latencia de Red")
 
-        if st.session_state["temp_sensor"] not in sensores_disponibles:
-            st.session_state["temp_sensor"] = sensores_disponibles[0]
+        if st.session_state["reporte_sensor"] not in sensores_disponibles:
+            st.session_state["reporte_sensor"] = sensores_disponibles[0]
 
         sensor_general = st.selectbox(
             "Sensor registrado en el Servidor:",
             options=sensores_disponibles,
-            index=sensores_disponibles.index(st.session_state["temp_sensor"]),
+            index=sensores_disponibles.index(st.session_state["reporte_sensor"]),
             key="widget_rep_sensor_general"
         )
-        st.session_state["temp_sensor"] = sensor_general
+        st.session_state["reporte_sensor"] = sensor_general
 
         # =====================================================================
         # BOTONES: FILTRAR Y LIMPIAR FILTROS
         # =====================================================================
-        col_btn_filtrar, col_btn_limpiar = st.columns(2)
+        col_btn_filtrar, col_btn_limpiar = st.columns(2, gap="small")
         
         with col_btn_filtrar:
             if st.button("🔍 Filtrar", use_container_width=True, key="btn_aplicar_filtros"):
-                # Aplicar los filtros: copiar valores temporales a los reales
-                st.session_state["servidor_seleccionado_reporte"] = st.session_state["temp_servidor"]
-                st.session_state["filtro_sensor_general"] = st.session_state["temp_sensor"]
-                st.session_state["filtro_fecha_i"] = st.session_state["temp_fecha_i"]
-                st.session_state["filtro_fecha_f"] = st.session_state["temp_fecha_f"]
-                st.session_state["filtro_formato_salida"] = st.session_state["temp_formato"]
                 st.session_state["filtros_aplicados"] = True
                 st.success("✅ Filtros aplicados correctamente.")
                 st.rerun()
@@ -370,41 +395,38 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         with col_btn_limpiar:
             if st.button("🧹 Limpiar Filtros", use_container_width=True, key="btn_clear_all_filters"):
                 # Resetear todo
-                st.session_state["temp_servidor"] = "-- Seleccione un Servidor --"
-                st.session_state["temp_sensor"] = "Reporte Integral (Todas las Variables)"
-                st.session_state["temp_fecha_i"] = datetime.now() - timedelta(days=1)
-                st.session_state["temp_fecha_f"] = datetime.now()
-                st.session_state["temp_formato"] = "PDF"
-                st.session_state["servidor_seleccionado_reporte"] = "-- Seleccione un Servidor --"
-                st.session_state["filtro_sensor_general"] = "Reporte Integral (Todas las Variables)"
-                st.session_state["filtro_fecha_i"] = datetime.now() - timedelta(days=1)
-                st.session_state["filtro_fecha_f"] = datetime.now()
-                st.session_state["filtro_formato_salida"] = "PDF"
+                st.session_state["reporte_servidor"] = "-- Seleccione un Servidor --"
+                st.session_state["reporte_sensor"] = "Reporte Integral (Todas las Variables)"
+                st.session_state["reporte_fecha_i"] = datetime.now() - timedelta(days=1)
+                st.session_state["reporte_fecha_f"] = datetime.now()
+                st.session_state["reporte_formato"] = "PDF"
+                st.session_state["filtros_aplicados"] = False
                 st.session_state["rep_listo"] = False
                 st.session_state["rep_csv"] = None
                 st.session_state["rep_pdf"] = None
-                st.session_state["filtros_aplicados"] = False
                 st.session_state["key_semilla_selectbox"] += 1
                 st.success("🧹 Filtros limpiados correctamente.")
                 st.rerun()
 
         # Mostrar estado de los filtros aplicados
         if st.session_state.get("filtros_aplicados", False):
-            st.info(f"📌 Filtros activos: Servidor: {st.session_state['servidor_seleccionado_reporte']} | Sensor: {st.session_state['filtro_sensor_general']} | Fechas: {st.session_state['filtro_fecha_i'].strftime('%d/%m/%Y')} al {st.session_state['filtro_fecha_f'].strftime('%d/%m/%Y')}")
+            st.info(f"📌 Filtros activos: Servidor: {st.session_state['reporte_servidor']} | Sensor: {st.session_state['reporte_sensor']} | Fechas: {st.session_state['reporte_fecha_i'].strftime('%d/%m/%Y')} al {st.session_state['reporte_fecha_f'].strftime('%d/%m/%Y')}")
 
     # =====================================================================
     # GENERACIÓN DE REPORTE (USA LOS FILTROS APLICADOS)
     # =====================================================================
     if st.session_state.get("filtros_aplicados", False):
-        serv_seleccionado = st.session_state["servidor_seleccionado_reporte"]
-        sensor_general = st.session_state["filtro_sensor_general"]
-        fecha_i = st.session_state["filtro_fecha_i"]
-        fecha_f = st.session_state["filtro_fecha_f"]
-        formato_sel = st.session_state["filtro_formato_salida"]
+        serv_seleccionado = st.session_state["reporte_servidor"]
+        sensor_general = st.session_state["reporte_sensor"]
+        fecha_i = st.session_state["reporte_fecha_i"]
+        fecha_f = st.session_state["reporte_fecha_f"]
+        formato_sel = st.session_state["reporte_formato"]
         
         serv_info = next((s for s in servidores if s['nombre_alias'] == serv_seleccionado), None)
         if not serv_info:
             st.warning("⚠️ El servidor seleccionado ya no está disponible.")
+            st.session_state["filtros_aplicados"] = False
+            st.rerun()
             return
             
         ip_objetivo = str(serv_info['ip']).strip()
@@ -437,7 +459,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 ultima_muestra_obj = datos_muestras[0] if datos_muestras else None
 
                 # =====================================================================
-                # BOTÓN DE GENERACIÓN DE REPORTE (ESTILO ORIGINAL)
+                # BOTÓN DE GENERACIÓN DE REPORTE
                 # =====================================================================
                 col_btn_gen1, col_btn_gen2 = st.columns([3, 1])
                 with col_btn_gen1:
@@ -517,7 +539,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                         f_text = f_registro.strftime("%d/%m/%Y %H:%M") if hasattr(f_registro, 'strftime') else str(f_registro)
                                         
                                         alerta_activa = None
-                                        # 🔥 CORREGIDO: Usar normalizar_componente()
                                         for al in lista_alertas_servidor:
                                             comp_bd = normalizar_componente(al['componente'])
                                             comp_rep = normalizar_componente(p_sub)
@@ -636,7 +657,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                         f_t = f_registro.strftime("%Y-%m-%d %H:%M:%S") if hasattr(f_registro, 'strftime') else str(f_registro)
                                         
                                         alerta_activa = None
-                                        # 🔥 CORREGIDO: Usar normalizar_componente()
                                         for al in lista_alertas_servidor:
                                             comp_bd = normalizar_componente(al['componente'])
                                             comp_rep = normalizar_componente(bloque["prefix"])
