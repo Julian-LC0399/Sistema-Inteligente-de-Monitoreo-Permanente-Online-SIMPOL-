@@ -770,8 +770,7 @@ def limpiar_estado_capacity():
         'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
         'p1_filtros_aplicados', 'p1_reporte_generado',
         'p2_servidor_seleccionado', 'p2_metrica_filtro',
-        'p2_formato_filtro', 'p2_mostrar_tabla',
-        'modulo_capacity_activo'
+        'p2_formato_filtro', 'p2_mostrar_tabla'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -783,21 +782,12 @@ def limpiar_estado_capacity():
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
     
     # =============================================================
-    # DETECTAR EL MÓDULO ACTUAL Y LIMPIAR SI CAMBIA
+    # INICIO DE LA VISTA - La limpieza la maneja app.py
     # =============================================================
-    # Obtener el módulo actual desde el session_state o query_params
-    modulo_actual = st.session_state.get("modulo_actual", "capacity")
     
-    # Si el módulo actual no es "capacity" y el módulo capacity estaba activo, limpiar
-    if modulo_actual != "capacity" and st.session_state.get("modulo_capacity_activo", False):
-        limpiar_estado_capacity()
-        st.session_state.modulo_capacity_activo = False
-    
-    # Si estamos en el módulo capacity, marcarlo como activo
-    if modulo_actual == "capacity":
-        st.session_state.modulo_capacity_activo = True
-    
-    # Inicializar variables si no existen
+    # =============================================================
+    # INICIALIZAR VARIABLES SI NO EXISTEN
+    # =============================================================
     if "p1_servidor" not in st.session_state:
         st.session_state.p1_servidor = "-- Seleccione un Servidor --"
     if "p1_metrica" not in st.session_state:

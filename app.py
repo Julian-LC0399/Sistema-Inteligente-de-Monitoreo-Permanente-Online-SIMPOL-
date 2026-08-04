@@ -160,8 +160,7 @@ def limpiar_estado_capacity():
         'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
         'p1_filtros_aplicados', 'p1_reporte_generado',
         'p2_servidor_seleccionado', 'p2_metrica_filtro',
-        'p2_formato_filtro', 'p2_mostrar_tabla',
-        'modulo_capacity_activo'
+        'p2_formato_filtro', 'p2_mostrar_tabla'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -186,8 +185,7 @@ def limpiar_estado_reportes():
         'filtro_sensor_general',
         'filtro_fecha_i',
         'filtro_fecha_f',
-        'filtro_formato_salida',
-        'modulo_reportes_activo'
+        'filtro_formato_salida'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -280,7 +278,7 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "accion_adicional" in st.session_state:
             st.session_state["accion_adicional"] = None
 
-    # LIMPIAR REPORTES (AGREGADO)
+    # LIMPIAR REPORTES
     if seccion_destino != "📄 Reportes":
         limpiar_estado_reportes()
 
@@ -407,6 +405,22 @@ def main():
     generar_menu()
     
     # =============================================================
+    # ESTABLECER MÓDULO ACTUAL ANTES DE LIMPIAR
+    # =============================================================
+    modulo_map = {
+        "🏠 Inicio": "inicio",
+        "🖥️ Servidores": "servidores",
+        "🖥️ Monitoreo en vivo": "monitoreo",
+        "📈 Capacity planning": "capacity",
+        "🔔 Alertas": "alertas",
+        "⚙️ Umbrales": "umbrales",
+        "📄 Reportes": "reportes",
+        "👥 Gestión de usuarios": "gestion",
+        "🕵️ Auditoría": "auditoria"
+    }
+    st.session_state["modulo_actual"] = modulo_map.get(st.session_state["seccion_actual"], "otros")
+    
+    # =============================================================
     # LIMPIEZA DE FILTROS - PRESERVAR MONITOREO
     # =============================================================
     if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
@@ -424,22 +438,6 @@ def main():
     st.query_params["uid"] = str(st.session_state.get("user_id", 1))
     st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
     st.query_params["c"] = st.session_state.get("cargo", "Analista")
-    
-    # =============================================================
-    # ESTABLECER MÓDULO ACTUAL PARA LIMPIEZA AUTOMÁTICA
-    # =============================================================
-    modulo_map = {
-        "🏠 Inicio": "inicio",
-        "🖥️ Servidores": "servidores",
-        "🖥️ Monitoreo en vivo": "monitoreo",
-        "📈 Capacity planning": "capacity",
-        "🔔 Alertas": "alertas",
-        "⚙️ Umbrales": "umbrales",
-        "📄 Reportes": "reportes",
-        "👥 Gestión de usuarios": "gestion",
-        "🕵️ Auditoría": "auditoria"
-    }
-    st.session_state["modulo_actual"] = modulo_map.get(st.session_state["seccion_actual"], "otros")
     
     # =============================================================
     # RENDERIZAR MÓDULO
