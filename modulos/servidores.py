@@ -714,7 +714,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             edit_s8 = col_s8.number_input("ID Sensor - Servicio 8", value=int(srv_actual.get('id_sensor_servicio_8', 0)), step=None)
                             
                             col_btn_edi1, col_btn_edi2 = st.columns(2)
-                            if col_btn_edi1.form_submit_button("✏️ Aplicar Cambios", use_container_width=True):
+                            if col_btn_edi1.form_submit_button("✏️ Actualizar", use_container_width=True):
                                 try:
                                     conn_edit = conectar_bd()
                                     cursor_edit = conn_edit.cursor()
@@ -745,7 +745,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                     if cursor_edit: cursor_edit.close()
                                     if conn_edit: conn_edit.close()
                                     
-                            if col_btn_edi2.form_submit_button("❌ Cancelar Modificación", use_container_width=True):
+                            if col_btn_edi2.form_submit_button("❌ Cancelar", use_container_width=True):
                                 st.session_state.accion_infra = None
                                 st.rerun()
 
