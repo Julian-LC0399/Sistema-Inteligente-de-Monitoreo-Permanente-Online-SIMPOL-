@@ -41,10 +41,9 @@ def limpiar_estados_servidores():
         'accion_adicional',
         'tab_servidores_activa',
         'sb_filtro_p1',
-        '_limpiar_filtro_srv',
-        '_limpiar_filtro_ad',
-        '_force_reset_srv',
-        '_force_reset_ad'
+        'sb_filtro_ad',
+        '_widget_key_srv',
+        '_widget_key_ad'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -77,21 +76,9 @@ def limpiar_estado_capacity():
 def renderizar_pestana_datos_adicionales(es_seguridad):
     """Fragmento independiente para la pestaña de datos adicionales"""
     
-    # =============================================================
-    # PROCESAR LIMPIEZA
-    # =============================================================
-    if st.query_params.get("_limpiar_filtro_ad") == "1":
-        st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
-        st.session_state.filtro_aplicado_ad = False
-        st.session_state.accion_adicional = None
-        # Eliminar la clave del session_state para forzar recreación
-        if "sb_filtro_ad" in st.session_state:
-            del st.session_state["sb_filtro_ad"]
-        # 🔥 También forzar reset con key dinámica
-        st.query_params["_force_reset_ad"] = "1"
-        del st.query_params["_limpiar_filtro_ad"]
-        st.rerun()
-        return
+    # 🔥 Inicializar key dinámica para la pestaña 2
+    if "_widget_key_ad" not in st.session_state:
+        st.session_state["_widget_key_ad"] = f"sb_filtro_ad_{int(time.time() * 1000)}"
     
     st.markdown('<h3 style="color:#003366;">📋 Control de Parámetros Adicionales</h3>', unsafe_allow_html=True)
     
@@ -118,32 +105,24 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         col_f_ad1, col_f_ad2, col_f_ad3 = st.columns([3, 1, 1])
         
         with col_f_ad1:
-            # 🔥 KEY DINÁMICA PARA FORZAR RESET
-            if st.query_params.get("_force_reset_ad") == "1":
-                reset_key = f"sb_filtro_ad_reset_{int(time.time() * 1000)}"
-                selected_value = st.selectbox(
-                    "Filtrar Servidor Base",
-                    options=opciones_selectbox_ad,
-                    index=0,  # -- Seleccione un Servidor Base --
-                    key=reset_key,
-                    label_visibility="collapsed"
-                )
-                st.session_state["filtro_adicional_nombre"] = selected_value
-                st.query_params["_force_reset_ad"] = "0"
+            # 🔥 Usar key dinámica fija
+            current_value = st.session_state.get("filtro_adicional_nombre", "-- Seleccione un Servidor Base --")
+            current_index = 0
+            
+            if current_value in opciones_selectbox_ad:
+                current_index = opciones_selectbox_ad.index(current_value)
             else:
-                current_value = st.session_state.get("filtro_adicional_nombre", "-- Seleccione un Servidor Base --")
+                st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
                 current_index = 0
-                if current_value in opciones_selectbox_ad:
-                    current_index = opciones_selectbox_ad.index(current_value)
-                
-                selected_value = st.selectbox(
-                    "Filtrar Servidor Base",
-                    options=opciones_selectbox_ad,
-                    index=current_index,
-                    key="sb_filtro_ad",
-                    label_visibility="collapsed"
-                )
-                st.session_state["filtro_adicional_nombre"] = selected_value
+            
+            selected_value = st.selectbox(
+                "Filtrar Servidor Base",
+                options=opciones_selectbox_ad,
+                index=current_index,
+                key=st.session_state["_widget_key_ad"],
+                label_visibility="collapsed"
+            )
+            st.session_state["filtro_adicional_nombre"] = selected_value
         
         with col_f_ad2:
             if st.button("🔍 Filtrar", key="btn_filtrar_ad", use_container_width=True):
@@ -152,7 +131,11 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         
         with col_f_ad3:
             if st.button("🧹 Limpiar", key="btn_limpiar_filtro_ad", use_container_width=True):
-                st.query_params["_limpiar_filtro_ad"] = "1"
+                # 🔥 Cambiar la key del widget para forzar recreación con index=0
+                st.session_state["_widget_key_ad"] = f"sb_filtro_ad_{int(time.time() * 1000)}"
+                st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+                st.session_state.filtro_aplicado_ad = False
+                st.session_state.accion_adicional = None
                 st.rerun(scope="fragment")
 
         st.markdown("---")
@@ -604,20 +587,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
     elif tab_param == "1":
         st.session_state.tab_servidores_activa = 0
 
-    # =============================================================
-    # PROCESAR LIMPIEZA - PESTAÑA 1 (con key dinámica también)
-    # =============================================================
-    if st.query_params.get("_limpiar_filtro_srv") == "1":
-        st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
-        st.session_state.accion_infra = None
-        st.session_state.filtro_aplicado_srv = False
-        if "sb_filtro_p1" in st.session_state:
-            del st.session_state["sb_filtro_p1"]
-        # 🔥 Forzar reset con key dinámica
-        st.query_params["_force_reset_srv"] = "1"
-        del st.query_params["_limpiar_filtro_srv"]
-        st.rerun()
-
+    # 🔥 Inicializar key dinámica para la pestaña 1
+    if "_widget_key_srv" not in st.session_state:
+        st.session_state["_widget_key_srv"] = f"sb_filtro_p1_{int(time.time() * 1000)}"
+    
     if "filtro_servidor_nombre" not in st.session_state:
         st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
     if "accion_infra" not in st.session_state:
@@ -641,37 +614,29 @@ def mostrar_tabla_servidores(rol_usuario=None):
             opciones_selectbox = ["-- Seleccione un Servidor --", "-- Ver Todos los Servidores --"] + lista_nombres_bd
 
             # ==========================================================================
-            # FILA DE FILTROS - PESTAÑA 1 (con key dinámica)
+            # FILA DE FILTROS - PESTAÑA 1
             # ==========================================================================
             col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
             
             with col_f1:
-                # 🔥 KEY DINÁMICA PARA FORZAR RESET
-                if st.query_params.get("_force_reset_srv") == "1":
-                    reset_key = f"sb_filtro_p1_reset_{int(time.time() * 1000)}"
-                    selected_value = st.selectbox(
-                        "Filtrar Servidor por Nombre",
-                        options=opciones_selectbox,
-                        index=0,  # -- Seleccione un Servidor --
-                        key=reset_key,
-                        label_visibility="collapsed"
-                    )
-                    st.session_state["filtro_servidor_nombre"] = selected_value
-                    st.query_params["_force_reset_srv"] = "0"
+                # 🔥 Usar key dinámica fija
+                current_value = st.session_state.get("filtro_servidor_nombre", "-- Seleccione un Servidor --")
+                current_index = 0
+                
+                if current_value in opciones_selectbox:
+                    current_index = opciones_selectbox.index(current_value)
                 else:
-                    current_value = st.session_state.get("filtro_servidor_nombre", "-- Seleccione un Servidor --")
+                    st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
                     current_index = 0
-                    if current_value in opciones_selectbox:
-                        current_index = opciones_selectbox.index(current_value)
-                    
-                    selected_value = st.selectbox(
-                        "Filtrar Servidor por Nombre",
-                        options=opciones_selectbox,
-                        index=current_index,
-                        key="sb_filtro_p1",
-                        label_visibility="collapsed"
-                    )
-                    st.session_state["filtro_servidor_nombre"] = selected_value
+                
+                selected_value = st.selectbox(
+                    "Filtrar Servidor por Nombre",
+                    options=opciones_selectbox,
+                    index=current_index,
+                    key=st.session_state["_widget_key_srv"],
+                    label_visibility="collapsed"
+                )
+                st.session_state["filtro_servidor_nombre"] = selected_value
             
             with col_f2:
                 if st.button("🔍 Filtrar", key="btn_filtrar_srv", use_container_width=True):
@@ -680,7 +645,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
             
             with col_f3:
                 if st.button("🧹 Limpiar", key="btn_limpiar_filtro_srv", use_container_width=True):
-                    st.query_params["_limpiar_filtro_srv"] = "1"
+                    # 🔥 Cambiar la key del widget para forzar recreación con index=0
+                    st.session_state["_widget_key_srv"] = f"sb_filtro_p1_{int(time.time() * 1000)}"
+                    st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
+                    st.session_state.filtro_aplicado_srv = False
+                    st.session_state.accion_infra = None
                     st.rerun()
 
             hay_filtro = st.session_state.filtro_aplicado_srv and st.session_state["filtro_servidor_nombre"] != "-- Seleccione un Servidor --"
