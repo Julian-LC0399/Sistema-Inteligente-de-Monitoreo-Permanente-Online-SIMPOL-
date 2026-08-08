@@ -42,7 +42,9 @@ def limpiar_estados_servidores():
         'tab_servidores_activa',
         'sb_filtro_p1',
         '_limpiar_filtro_srv',
-        '_limpiar_filtro_ad'
+        '_limpiar_filtro_ad',
+        '_force_reset_srv',
+        '_force_reset_ad'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -75,6 +77,22 @@ def limpiar_estado_capacity():
 def renderizar_pestana_datos_adicionales(es_seguridad):
     """Fragmento independiente para la pestaña de datos adicionales"""
     
+    # =============================================================
+    # PROCESAR LIMPIEZA
+    # =============================================================
+    if st.query_params.get("_limpiar_filtro_ad") == "1":
+        st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+        st.session_state.filtro_aplicado_ad = False
+        st.session_state.accion_adicional = None
+        # Eliminar la clave del session_state para forzar recreación
+        if "sb_filtro_ad" in st.session_state:
+            del st.session_state["sb_filtro_ad"]
+        # 🔥 También forzar reset con key dinámica
+        st.query_params["_force_reset_ad"] = "1"
+        del st.query_params["_limpiar_filtro_ad"]
+        st.rerun()
+        return
+    
     st.markdown('<h3 style="color:#003366;">📋 Control de Parámetros Adicionales</h3>', unsafe_allow_html=True)
     
     if "filtro_adicional_nombre" not in st.session_state:
@@ -95,18 +113,37 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         cursor_ad = conn_ad.cursor(dictionary=True)
         
         # ==========================================================================
-        # FILA DE FILTROS - IGUAL QUE LA PESTAÑA 1
+        # FILA DE FILTROS
         # ==========================================================================
         col_f_ad1, col_f_ad2, col_f_ad3 = st.columns([3, 1, 1])
         
         with col_f_ad1:
-            st.selectbox(
-                "Filtrar Servidor Base",
-                options=opciones_selectbox_ad,
-                key="sb_filtro_ad",
-                label_visibility="collapsed"
-            )
-            st.session_state["filtro_adicional_nombre"] = st.session_state["sb_filtro_ad"]
+            # 🔥 KEY DINÁMICA PARA FORZAR RESET
+            if st.query_params.get("_force_reset_ad") == "1":
+                reset_key = f"sb_filtro_ad_reset_{int(time.time() * 1000)}"
+                selected_value = st.selectbox(
+                    "Filtrar Servidor Base",
+                    options=opciones_selectbox_ad,
+                    index=0,  # -- Seleccione un Servidor Base --
+                    key=reset_key,
+                    label_visibility="collapsed"
+                )
+                st.session_state["filtro_adicional_nombre"] = selected_value
+                st.query_params["_force_reset_ad"] = "0"
+            else:
+                current_value = st.session_state.get("filtro_adicional_nombre", "-- Seleccione un Servidor Base --")
+                current_index = 0
+                if current_value in opciones_selectbox_ad:
+                    current_index = opciones_selectbox_ad.index(current_value)
+                
+                selected_value = st.selectbox(
+                    "Filtrar Servidor Base",
+                    options=opciones_selectbox_ad,
+                    index=current_index,
+                    key="sb_filtro_ad",
+                    label_visibility="collapsed"
+                )
+                st.session_state["filtro_adicional_nombre"] = selected_value
         
         with col_f_ad2:
             if st.button("🔍 Filtrar", key="btn_filtrar_ad", use_container_width=True):
@@ -119,13 +156,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                 st.rerun(scope="fragment")
 
         st.markdown("---")
-
-        if "_limpiar_filtro_ad" in st.query_params and st.query_params["_limpiar_filtro_ad"] == "1":
-            st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
-            st.session_state.filtro_aplicado_ad = False
-            st.session_state.accion_adicional = None
-            del st.query_params["_limpiar_filtro_ad"]
-            st.rerun(scope="fragment")
 
         # ==========================================================================
         # DETERMINAR FILTRO APLICADO
@@ -218,22 +248,19 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         st.markdown("---")
 
         # ==========================================================================
-        # BOTONES DE ACCIÓN - IGUAL QUE LA PESTAÑA 1 (2 columnas)
+        # BOTONES DE ACCIÓN
         # ==========================================================================
         if not es_seguridad:
             st.info("ℹ️ **Modo Consulta Activo:** Su cuenta operativa actual no posee permisos para alterar la matriz de datos adicionales.")
         else:
-            # Misma estructura que pestaña 1: 2 columnas
             col_b1, col_b2 = st.columns(2)
             
-            # Botón Registrar - siempre visible (mismo largo que pestaña 1)
             with col_b1:
                 if st.session_state.accion_adicional is None:
                     if st.button("➕ Registrar Parámetro", use_container_width=True, key="btn_ad_crear"):
                         st.session_state.accion_adicional = "registrar"
                         st.rerun(scope="fragment")
             
-            # Botón Editar - solo si hay registros
             with col_b2:
                 if registros_adicionales and st.session_state.accion_adicional is None:
                     if st.button("✏️ Editar Parámetro", use_container_width=True, key="btn_ad_editar"):
@@ -260,7 +287,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                 st.markdown("---")
                 st.markdown("#### 📊 Métricas de Rendimiento")
                 
-                # ============ CORRECCIÓN: CSS para alinear number_input ============
                 st.markdown("""
                 <style>
                     div[data-testid="column"] .stNumberInput {
@@ -292,7 +318,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                     ad_ram = st.number_input("Memoria Asignada (MB)", value=0, min_value=0, step=100)
                 with col_r9:
                     ad_tiempo = st.text_input("Tiempo Encendido", placeholder="Ej: 30 días 5 horas")
-                # ============ FIN CORRECCIÓN ============
                 
                 st.markdown("---")
                 st.markdown("#### 🌐 Configuración de Red")
@@ -314,7 +339,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                 
                 col_btn_ar1, col_btn_ar2 = st.columns(2)
                 if col_btn_ar1.form_submit_button("💾 Registrar", use_container_width=True):
-                    # Validaciones
                     if not ad_host.strip() or not ad_servidor.strip():
                         st.error("❌ Los campos Host Físico y Nombre del Servidor son obligatorios.")
                     else:
@@ -379,7 +403,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                     st.markdown("---")
                     st.markdown("#### 📊 Métricas de Rendimiento")
                     
-                    # ============ CORRECCIÓN: CSS para alinear number_input ============
                     st.markdown("""
                     <style>
                         div[data-testid="column"] .stNumberInput {
@@ -411,7 +434,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                         edit_ram = st.number_input("Memoria Asignada (MB)", value=int(ad_actual['memoria_asignada_mb'] or 0), min_value=0, step=100)
                     with col_e7:
                         edit_tiempo = st.text_input("Tiempo Encendido", value=ad_actual['tiempo_encendido'] or '')
-                    # ============ FIN CORRECCIÓN ============
                     
                     st.markdown("---")
                     st.markdown("#### 🌐 Configuración de Red")
@@ -560,14 +582,13 @@ def mostrar_tabla_servidores(rol_usuario=None):
     es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
 
     # ==========================================================================
-    # PROCESAR REDIRECCIÓN A MONITOREO (USANDO SESSION_STATE)
+    # PROCESAR REDIRECCIÓN A MONITOREO
     # ==========================================================================
     if "redirigir_servidor" in st.session_state and st.session_state["redirigir_servidor"]:
         servidor = st.session_state["redirigir_servidor"]
         if servidor and servidor != "-- Seleccione un Servidor --":
             logging.info(f"🔍 Redirigiendo a servidor: {servidor}")
             st.session_state["redirigir_servidor"] = None
-            # Usar flag en lugar de modificar widgets directamente
             st.session_state["_srv_redirect_pending"] = servidor
             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
             st.rerun()
@@ -583,10 +604,17 @@ def mostrar_tabla_servidores(rol_usuario=None):
     elif tab_param == "1":
         st.session_state.tab_servidores_activa = 0
 
-    if "_limpiar_filtro_srv" in st.query_params and st.query_params["_limpiar_filtro_srv"] == "1":
+    # =============================================================
+    # PROCESAR LIMPIEZA - PESTAÑA 1 (con key dinámica también)
+    # =============================================================
+    if st.query_params.get("_limpiar_filtro_srv") == "1":
         st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
         st.session_state.accion_infra = None
         st.session_state.filtro_aplicado_srv = False
+        if "sb_filtro_p1" in st.session_state:
+            del st.session_state["sb_filtro_p1"]
+        # 🔥 Forzar reset con key dinámica
+        st.query_params["_force_reset_srv"] = "1"
         del st.query_params["_limpiar_filtro_srv"]
         st.rerun()
 
@@ -601,8 +629,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
 
     with tab1:
         st.session_state.tab_servidores_activa = 0
-        # IMPORTANTE: Solo establecer tab_servidores si NO estamos en monitoreo
-        # El flag _en_monitoreo se establece en monitoreo.py
         if not st.session_state.get("_en_monitoreo", False):
             if st.query_params.get("tab_servidores") != "1":
                 st.query_params["tab_servidores"] = "1"
@@ -614,21 +640,38 @@ def mostrar_tabla_servidores(rol_usuario=None):
             lista_nombres_bd = obtener_lista_nombres_servidores()
             opciones_selectbox = ["-- Seleccione un Servidor --", "-- Ver Todos los Servidores --"] + lista_nombres_bd
 
-            idx_actual = 0
-            if st.session_state["filtro_servidor_nombre"] in opciones_selectbox:
-                idx_actual = opciones_selectbox.index(st.session_state["filtro_servidor_nombre"])
-
+            # ==========================================================================
+            # FILA DE FILTROS - PESTAÑA 1 (con key dinámica)
+            # ==========================================================================
             col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
             
             with col_f1:
-                st.selectbox(
-                    "Filtrar Servidor por Nombre",
-                    options=opciones_selectbox,
-                    index=idx_actual,
-                    key="sb_filtro_p1",
-                    label_visibility="collapsed"
-                )
-                st.session_state["filtro_servidor_nombre"] = st.session_state["sb_filtro_p1"]
+                # 🔥 KEY DINÁMICA PARA FORZAR RESET
+                if st.query_params.get("_force_reset_srv") == "1":
+                    reset_key = f"sb_filtro_p1_reset_{int(time.time() * 1000)}"
+                    selected_value = st.selectbox(
+                        "Filtrar Servidor por Nombre",
+                        options=opciones_selectbox,
+                        index=0,  # -- Seleccione un Servidor --
+                        key=reset_key,
+                        label_visibility="collapsed"
+                    )
+                    st.session_state["filtro_servidor_nombre"] = selected_value
+                    st.query_params["_force_reset_srv"] = "0"
+                else:
+                    current_value = st.session_state.get("filtro_servidor_nombre", "-- Seleccione un Servidor --")
+                    current_index = 0
+                    if current_value in opciones_selectbox:
+                        current_index = opciones_selectbox.index(current_value)
+                    
+                    selected_value = st.selectbox(
+                        "Filtrar Servidor por Nombre",
+                        options=opciones_selectbox,
+                        index=current_index,
+                        key="sb_filtro_p1",
+                        label_visibility="collapsed"
+                    )
+                    st.session_state["filtro_servidor_nombre"] = selected_value
             
             with col_f2:
                 if st.button("🔍 Filtrar", key="btn_filtrar_srv", use_container_width=True):
@@ -699,14 +742,12 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 for i in range(1, 9):
                     servicios_activos[i] = any(s.get(f'id_sensor_servicio_{i}', 0) != 0 for s in servidores_filtrados)
 
-                # ============ VERIFICAR SI HAY SERVICIOS PARA MOSTRAR ============
                 hay_servicios_para_mostrar = False
                 for s in servidores_filtrados:
                     servicios_valor = s.get('servicios', 'N/A') or 'N/A'
                     if servicios_valor not in ['Ninguno', 'No definido', 'N/A', '']:
                         hay_servicios_para_mostrar = True
                         break
-                # ============ FIN VERIFICACIÓN ============
 
                 html_lineas = ["""
                 <style>
@@ -722,10 +763,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 html_lineas.append('<th>SISTEMA OPERATIVO</th>')
                 html_lineas.append('<th>TIPO</th>')
                 
-                # ============ CONDICIÓN: Solo mostrar columna SERVICIOS si hay datos ============
                 if hay_servicios_para_mostrar:
                     html_lineas.append('<th>SERVICIOS</th>')
-                # ============ FIN CONDICIÓN ============
                 
                 if tiene_cpu: html_lineas.append('<th>ID CPU</th>')
                 if tiene_ram: html_lineas.append('<th>ID RAM</th>')
@@ -759,13 +798,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     estado_html = '<span style="color: #2E7D32; font-weight: bold;">ACTIVO</span>' if s['estado_monitoreo'] == 1 else '<span style="color: #C62828; font-weight: bold;">INACTIVO</span>'
                     fecha_formateada = s['fecha_alta'].strftime("%Y-%m-%d %H:%M") if s['fecha_alta'] else "N/A"
                     
-                    # ============ CONDICIÓN: Servicios ============
                     servicios_valor = s.get('servicios', 'N/A') or 'N/A'
                     if servicios_valor in ['Ninguno', 'No definido', 'N/A', '']:
                         servicios_mostrar = ''
                     else:
                         servicios_mostrar = servicios_valor
-                    # ============ FIN CONDICIÓN ============
 
                     html_lineas.append('<tr>')
                     html_lineas.append(f'<td><b>{s["ip"]}</b></td>')
@@ -773,10 +810,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     html_lineas.append(f'<td>{s["sistema_operativo"]}</td>')
                     html_lineas.append(f'<td>{s.get("tipo", "Virtual")}</td>')
                     
-                    # ============ CONDICIÓN: Solo mostrar celda SERVICIOS si hay datos ============
                     if hay_servicios_para_mostrar:
                         html_lineas.append(f'<td>{servicios_mostrar}</td>')
-                    # ============ FIN CONDICIÓN ============
                     
                     if tiene_cpu: 
                         val = s["id_sensor_cpu"]
@@ -832,13 +867,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             key=f"btn_vivo_{nombre_servidor}", 
                             use_container_width=True
                         ):
-                            # 🔥 LIMPIAR ESTADOS DE SERVIDORES ANTES DE REDIRIGIR
                             limpiar_estados_servidores()
                             
-                            # Guardar en session_state y query_params para redirección
                             st.session_state["_srv_redirect_pending"] = nombre_servidor
                             st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-                            # Limpiar query params anteriores y establecer nuevos
                             st.query_params.clear()
                             st.query_params["srv"] = nombre_servidor
                             st.query_params["p"] = "🖥️ Monitoreo en vivo"
@@ -847,7 +879,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             st.query_params["uid"] = str(st.session_state.get("user_id", 1))
                             st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
                             st.query_params["c"] = st.session_state.get("cargo", "Analista")
-                            # Forzar rerun para aplicar los cambios
                             st.rerun()
 
                 st.markdown("---")
@@ -997,10 +1028,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     col_reg_p3, col_reg_p4 = st.columns(2)
                     reg_so = col_reg_p3.selectbox("Sistema Operativo Base Instalado", ["Windows", "Linux", "No especificado"])
-                    # ============ VALOR FIJO: TIPO VIRTUAL ============
-                    reg_tipo = "Virtual"  # Valor fijo
+                    reg_tipo = "Virtual"
                     st.markdown('<p style="color:#666; margin-top:8px;">📌 <strong>Tipo de Infraestructura:</strong> Virtual (Arquitectura definida)</p>', unsafe_allow_html=True)
-                    # ============ FIN VALOR FIJO ============
                     
                     st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                     col_reg_e1, col_reg_e2 = st.columns(2)
