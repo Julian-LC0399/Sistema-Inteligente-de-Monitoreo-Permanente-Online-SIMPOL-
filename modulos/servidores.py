@@ -75,10 +75,12 @@ def limpiar_estado_capacity():
 def renderizar_pestana_datos_adicionales(es_seguridad):
     """Fragmento independiente para la pestaña de datos adicionales"""
     
-    st.markdown('<h3 style="color:#003366;">📋 Control de Máquinas Virtuales y Parámetros Adicionales</h3>', unsafe_allow_html=True)
+    st.markdown('<h3 style="color:#003366;">📋 Control de Parámetros Adicionales</h3>', unsafe_allow_html=True)
     
     if "filtro_adicional_nombre" not in st.session_state:
         st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+    if "filtro_aplicado_ad" not in st.session_state:
+        st.session_state.filtro_aplicado_ad = False
     if "accion_adicional" not in st.session_state:
         st.session_state.accion_adicional = None
 
@@ -92,78 +94,93 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         conn_ad = conectar_bd()
         cursor_ad = conn_ad.cursor(dictionary=True)
         
-        cursor_ad.execute("SELECT COUNT(*) as total FROM datos_adicionales")
-        total_registros = cursor_ad.fetchone()['total']
-        hay_registros = total_registros > 0
+        # ==========================================================================
+        # FILA DE FILTROS - IGUAL QUE LA PESTAÑA 1
+        # ==========================================================================
+        col_f_ad1, col_f_ad2, col_f_ad3 = st.columns([3, 1, 1])
+        
+        with col_f_ad1:
+            st.selectbox(
+                "Filtrar Servidor Base",
+                options=opciones_selectbox_ad,
+                key="sb_filtro_ad",
+                label_visibility="collapsed"
+            )
+            st.session_state["filtro_adicional_nombre"] = st.session_state["sb_filtro_ad"]
+        
+        with col_f_ad2:
+            if st.button("🔍 Filtrar", key="btn_filtrar_ad", use_container_width=True):
+                st.session_state.filtro_aplicado_ad = True
+                st.rerun(scope="fragment")
+        
+        with col_f_ad3:
+            if st.button("🧹 Limpiar", key="btn_limpiar_filtro_ad", use_container_width=True):
+                st.query_params["_limpiar_filtro_ad"] = "1"
+                st.rerun(scope="fragment")
 
-        if hay_registros:
-            col_f_ad1, col_f_ad2, col_f_ad3 = st.columns([3, 1, 1])
-            
-            with col_f_ad1:
-                st.selectbox(
-                    "Filtrar Entornos por Servidor Base",
-                    options=opciones_selectbox_ad,
-                    key="filtro_adicional_nombre",
-                    label_visibility="collapsed"
-                )
-            
-            with col_f_ad2:
-                if st.button("🔍 Filtrar", key="btn_filtrar_filtro_ad", use_container_width=True):
-                    st.rerun(scope="fragment")
-            
-            with col_f_ad3:
-                if st.button("🧹 Limpiar", key="btn_limpiar_filtro_ad", use_container_width=True):
-                    st.query_params["_limpiar_filtro_ad"] = "1"
-                    st.rerun(scope="fragment")
-        else:
-            st.info("📭 No hay registros de máquinas virtuales o parámetros adicionales en la base de datos.")
-            st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+        st.markdown("---")
 
         if "_limpiar_filtro_ad" in st.query_params and st.query_params["_limpiar_filtro_ad"] == "1":
             st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
+            st.session_state.filtro_aplicado_ad = False
             st.session_state.accion_adicional = None
             del st.query_params["_limpiar_filtro_ad"]
             st.rerun(scope="fragment")
 
-        filtro_adicional = st.session_state["filtro_adicional_nombre"]
+        # ==========================================================================
+        # DETERMINAR FILTRO APLICADO
+        # ==========================================================================
+        hay_filtro_ad = st.session_state.filtro_aplicado_ad and st.session_state["filtro_adicional_nombre"] != "-- Seleccione un Servidor Base --"
+        ver_todos_ad = st.session_state["filtro_adicional_nombre"] == "-- Ver Todos los Servidores Base --"
         
-        hay_filtro_ad = filtro_adicional != "-- Seleccione un Servidor Base --"
-        ver_todos_ad = filtro_adicional == "-- Ver Todos los Servidores Base --"
         registros_adicionales = []
+        mapeo_adicionales = {}
+        lista_ids_adicionales = []
         
         cursor_ad.execute("SELECT id_servidor, ip, nombre_alias FROM servidores ORDER BY nombre_alias ASC")
         servidores_maestros = cursor_ad.fetchall()
         opciones_srv_map = {f"{s['nombre_alias']} ({s['ip']})": s['id_servidor'] for s in servidores_maestros}
 
-        if hay_filtro_ad and hay_registros:
-            if ver_todos_ad:
-                query_select_ad = """
-                    SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
-                           da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
-                           da.nombre_switch, da.direccion_mac, da.direcciones_ip, da.version, 
-                           da.tamano_gb, da.amount_vhd, da.funcion
-                    FROM datos_adicionales da
-                    INNER JOIN servidores s ON da.id_servidor = s.id_servidor
-                    ORDER BY s.nombre_alias ASC, da.id DESC
-                """
-                cursor_ad.execute(query_select_ad)
-            else:
-                query_select_ad = """
-                    SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
-                           da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
-                           da.nombre_switch, da.direccion_mac, da.direcciones_ip, da.version, 
-                           da.tamano_gb, da.amount_vhd, da.funcion
-                    FROM datos_adicionales da
-                    INNER JOIN servidores s ON da.id_servidor = s.id_servidor
-                    WHERE s.nombre_alias = %s
-                    ORDER BY da.id DESC
-                """
-                cursor_ad.execute(query_select_ad, (filtro_adicional,))
+        if not st.session_state.filtro_aplicado_ad:
+            st.info("🔍 Seleccione un servidor y presione 'Filtrar' para visualizar los parámetros adicionales.")
+        elif not hay_filtro_ad:
+            st.info("📋 Por favor, seleccione un servidor de la lista desplegable superior para visualizar sus parámetros adicionales.")
+        else:
+            # ==========================================================================
+            # CONSULTA DE DATOS CON FILTRO
+            # ==========================================================================
+            query_base = """
+                SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
+                       da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
+                       da.nombre_switch, da.direccion_mac, da.direcciones_ip, da.version, 
+                       da.tamano_gb, da.amount_vhd, da.funcion
+                FROM datos_adicionales da
+                INNER JOIN servidores s ON da.id_servidor = s.id_servidor
+                WHERE 1=1
+            """
+            params = []
             
+            # Filtro por servidor base
+            if hay_filtro_ad and not ver_todos_ad:
+                query_base += " AND s.nombre_alias = %s"
+                params.append(st.session_state["filtro_adicional_nombre"])
+            
+            query_base += " ORDER BY s.nombre_alias ASC, da.id DESC"
+            
+            cursor_ad.execute(query_base, params)
             registros_adicionales = cursor_ad.fetchall()
+            
+            for r in registros_adicionales:
+                str_id = str(r['id'])
+                lista_ids_adicionales.append(str_id)
+                mapeo_adicionales[str_id] = r
         
+        # ==========================================================================
+        # MOSTRAR RESULTADOS
+        # ==========================================================================
+        if st.session_state.filtro_aplicado_ad and hay_filtro_ad:
             if not registros_adicionales:
-                st.warning("📭 No se encuentran entornos o máquinas virtuales registradas para la selección.")
+                st.warning("📭 No se encuentran datos registrados para el servidor seleccionado.")
             else:
                 html_ad = ["""
                 <style>
@@ -177,14 +194,7 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                 </tr></thead><tbody>
                 """]
                 
-                mapeo_adicionales = {}
-                lista_ids_adicionales = []
-                
                 for r in registros_adicionales:
-                    str_id = str(r['id'])
-                    lista_ids_adicionales.append(str_id)
-                    mapeo_adicionales[str_id] = r
-                    
                     est = str(r['estado']).upper()
                     color_est = "#2E7D32" if est in ["RUNNING", "ON", "ACTIVO"] else "#C62828"
                     estado_html = f'<span style="color: {color_est}; font-weight: bold;">{est}</span>'
@@ -205,53 +215,139 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                 altura_ad = max(180, len(registros_adicionales) * 55 + 75)
                 st.components.v1.html("".join(html_ad), height=altura_ad, scrolling=True)
 
-            st.markdown("---")
+        st.markdown("---")
 
-            if not es_seguridad:
-                st.info("ℹ️ **Modo Consulta Activo:** Su cuenta operativa actual no posee permisos para alterar la matriz de datos adicionales.")
-            else:
-                if st.session_state.accion_adicional is None and not ver_todos_ad:
-                    c_ab1, c_ab2 = st.columns(2)
-                    if c_ab1.button("➕ Registrar Parámetro Adicional", use_container_width=True, key="btn_ad_crear"):
+        # ==========================================================================
+        # BOTONES DE ACCIÓN - IGUAL QUE LA PESTAÑA 1 (2 columnas)
+        # ==========================================================================
+        if not es_seguridad:
+            st.info("ℹ️ **Modo Consulta Activo:** Su cuenta operativa actual no posee permisos para alterar la matriz de datos adicionales.")
+        else:
+            # Misma estructura que pestaña 1: 2 columnas
+            col_b1, col_b2 = st.columns(2)
+            
+            # Botón Registrar - siempre visible (mismo largo que pestaña 1)
+            with col_b1:
+                if st.session_state.accion_adicional is None:
+                    if st.button("➕ Registrar Parámetro", use_container_width=True, key="btn_ad_crear"):
                         st.session_state.accion_adicional = "registrar"
                         st.rerun(scope="fragment")
-                        
-                    if registros_adicionales and c_ab2.button("✏️ Editar Parámetro Adicional", use_container_width=True, key="btn_ad_editar"):
+            
+            # Botón Editar - solo si hay registros
+            with col_b2:
+                if registros_adicionales and st.session_state.accion_adicional is None:
+                    if st.button("✏️ Editar Parámetro", use_container_width=True, key="btn_ad_editar"):
                         st.session_state.accion_adicional = "editar"
                         st.rerun(scope="fragment")
 
-        if not hay_registros:
-            st.markdown("---")
-            if es_seguridad:
-                if st.button("➕ Registrar Primer Parámetro Adicional", use_container_width=True, key="btn_ad_crear_primero"):
-                    st.session_state.accion_adicional = "registrar"
-                    st.rerun(scope="fragment")
-            else:
-                st.info("ℹ️ **Modo Consulta Activo:** Su cuenta operativa actual no posee permisos para alterar la matriz de datos adicionales.")
-
+        # ==========================================================================
+        # FORMULARIO COMPLETO DE REGISTRO - DATOS ADICIONALES
+        # ==========================================================================
         if st.session_state.accion_adicional == "registrar":
-            st.markdown("### 📥 Registrar Parámetro VM / Extensión de Infraestructura")
+            st.markdown("### 📥 Registrar Extensión de Infraestructura")
             with st.form("form_registro_adicional"):
-                col_r1, col_r2, col_r3 = st.columns(3)
+                col_r1, col_r2 = st.columns(2)
                 srv_combo = col_r1.selectbox("Servidor Maestro Relacionado", list(opciones_srv_map.keys()))
-                ad_host = col_r2.text_input("Host Físico Hospedador")
-                ad_vm = col_r3.text_input("Nombre Máquina Virtual")
                 
-                col_r4, col_r5 = st.columns(2)
-                ad_estado = col_r4.selectbox("Estado Actual", ["Running", "OFF"])
-                ad_funcion = col_r5.text_input("Rol / Función Operativa")
+                col_r3, col_r4 = st.columns(2)
+                ad_host = col_r3.text_input("Host Físico Hospedador", placeholder="Ej: SRV-HOST-01")
+                ad_servidor = col_r4.text_input("Nombre del Servidor", placeholder="Ej: SRV-WEB-01")
+                
+                col_r5, col_r6 = st.columns(2)
+                ad_estado = col_r5.selectbox("Estado Actual", ["Running", "OFF", "ACTIVO", "INACTIVO"])
+                ad_funcion = col_r6.text_input("Rol / Función Operativa", placeholder="Ej: Servidor Web")
+                
+                st.markdown("---")
+                st.markdown("#### 📊 Métricas de Rendimiento")
+                
+                # ============ CORRECCIÓN: CSS para alinear number_input ============
+                st.markdown("""
+                <style>
+                    div[data-testid="column"] .stNumberInput {
+                        margin-top: 0px !important;
+                        padding-top: 0px !important;
+                    }
+                    div[data-testid="column"] .stTextInput {
+                        margin-top: 0px !important;
+                        padding-top: 0px !important;
+                    }
+                    div[data-testid="column"] .stNumberInput > div {
+                        margin-top: 0px !important;
+                    }
+                    div[data-testid="column"] .stTextInput > div {
+                        margin-top: 0px !important;
+                    }
+                    div[data-testid="column"] label {
+                        display: block !important;
+                        margin-bottom: 4px !important;
+                        font-weight: 500 !important;
+                    }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                col_r7, col_r8, col_r9 = st.columns(3)
+                with col_r7:
+                    ad_cpu = st.number_input("Uso CPU (%)", value=0, min_value=0, max_value=100, step=1)
+                with col_r8:
+                    ad_ram = st.number_input("Memoria Asignada (MB)", value=0, min_value=0, step=100)
+                with col_r9:
+                    ad_tiempo = st.text_input("Tiempo Encendido", placeholder="Ej: 30 días 5 horas")
+                # ============ FIN CORRECCIÓN ============
+                
+                st.markdown("---")
+                st.markdown("#### 🌐 Configuración de Red")
+                
+                col_r10, col_r11 = st.columns(2)
+                ad_switch = col_r10.text_input("Nombre del Switch", placeholder="Ej: SW-CORE-01")
+                ad_mac = col_r11.text_input("Dirección MAC", placeholder="Ej: 00:1A:2B:3C:4D:5E")
+                
+                col_r12, col_r13 = st.columns(2)
+                ad_ips = col_r12.text_input("Direcciones IP", placeholder="Ej: 10.10.1.100, 10.10.1.101")
+                ad_version = col_r13.text_input("Versión", placeholder="Ej: v1.0, 2023.1")
+                
+                st.markdown("---")
+                st.markdown("#### 💾 Almacenamiento")
+                
+                col_r14, col_r15 = st.columns(2)
+                ad_tamano = col_r14.number_input("Tamaño (GB)", value=0.00, min_value=0.00, step=1.00, format="%.2f")
+                ad_amount_vhd = col_r15.number_input("Cantidad VHD", value=0, min_value=0, step=1)
                 
                 col_btn_ar1, col_btn_ar2 = st.columns(2)
-                if col_btn_ar1.form_submit_button("💾 CONSERVAR REGISTRO EN BD", use_container_width=True):
-                    if not ad_host.strip() or not ad_vm.strip():
-                        st.error("❌ Los campos Host Físico y Nombre Máquina Virtual son estrictamente requeridos.")
+                if col_btn_ar1.form_submit_button("💾 Registrar", use_container_width=True):
+                    # Validaciones
+                    if not ad_host.strip() or not ad_servidor.strip():
+                        st.error("❌ Los campos Host Físico y Nombre del Servidor son obligatorios.")
                     else:
                         try:
                             id_srv_target = opciones_srv_map[srv_combo]
-                            query_ins = "INSERT INTO datos_adicionales (id_servidor, host, nombre_vm, estado, funcion) VALUES (%s, %s, %s, %s, %s)"
-                            cursor_ad.execute(query_ins, (id_srv_target, ad_host.strip(), ad_vm.strip(), ad_estado, ad_funcion.strip()))
+                            query_ins = """
+                                INSERT INTO datos_adicionales (
+                                    id_servidor, host, nombre_vm, estado, uso_cpu_pct, 
+                                    memoria_asignada_mb, tiempo_encendido, nombre_switch, 
+                                    direccion_mac, direcciones_ip, version, tamano_gb, 
+                                    amount_vhd, funcion
+                                ) VALUES (
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                                )
+                            """
+                            cursor_ad.execute(query_ins, (
+                                id_srv_target, 
+                                ad_host.strip(), 
+                                ad_servidor.strip(), 
+                                ad_estado, 
+                                int(ad_cpu),
+                                int(ad_ram), 
+                                ad_tiempo.strip() if ad_tiempo else None,
+                                ad_switch.strip() if ad_switch else None,
+                                ad_mac.strip() if ad_mac else None,
+                                ad_ips.strip() if ad_ips else None,
+                                ad_version.strip() if ad_version else None,
+                                float(ad_tamano),
+                                int(ad_amount_vhd),
+                                ad_funcion.strip() if ad_funcion else None
+                            ))
                             conn_ad.commit()
-                            st.success("✅ Mapeo adicional registrado exitosamente.")
+                            st.success("✅ Registro adicional completado exitosamente.")
                             st.session_state.accion_adicional = None
                             st.rerun(scope="fragment")
                         except Exception as ex_ins:
@@ -261,6 +357,9 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                     st.session_state.accion_adicional = None
                     st.rerun(scope="fragment")
 
+        # ==========================================================================
+        # FORMULARIO COMPLETO DE EDICIÓN - DATOS ADICIONALES
+        # ==========================================================================
         if st.session_state.accion_adicional == "editar" and registros_adicionales:
             st.markdown("### ✏️ Modificar Registro de Extensión Técnico")
             id_ad_edit = st.selectbox("Seleccione el ID del Registro Adicional a Modificar", lista_ids_adicionales, key="sb_id_ad_edit")
@@ -268,17 +367,99 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
             if id_ad_edit:
                 ad_actual = mapeo_adicionales[id_ad_edit]
                 with st.form("form_edicion_adicional"):
-                    edit_host = st.text_input("Host Físico Hospedador", value=ad_actual['host'])
-                    edit_vm = st.text_input("Nombre Máquina Virtual", value=ad_actual['nombre_vm'])
-                    edit_funcion = st.text_input("Rol / Función Operativa", value=ad_actual['funcion'] if ad_actual['funcion'] else "")
+                    col_e1, col_e2 = st.columns(2)
+                    edit_host = col_e1.text_input("Host Físico Hospedador", value=ad_actual['host'] or '')
+                    edit_servidor = col_e2.text_input("Nombre del Servidor", value=ad_actual['nombre_vm'] or '')
+                    
+                    col_e3, col_e4 = st.columns(2)
+                    edit_estado = col_e3.selectbox("Estado Actual", ["Running", "OFF", "ACTIVO", "INACTIVO"], 
+                                                   index=["Running", "OFF", "ACTIVO", "INACTIVO"].index(ad_actual['estado']) if ad_actual['estado'] in ["Running", "OFF", "ACTIVO", "INACTIVO"] else 0)
+                    edit_funcion = col_e4.text_input("Rol / Función Operativa", value=ad_actual['funcion'] or '')
+                    
+                    st.markdown("---")
+                    st.markdown("#### 📊 Métricas de Rendimiento")
+                    
+                    # ============ CORRECCIÓN: CSS para alinear number_input ============
+                    st.markdown("""
+                    <style>
+                        div[data-testid="column"] .stNumberInput {
+                            margin-top: 0px !important;
+                            padding-top: 0px !important;
+                        }
+                        div[data-testid="column"] .stTextInput {
+                            margin-top: 0px !important;
+                            padding-top: 0px !important;
+                        }
+                        div[data-testid="column"] .stNumberInput > div {
+                            margin-top: 0px !important;
+                        }
+                        div[data-testid="column"] .stTextInput > div {
+                            margin-top: 0px !important;
+                        }
+                        div[data-testid="column"] label {
+                            display: block !important;
+                            margin-bottom: 4px !important;
+                            font-weight: 500 !important;
+                        }
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+                    col_e5, col_e6, col_e7 = st.columns(3)
+                    with col_e5:
+                        edit_cpu = st.number_input("Uso CPU (%)", value=int(ad_actual['uso_cpu_pct'] or 0), min_value=0, max_value=100, step=1)
+                    with col_e6:
+                        edit_ram = st.number_input("Memoria Asignada (MB)", value=int(ad_actual['memoria_asignada_mb'] or 0), min_value=0, step=100)
+                    with col_e7:
+                        edit_tiempo = st.text_input("Tiempo Encendido", value=ad_actual['tiempo_encendido'] or '')
+                    # ============ FIN CORRECCIÓN ============
+                    
+                    st.markdown("---")
+                    st.markdown("#### 🌐 Configuración de Red")
+                    
+                    col_e8, col_e9 = st.columns(2)
+                    edit_switch = col_e8.text_input("Nombre del Switch", value=ad_actual['nombre_switch'] or '')
+                    edit_mac = col_e9.text_input("Dirección MAC", value=ad_actual['direccion_mac'] or '')
+                    
+                    col_e10, col_e11 = st.columns(2)
+                    edit_ips = col_e10.text_input("Direcciones IP", value=ad_actual['direcciones_ip'] or '')
+                    edit_version = col_e11.text_input("Versión", value=ad_actual['version'] or '')
+                    
+                    st.markdown("---")
+                    st.markdown("#### 💾 Almacenamiento")
+                    
+                    col_e12, col_e13 = st.columns(2)
+                    edit_tamano = col_e12.number_input("Tamaño (GB)", value=float(ad_actual['tamano_gb'] or 0.00), min_value=0.00, step=1.00, format="%.2f")
+                    edit_amount_vhd = col_e13.number_input("Cantidad VHD", value=int(ad_actual['amount_vhd'] or 0), min_value=0, step=1)
                     
                     col_btn_ae1, col_btn_ae2 = st.columns(2)
-                    if col_btn_ae1.form_submit_button("✏️ COMPROMETER CAMBIOS", use_container_width=True):
+                    if col_btn_ae1.form_submit_button("✏️ Actualizar", use_container_width=True):
                         try:
-                            query_upd = "UPDATE datos_adicionales SET host=%s, nombre_vm=%s, funcion=%s WHERE id=%s"
-                            cursor_ad.execute(query_upd, (edit_host.strip(), edit_vm.strip(), edit_funcion.strip(), int(id_ad_edit)))
+                            query_upd = """
+                                UPDATE datos_adicionales 
+                                SET host=%s, nombre_vm=%s, estado=%s, uso_cpu_pct=%s, 
+                                    memoria_asignada_mb=%s, tiempo_encendido=%s, 
+                                    nombre_switch=%s, direccion_mac=%s, direcciones_ip=%s, 
+                                    version=%s, tamano_gb=%s, amount_vhd=%s, funcion=%s 
+                                WHERE id=%s
+                            """
+                            cursor_ad.execute(query_upd, (
+                                edit_host.strip(), 
+                                edit_servidor.strip(), 
+                                edit_estado, 
+                                int(edit_cpu),
+                                int(edit_ram), 
+                                edit_tiempo.strip() if edit_tiempo else None,
+                                edit_switch.strip() if edit_switch else None,
+                                edit_mac.strip() if edit_mac else None,
+                                edit_ips.strip() if edit_ips else None,
+                                edit_version.strip() if edit_version else None,
+                                float(edit_tamano),
+                                int(edit_amount_vhd),
+                                edit_funcion.strip() if edit_funcion else None,
+                                int(id_ad_edit)
+                            ))
                             conn_ad.commit()
-                            st.success("✅ Parámetro consolidado y actualizado de forma segura.")
+                            st.success("✅ Registro actualizado exitosamente.")
                             st.session_state.accion_adicional = None
                             st.rerun(scope="fragment")
                         except Exception as ex_upd:
@@ -518,6 +699,15 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 for i in range(1, 9):
                     servicios_activos[i] = any(s.get(f'id_sensor_servicio_{i}', 0) != 0 for s in servidores_filtrados)
 
+                # ============ VERIFICAR SI HAY SERVICIOS PARA MOSTRAR ============
+                hay_servicios_para_mostrar = False
+                for s in servidores_filtrados:
+                    servicios_valor = s.get('servicios', 'N/A') or 'N/A'
+                    if servicios_valor not in ['Ninguno', 'No definido', 'N/A', '']:
+                        hay_servicios_para_mostrar = True
+                        break
+                # ============ FIN VERIFICACIÓN ============
+
                 html_lineas = ["""
                 <style>
                     .tabla-banco { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
@@ -531,6 +721,11 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 html_lineas.append('<th>NOMBRE</th>')
                 html_lineas.append('<th>SISTEMA OPERATIVO</th>')
                 html_lineas.append('<th>TIPO</th>')
+                
+                # ============ CONDICIÓN: Solo mostrar columna SERVICIOS si hay datos ============
+                if hay_servicios_para_mostrar:
+                    html_lineas.append('<th>SERVICIOS</th>')
+                # ============ FIN CONDICIÓN ============
                 
                 if tiene_cpu: html_lineas.append('<th>ID CPU</th>')
                 if tiene_ram: html_lineas.append('<th>ID RAM</th>')
@@ -563,12 +758,25 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     estado_html = '<span style="color: #2E7D32; font-weight: bold;">ACTIVO</span>' if s['estado_monitoreo'] == 1 else '<span style="color: #C62828; font-weight: bold;">INACTIVO</span>'
                     fecha_formateada = s['fecha_alta'].strftime("%Y-%m-%d %H:%M") if s['fecha_alta'] else "N/A"
+                    
+                    # ============ CONDICIÓN: Servicios ============
+                    servicios_valor = s.get('servicios', 'N/A') or 'N/A'
+                    if servicios_valor in ['Ninguno', 'No definido', 'N/A', '']:
+                        servicios_mostrar = ''
+                    else:
+                        servicios_mostrar = servicios_valor
+                    # ============ FIN CONDICIÓN ============
 
                     html_lineas.append('<tr>')
                     html_lineas.append(f'<td><b>{s["ip"]}</b></td>')
                     html_lineas.append(f'<td>{s["nombre_alias"]}</td>')
                     html_lineas.append(f'<td>{s["sistema_operativo"]}</td>')
                     html_lineas.append(f'<td>{s.get("tipo", "Virtual")}</td>')
+                    
+                    # ============ CONDICIÓN: Solo mostrar celda SERVICIOS si hay datos ============
+                    if hay_servicios_para_mostrar:
+                        html_lineas.append(f'<td>{servicios_mostrar}</td>')
+                    # ============ FIN CONDICIÓN ============
                     
                     if tiene_cpu: 
                         val = s["id_sensor_cpu"]
@@ -652,7 +860,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         if col_b1.button("📝 Editar Servidor Filtrado", use_container_width=True, key="btn_crud_editar"):
                             st.session_state.accion_infra = "editar"
                             st.rerun()
-                        if col_b2.button("❌ Cambiar Estado / Desactivar", use_container_width=True, key="btn_crud_desactivar"):
+                        if col_b2.button("❌ Desactivar", use_container_width=True, key="btn_crud_desactivar"):
                             st.session_state.accion_infra = "desactivar"
                             st.rerun()
 
@@ -673,7 +881,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             st.markdown("<div class='subtitulo-formulario'>📋 Identificación Comercial</div>", unsafe_allow_html=True)
                             col_edi_p1, col_edi_p2 = st.columns(2)
                             edit_alias = col_edi_p1.text_input("Alias / Nombre Comercial del Servidor", value=srv_actual['nombre_alias'])
-                            edit_servicios = col_edi_p2.text_input("Servicios Core descritos", value=srv_actual.get('servicios', 'Ninguno'))
+                            edit_servicios = col_edi_p2.text_input("Servicios del Servidor", value=srv_actual.get('servicios', 'Ninguno'))
                             
                             st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                             col_e1, col_e2 = st.columns(2)
@@ -681,27 +889,24 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             edit_ram = col_e2.number_input("ID Sensor PRTG - Consumo Memoria RAM", value=int(srv_actual['id_sensor_ram']), step=None)
                             edit_lat = st.number_input("ID Sensor PRTG - Latencia (Ping)", value=int(srv_actual['id_sensor_latencia']), step=None)
                             
-                            st.markdown("<div class='subtitulo-formulario'>🌐 Sensores de Red Distribuidos</div>", unsafe_allow_html=True)
-                            col_edr1, col_edr2, col_edr3 = st.columns(3)
-                            edit_red_tot = col_edr1.number_input("ID Red - Tráfico Total", value=int(srv_actual.get('id_sensor_red_total', 0)), step=None)
-                            edit_red_ent = col_edr2.number_input("ID Red - Tráfico Entrante", value=int(srv_actual.get('id_sensor_red_entrante', 0)), step=None)
-                            edit_red_sal = col_edr3.number_input("ID Red - Tráfico Saliente", value=int(srv_actual.get('id_sensor_red_saliente', 0)), step=None)
+                            st.markdown("<div class='subtitulo-formulario'>🌐 Sensor de Red Unificado</div>", unsafe_allow_html=True)
+                            edit_red_unica = st.number_input("ID Sensor PRTG - Red (Total/Entrada/Salida)", value=int(srv_actual.get('id_sensor_red_total', 0)), step=None)
 
                             st.markdown("<div class='subtitulo-formulario'>💾 Matriz de Almacenamiento (PRTG Multidisco)</div>", unsafe_allow_html=True)
                             col_d1, col_d2, col_d3 = st.columns(3)
-                            edit_d1 = col_d1.number_input("Disco 1 (Unidad C:\\)", value=int(srv_actual['id_sensor_disco_1']), step=None)
-                            edit_d2 = col_d2.number_input("Disco 2 (Unidad D:\\)", value=int(srv_actual['id_sensor_disco_2']), step=None)
-                            edit_d3 = col_d3.number_input("Disco 3 (Unidad E:\\)", value=int(srv_actual['id_sensor_disco_3']), step=None)
+                            edit_d1 = col_d1.number_input(r"Disco 1 (Unidad C:\)", value=int(srv_actual['id_sensor_disco_1']), step=None)
+                            edit_d2 = col_d2.number_input(r"Disco 2 (Unidad D:\)", value=int(srv_actual['id_sensor_disco_2']), step=None)
+                            edit_d3 = col_d3.number_input(r"Disco 3 (Unidad E:\)", value=int(srv_actual['id_sensor_disco_3']), step=None)
                             
                             col_d4, col_d5, col_d6 = st.columns(3)
-                            edit_d4 = col_d4.number_input("Disco 4 (Unidad F:\\)", value=int(srv_actual['id_sensor_disco_4']), step=None)
-                            edit_d5 = col_d5.number_input("Disco 5 (Unidad G:\\)", value=int(srv_actual['id_sensor_disco_5']), step=None)
-                            edit_d6 = col_d6.number_input("Disco 6 (Unidad Y:\\)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=None)
+                            edit_d4 = col_d4.number_input(r"Disco 4 (Unidad F:\)", value=int(srv_actual['id_sensor_disco_4']), step=None)
+                            edit_d5 = col_d5.number_input(r"Disco 5 (Unidad G:\)", value=int(srv_actual['id_sensor_disco_5']), step=None)
+                            edit_d6 = col_d6.number_input(r"Disco 6 (Unidad Y:\)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=None)
 
                             st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (8 Slots Ampliados)</div>", unsafe_allow_html=True)
                             col_s1, col_s2 = st.columns(2)
-                            edit_s1 = col_s1.number_input("ID Sensor - Servicio Sistema 1", value=int(srv_actual.get('id_sensor_servicio_1', 0)), step=None)
-                            edit_s2 = col_s2.number_input("ID Sensor - Servicio Sistema 2", value=int(srv_actual.get('id_sensor_servicio_2', 0)), step=None)
+                            edit_s1 = col_s1.number_input("ID Sensor - Servicio 1", value=int(srv_actual.get('id_sensor_servicio_1', 0)), step=None)
+                            edit_s2 = col_s2.number_input("ID Sensor - Servicio 2", value=int(srv_actual.get('id_sensor_servicio_2', 0)), step=None)
                             
                             col_s3, col_s4, col_s5 = st.columns(3)
                             edit_s3 = col_s3.number_input("ID Sensor - Servicio 3", value=int(srv_actual.get('id_sensor_servicio_3', 0)), step=None)
@@ -732,7 +937,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                         int(edit_d1), int(edit_d2), int(edit_d3), int(edit_d4), int(edit_d5), int(edit_d6),
                                         int(edit_s1), int(edit_s2), int(edit_s3), int(edit_s4), int(edit_s5),
                                         int(edit_s6), int(edit_s7), int(edit_s8),
-                                        int(edit_red_tot), int(edit_red_ent), int(edit_red_sal), int(edit_lat), ip_edit
+                                        int(edit_red_unica), int(edit_red_unica), int(edit_red_unica), int(edit_lat), ip_edit
                                     ))
                                     conn_edit.commit()
                                     st.success("✅ Estructura modificada con éxito en la base de datos.")
@@ -792,7 +997,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     col_reg_p3, col_reg_p4 = st.columns(2)
                     reg_so = col_reg_p3.selectbox("Sistema Operativo Base Instalado", ["Windows", "Linux", "No especificado"])
-                    reg_tipo = col_reg_p4.selectbox("Tipo de Infraestructura", ["Virtual", "Fisico", "No especificado"])
+                    # ============ VALOR FIJO: TIPO VIRTUAL ============
+                    reg_tipo = "Virtual"  # Valor fijo
+                    st.markdown('<p style="color:#666; margin-top:8px;">📌 <strong>Tipo de Infraestructura:</strong> Virtual (Arquitectura definida)</p>', unsafe_allow_html=True)
+                    # ============ FIN VALOR FIJO ============
                     
                     st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                     col_reg_e1, col_reg_e2 = st.columns(2)
@@ -801,29 +1009,26 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     col_reg_e3, col_reg_e4 = st.columns(2)
                     reg_lat = col_reg_e3.number_input("ID Sensor PRTG - Latencia de Respuesta (Ping)", value=0, step=None)
-                    reg_servicios_str = col_reg_e4.text_input("Descripción de Servicios Core", value="Ninguno")
+                    reg_servicios_str = col_reg_e4.text_input("Servicios del Servidor", value="Ninguno")
                     
-                    st.markdown("<div class='subtitulo-formulario'>🌐 Sensores de Red Distribuidos</div>", unsafe_allow_html=True)
-                    col_red1, col_red2, col_red3 = st.columns(3)
-                    reg_red_tot = col_red1.number_input("ID Red - Tráfico Total", value=0, step=None)
-                    reg_red_ent = col_red2.number_input("ID Red - Tráfico Entrante", value=0, step=None)
-                    reg_red_sal = col_red3.number_input("ID Red - Tráfico Saliente", value=0, step=None)
+                    st.markdown("<div class='subtitulo-formulario'>🌐 Sensor de Red Unificado</div>", unsafe_allow_html=True)
+                    reg_red_unica = st.number_input("ID Sensor PRTG - Red (Total/Entrada/Salida)", value=0, step=None)
 
                     st.markdown("<div class='subtitulo-formulario'>💾 Matriz de Almacenamiento (PRTG Multidisco)</div>", unsafe_allow_html=True)
                     col_d1, col_d2, col_d3 = st.columns(3)
-                    reg_d1 = col_d1.number_input("Disco 1 (Unidad C:\\)", value=0, step=None)
-                    reg_d2 = col_d2.number_input("Disco 2 (Unidad D:\\)", value=0, step=None)
-                    reg_d3 = col_d3.number_input("Disco 3 (Unidad E:\\)", value=0, step=None)
+                    reg_d1 = col_d1.number_input(r"Disco 1 (Unidad C:\)", value=0, step=None)
+                    reg_d2 = col_d2.number_input(r"Disco 2 (Unidad D:\)", value=0, step=None)
+                    reg_d3 = col_d3.number_input(r"Disco 3 (Unidad E:\)", value=0, step=None)
                     
                     col_d4, col_d5, col_d6 = st.columns(3)
-                    reg_d4 = col_d4.number_input("Disco 4 (Unidad F:\\)", value=0, step=None)
-                    reg_d5 = col_d5.number_input("Disco 5 (Unidad G:\\)", value=0, step=None)
-                    reg_d6 = col_d6.number_input("Disco 6 (Unidad Y:\\)", value=0, step=None)
+                    reg_d4 = col_d4.number_input(r"Disco 4 (Unidad F:\)", value=0, step=None)
+                    reg_d5 = col_d5.number_input(r"Disco 5 (Unidad G:\)", value=0, step=None)
+                    reg_d6 = col_d6.number_input(r"Disco 6 (Unidad Y:\)", value=0, step=None)
 
                     st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (8 Slots)</div>", unsafe_allow_html=True)
                     col_s1, col_s2 = st.columns(2)
-                    reg_s1 = col_s1.number_input("ID Sensor - Servicio Sistema 1", value=0, step=None)
-                    reg_s2 = col_s2.number_input("ID Sensor - Servicio Sistema 2", value=0, step=None)
+                    reg_s1 = col_s1.number_input("ID Sensor - Servicio 1", value=0, step=None)
+                    reg_s2 = col_s2.number_input("ID Sensor - Servicio 2", value=0, step=None)
                     
                     col_s3, col_s4, col_s5 = st.columns(3)
                     reg_s3 = col_s3.number_input("ID Sensor - Servicio 3", value=0, step=None)
@@ -837,7 +1042,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     col_btn_reg1, col_btn_reg2 = st.columns(2)
                     
-                    if col_btn_reg1.form_submit_button("💾 Guardar Servidor", use_container_width=True):
+                    if col_btn_reg1.form_submit_button("💾 Registrar Servidor", use_container_width=True):
                         if not reg_ip.strip() or not reg_alias.strip():
                             st.error("❌ Error: La Dirección IP y el nombre son campos obligatorios.")
                         elif not validar_ip(reg_ip):
@@ -869,7 +1074,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                                 cursor_write.execute(ins_query, (
                                     reg_ip.strip(), reg_alias.strip(), reg_so, reg_tipo, reg_servicios_str.strip(),
                                     int(reg_cpu), int(reg_ram), int(reg_lat),
-                                    int(reg_red_tot), int(reg_red_ent), int(reg_red_sal),
+                                    int(reg_red_unica), int(reg_red_unica), int(reg_red_unica),
                                     int(reg_d1), int(reg_d2), int(reg_d3), int(reg_d4), int(reg_d5), int(reg_d6),
                                     int(reg_s1), int(reg_s2), int(reg_s3), int(reg_s4), int(reg_s5),
                                     int(reg_s6), int(reg_s7), int(reg_s8)
