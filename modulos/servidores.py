@@ -76,7 +76,6 @@ def limpiar_estado_capacity():
 def renderizar_pestana_datos_adicionales(es_seguridad):
     """Fragmento independiente para la pestaña de datos adicionales"""
     
-    # 🔥 Inicializar key dinámica para la pestaña 2
     if "_widget_key_ad" not in st.session_state:
         st.session_state["_widget_key_ad"] = f"sb_filtro_ad_{int(time.time() * 1000)}"
     
@@ -99,13 +98,9 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         conn_ad = conectar_bd()
         cursor_ad = conn_ad.cursor(dictionary=True)
         
-        # ==========================================================================
-        # FILA DE FILTROS
-        # ==========================================================================
         col_f_ad1, col_f_ad2, col_f_ad3 = st.columns([3, 1, 1])
         
         with col_f_ad1:
-            # 🔥 Usar key dinámica fija
             current_value = st.session_state.get("filtro_adicional_nombre", "-- Seleccione un Servidor Base --")
             current_index = 0
             
@@ -131,7 +126,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         
         with col_f_ad3:
             if st.button("🧹 Limpiar", key="btn_limpiar_filtro_ad", use_container_width=True):
-                # 🔥 Cambiar la key del widget para forzar recreación con index=0
                 st.session_state["_widget_key_ad"] = f"sb_filtro_ad_{int(time.time() * 1000)}"
                 st.session_state["filtro_adicional_nombre"] = "-- Seleccione un Servidor Base --"
                 st.session_state.filtro_aplicado_ad = False
@@ -140,9 +134,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
 
         st.markdown("---")
 
-        # ==========================================================================
-        # DETERMINAR FILTRO APLICADO
-        # ==========================================================================
         hay_filtro_ad = st.session_state.filtro_aplicado_ad and st.session_state["filtro_adicional_nombre"] != "-- Seleccione un Servidor Base --"
         ver_todos_ad = st.session_state["filtro_adicional_nombre"] == "-- Ver Todos los Servidores Base --"
         
@@ -159,9 +150,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
         elif not hay_filtro_ad:
             st.info("📋 Por favor, seleccione un servidor de la lista desplegable superior para visualizar sus parámetros adicionales.")
         else:
-            # ==========================================================================
-            # CONSULTA DE DATOS CON FILTRO
-            # ==========================================================================
             query_base = """
                 SELECT da.id, da.id_servidor, s.nombre_alias, s.ip AS ip_maestra, da.host, da.nombre_vm, 
                        da.estado, da.uso_cpu_pct, da.memoria_asignada_mb, da.tiempo_encendido, 
@@ -173,7 +161,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
             """
             params = []
             
-            # Filtro por servidor base
             if hay_filtro_ad and not ver_todos_ad:
                 query_base += " AND s.nombre_alias = %s"
                 params.append(st.session_state["filtro_adicional_nombre"])
@@ -188,9 +175,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                 lista_ids_adicionales.append(str_id)
                 mapeo_adicionales[str_id] = r
         
-        # ==========================================================================
-        # MOSTRAR RESULTADOS
-        # ==========================================================================
         if st.session_state.filtro_aplicado_ad and hay_filtro_ad:
             if not registros_adicionales:
                 st.warning("📭 No se encuentran datos registrados para el servidor seleccionado.")
@@ -230,9 +214,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
 
         st.markdown("---")
 
-        # ==========================================================================
-        # BOTONES DE ACCIÓN
-        # ==========================================================================
         if not es_seguridad:
             st.info("ℹ️ **Modo Consulta Activo:** Su cuenta operativa actual no posee permisos para alterar la matriz de datos adicionales.")
         else:
@@ -250,9 +231,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                         st.session_state.accion_adicional = "editar"
                         st.rerun(scope="fragment")
 
-        # ==========================================================================
-        # FORMULARIO COMPLETO DE REGISTRO - DATOS ADICIONALES
-        # ==========================================================================
         if st.session_state.accion_adicional == "registrar":
             st.markdown("### 📥 Registrar Extensión de Infraestructura")
             with st.form("form_registro_adicional"):
@@ -364,9 +342,6 @@ def renderizar_pestana_datos_adicionales(es_seguridad):
                     st.session_state.accion_adicional = None
                     st.rerun(scope="fragment")
 
-        # ==========================================================================
-        # FORMULARIO COMPLETO DE EDICIÓN - DATOS ADICIONALES
-        # ==========================================================================
         if st.session_state.accion_adicional == "editar" and registros_adicionales:
             st.markdown("### ✏️ Modificar Registro de Extensión Técnico")
             id_ad_edit = st.selectbox("Seleccione el ID del Registro Adicional a Modificar", lista_ids_adicionales, key="sb_id_ad_edit")
@@ -564,9 +539,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
     rol_sanitizado = str(rol_usuario).strip().upper() if rol_usuario else ""
     es_seguridad = "SEGURIDAD" in rol_sanitizado or "ADMIN" in rol_sanitizado or "OFICIAL" in rol_sanitizado
 
-    # ==========================================================================
-    # PROCESAR REDIRECCIÓN A MONITOREO
-    # ==========================================================================
     if "redirigir_servidor" in st.session_state and st.session_state["redirigir_servidor"]:
         servidor = st.session_state["redirigir_servidor"]
         if servidor and servidor != "-- Seleccione un Servidor --":
@@ -587,7 +559,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
     elif tab_param == "1":
         st.session_state.tab_servidores_activa = 0
 
-    # 🔥 Inicializar key dinámica para la pestaña 1
     if "_widget_key_srv" not in st.session_state:
         st.session_state["_widget_key_srv"] = f"sb_filtro_p1_{int(time.time() * 1000)}"
     
@@ -613,13 +584,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
             lista_nombres_bd = obtener_lista_nombres_servidores()
             opciones_selectbox = ["-- Seleccione un Servidor --", "-- Ver Todos los Servidores --"] + lista_nombres_bd
 
-            # ==========================================================================
-            # FILA DE FILTROS - PESTAÑA 1
-            # ==========================================================================
             col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
             
             with col_f1:
-                # 🔥 Usar key dinámica fija
                 current_value = st.session_state.get("filtro_servidor_nombre", "-- Seleccione un Servidor --")
                 current_index = 0
                 
@@ -645,7 +612,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
             
             with col_f3:
                 if st.button("🧹 Limpiar", key="btn_limpiar_filtro_srv", use_container_width=True):
-                    # 🔥 Cambiar la key del widget para forzar recreación con index=0
                     st.session_state["_widget_key_srv"] = f"sb_filtro_p1_{int(time.time() * 1000)}"
                     st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
                     st.session_state.filtro_aplicado_srv = False
@@ -711,13 +677,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 for i in range(1, 9):
                     servicios_activos[i] = any(s.get(f'id_sensor_servicio_{i}', 0) != 0 for s in servidores_filtrados)
 
-                hay_servicios_para_mostrar = False
-                for s in servidores_filtrados:
-                    servicios_valor = s.get('servicios', 'N/A') or 'N/A'
-                    if servicios_valor not in ['Ninguno', 'No definido', 'N/A', '']:
-                        hay_servicios_para_mostrar = True
-                        break
-
                 html_lineas = ["""
                 <style>
                     .tabla-banco { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
@@ -731,9 +690,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 html_lineas.append('<th>NOMBRE</th>')
                 html_lineas.append('<th>SISTEMA OPERATIVO</th>')
                 html_lineas.append('<th>TIPO</th>')
-                
-                if hay_servicios_para_mostrar:
-                    html_lineas.append('<th>SERVICIOS</th>')
+                html_lineas.append('<th>SERVICIOS</th>')
                 
                 if tiene_cpu: html_lineas.append('<th>ID CPU</th>')
                 if tiene_ram: html_lineas.append('<th>ID RAM</th>')
@@ -767,20 +724,15 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     estado_html = '<span style="color: #2E7D32; font-weight: bold;">ACTIVO</span>' if s['estado_monitoreo'] == 1 else '<span style="color: #C62828; font-weight: bold;">INACTIVO</span>'
                     fecha_formateada = s['fecha_alta'].strftime("%Y-%m-%d %H:%M") if s['fecha_alta'] else "N/A"
                     
-                    servicios_valor = s.get('servicios', 'N/A') or 'N/A'
-                    if servicios_valor in ['Ninguno', 'No definido', 'N/A', '']:
-                        servicios_mostrar = ''
-                    else:
-                        servicios_mostrar = servicios_valor
+                    servicios_valor = s.get('servicios', 'Ninguno') or 'Ninguno'
+                    servicios_mostrar = servicios_valor
 
                     html_lineas.append('<tr>')
                     html_lineas.append(f'<td><b>{s["ip"]}</b></td>')
                     html_lineas.append(f'<td>{s["nombre_alias"]}</td>')
                     html_lineas.append(f'<td>{s["sistema_operativo"]}</td>')
                     html_lineas.append(f'<td>{s.get("tipo", "Virtual")}</td>')
-                    
-                    if hay_servicios_para_mostrar:
-                        html_lineas.append(f'<td>{servicios_mostrar}</td>')
+                    html_lineas.append(f'<td>{servicios_mostrar}</td>')
                     
                     if tiene_cpu: 
                         val = s["id_sensor_cpu"]
@@ -823,7 +775,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 st.components.v1.html(html_final, height=altura_vista, scrolling=True)
                 
                 st.markdown("---")
-                st.markdown("### 📊 Ver en Vivo - Seleccione un Servidor")
+                st.markdown("### 📊 Ver Monitoreo")
                 
                 num_columnas = min(4, len(servidores_para_botones))
                 cols_botones = st.columns(num_columnas)
@@ -857,102 +809,106 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 else:
                     if not ver_todos:
                         col_b1, col_b2 = st.columns(2)
-                        if col_b1.button("📝 Editar Servidor Filtrado", use_container_width=True, key="btn_crud_editar"):
+                        # ============ CAMBIO 1: Botón "Editar Servidor" ============
+                        if col_b1.button("✏️ Editar Servidor", use_container_width=True, key="btn_crud_editar"):
                             st.session_state.accion_infra = "editar"
                             st.rerun()
+                        # ============ FIN CAMBIO 1 ============
                         if col_b2.button("❌ Desactivar", use_container_width=True, key="btn_crud_desactivar"):
                             st.session_state.accion_infra = "desactivar"
                             st.rerun()
 
                 if st.session_state.accion_infra == "editar" and hay_filtro and not ver_todos:
                     st.markdown("### ✏️ Modificación de Parámetros Técnicos")
-                    ip_edit = st.selectbox("Seleccione la IP del Servidor a Modificar", lista_ips)
                     
-                    if ip_edit:
-                        srv_actual = mapeo_servidores[ip_edit]
-                        fecha_act = srv_actual['fecha_alta'].strftime("%Y-%m-%d %H:%M") if srv_actual['fecha_alta'] else "N/A"
+                    # Usar el servidor filtrado directamente (solo hay uno)
+                    srv_actual = servidores_filtrados[0]
+                    fecha_act = srv_actual['fecha_alta'].strftime("%Y-%m-%d %H:%M") if srv_actual['fecha_alta'] else "N/A"
+                    
+                    with st.form("form_edicion_srv"):
+                        st.markdown("<div class='subtitulo-formulario'>🔒 Información Base Bloqueada</div>", unsafe_allow_html=True)
+                        col_lock1, col_lock2 = st.columns(2)
+                        col_lock1.text_input("Fecha de Alta Institucional", value=fecha_act, disabled=True)
+                        col_lock2.text_input("Sistema Operativo Asignado", value=srv_actual['sistema_operativo'], disabled=True)
                         
-                        with st.form("form_edicion_srv"):
-                            st.markdown("<div class='subtitulo-formulario'>🔒 Información Base Bloqueada</div>", unsafe_allow_html=True)
-                            col_lock1, col_lock2 = st.columns(2)
-                            col_lock1.text_input("Fecha de Alta Institucional", value=fecha_act, disabled=True)
-                            col_lock2.text_input("Sistema Operativo Asignado", value=srv_actual['sistema_operativo'], disabled=True)
-                            
-                            st.markdown("<div class='subtitulo-formulario'>📋 Identificación Comercial</div>", unsafe_allow_html=True)
-                            col_edi_p1, col_edi_p2 = st.columns(2)
-                            edit_alias = col_edi_p1.text_input("Alias / Nombre Comercial del Servidor", value=srv_actual['nombre_alias'])
-                            edit_servicios = col_edi_p2.text_input("Servicios del Servidor", value=srv_actual.get('servicios', 'Ninguno'))
-                            
-                            st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
-                            col_e1, col_e2 = st.columns(2)
-                            edit_cpu = col_e1.number_input("ID Sensor PRTG - Rendimiento CPU", value=int(srv_actual['id_sensor_cpu']), step=None)
-                            edit_ram = col_e2.number_input("ID Sensor PRTG - Consumo Memoria RAM", value=int(srv_actual['id_sensor_ram']), step=None)
-                            edit_lat = st.number_input("ID Sensor PRTG - Latencia (Ping)", value=int(srv_actual['id_sensor_latencia']), step=None)
-                            
-                            st.markdown("<div class='subtitulo-formulario'>🌐 Sensor de Red Unificado</div>", unsafe_allow_html=True)
-                            edit_red_unica = st.number_input("ID Sensor PRTG - Red (Total/Entrada/Salida)", value=int(srv_actual.get('id_sensor_red_total', 0)), step=None)
+                        st.markdown("<div class='subtitulo-formulario'>📋 Identificación Comercial</div>", unsafe_allow_html=True)
+                        col_edi_p1, col_edi_p2 = st.columns(2)
+                        edit_alias = col_edi_p1.text_input("Alias / Nombre Comercial del Servidor", value=srv_actual['nombre_alias'])
+                        edit_servicios = col_edi_p2.text_input("Servicios del Servidor", value=srv_actual.get('servicios', 'Ninguno'))
+                        
+                        st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
+                        col_e1, col_e2 = st.columns(2)
+                        edit_cpu = col_e1.number_input("ID Sensor PRTG - Rendimiento CPU", value=int(srv_actual['id_sensor_cpu']), step=None)
+                        edit_ram = col_e2.number_input("ID Sensor PRTG - Consumo Memoria RAM", value=int(srv_actual['id_sensor_ram']), step=None)
+                        edit_lat = st.number_input("ID Sensor PRTG - Latencia (Ping)", value=int(srv_actual['id_sensor_latencia']), step=None)
+                        
+                        st.markdown("<div class='subtitulo-formulario'>🌐 Sensor de Red Unificado</div>", unsafe_allow_html=True)
+                        edit_red_unica = st.number_input("ID Sensor PRTG - Red (Total/Entrada/Salida)", value=int(srv_actual.get('id_sensor_red_total', 0)), step=None)
 
-                            st.markdown("<div class='subtitulo-formulario'>💾 Matriz de Almacenamiento (PRTG Multidisco)</div>", unsafe_allow_html=True)
-                            col_d1, col_d2, col_d3 = st.columns(3)
-                            edit_d1 = col_d1.number_input(r"Disco 1 (Unidad C:\)", value=int(srv_actual['id_sensor_disco_1']), step=None)
-                            edit_d2 = col_d2.number_input(r"Disco 2 (Unidad D:\)", value=int(srv_actual['id_sensor_disco_2']), step=None)
-                            edit_d3 = col_d3.number_input(r"Disco 3 (Unidad E:\)", value=int(srv_actual['id_sensor_disco_3']), step=None)
-                            
-                            col_d4, col_d5, col_d6 = st.columns(3)
-                            edit_d4 = col_d4.number_input(r"Disco 4 (Unidad F:\)", value=int(srv_actual['id_sensor_disco_4']), step=None)
-                            edit_d5 = col_d5.number_input(r"Disco 5 (Unidad G:\)", value=int(srv_actual['id_sensor_disco_5']), step=None)
-                            edit_d6 = col_d6.number_input(r"Disco 6 (Unidad Y:\)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=None)
+                        st.markdown("<div class='subtitulo-formulario'>💾 Matriz de Almacenamiento (PRTG Multidisco)</div>", unsafe_allow_html=True)
+                        col_d1, col_d2, col_d3 = st.columns(3)
+                        edit_d1 = col_d1.number_input(r"Disco 1 (Unidad C:\)", value=int(srv_actual['id_sensor_disco_1']), step=None)
+                        edit_d2 = col_d2.number_input(r"Disco 2 (Unidad D:\)", value=int(srv_actual['id_sensor_disco_2']), step=None)
+                        edit_d3 = col_d3.number_input(r"Disco 3 (Unidad E:\)", value=int(srv_actual['id_sensor_disco_3']), step=None)
+                        
+                        col_d4, col_d5, col_d6 = st.columns(3)
+                        edit_d4 = col_d4.number_input(r"Disco 4 (Unidad F:\)", value=int(srv_actual['id_sensor_disco_4']), step=None)
+                        edit_d5 = col_d5.number_input(r"Disco 5 (Unidad G:\)", value=int(srv_actual['id_sensor_disco_5']), step=None)
+                        edit_d6 = col_d6.number_input(r"Disco 6 (Unidad Y:\)", value=int(srv_actual.get('id_sensor_disco_6', 0)), step=None)
 
-                            st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (8 Slots Ampliados)</div>", unsafe_allow_html=True)
-                            col_s1, col_s2 = st.columns(2)
-                            edit_s1 = col_s1.number_input("ID Sensor - Servicio 1", value=int(srv_actual.get('id_sensor_servicio_1', 0)), step=None)
-                            edit_s2 = col_s2.number_input("ID Sensor - Servicio 2", value=int(srv_actual.get('id_sensor_servicio_2', 0)), step=None)
-                            
-                            col_s3, col_s4, col_s5 = st.columns(3)
-                            edit_s3 = col_s3.number_input("ID Sensor - Servicio 3", value=int(srv_actual.get('id_sensor_servicio_3', 0)), step=None)
-                            edit_s4 = col_s4.number_input("ID Sensor - Servicio 4", value=int(srv_actual.get('id_sensor_servicio_4', 0)), step=None)
-                            edit_s5 = col_s5.number_input("ID Sensor - Servicio 5", value=int(srv_actual.get('id_sensor_servicio_5', 0)), step=None)
-                            
-                            col_s6, col_s7, col_s8 = st.columns(3)
-                            edit_s6 = col_s6.number_input("ID Sensor - Servicio 6", value=int(srv_actual.get('id_sensor_servicio_6', 0)), step=None)
-                            edit_s7 = col_s7.number_input("ID Sensor - Servicio 7", value=int(srv_actual.get('id_sensor_servicio_7', 0)), step=None)
-                            edit_s8 = col_s8.number_input("ID Sensor - Servicio 8", value=int(srv_actual.get('id_sensor_servicio_8', 0)), step=None)
-                            
-                            col_btn_edi1, col_btn_edi2 = st.columns(2)
-                            if col_btn_edi1.form_submit_button("✏️ Actualizar", use_container_width=True):
-                                try:
-                                    conn_edit = conectar_bd()
-                                    cursor_edit = conn_edit.cursor()
-                                    upd_query = """
-                                        UPDATE servidores 
-                                        SET nombre_alias=%s, servicios=%s, id_sensor_cpu=%s, id_sensor_ram=%s, 
-                                            id_sensor_disco_1=%s, id_sensor_disco_2=%s, id_sensor_disco_3=%s, id_sensor_disco_4=%s, id_sensor_disco_5=%s, id_sensor_disco_6=%s,
-                                            id_sensor_servicio_1=%s, id_sensor_servicio_2=%s, id_sensor_servicio_3=%s, id_sensor_servicio_4=%s, id_sensor_servicio_5=%s,
-                                            id_sensor_servicio_6=%s, id_sensor_servicio_7=%s, id_sensor_servicio_8=%s,
-                                            id_sensor_red_total=%s, id_sensor_red_entrante=%s, id_sensor_red_saliente=%s, id_sensor_latencia=%s
-                                        WHERE ip=%s
-                                    """
-                                    cursor_edit.execute(upd_query, (
-                                        edit_alias.strip(), edit_servicios.strip(), int(edit_cpu), int(edit_ram), 
-                                        int(edit_d1), int(edit_d2), int(edit_d3), int(edit_d4), int(edit_d5), int(edit_d6),
-                                        int(edit_s1), int(edit_s2), int(edit_s3), int(edit_s4), int(edit_s5),
-                                        int(edit_s6), int(edit_s7), int(edit_s8),
-                                        int(edit_red_unica), int(edit_red_unica), int(edit_red_unica), int(edit_lat), ip_edit
-                                    ))
-                                    conn_edit.commit()
-                                    st.success("✅ Estructura modificada con éxito en la base de datos.")
-                                    st.session_state.accion_infra = None
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                except Exception as ex:
-                                    st.error(f"❌ Error al actualizar: {ex}")
-                                finally:
-                                    if cursor_edit: cursor_edit.close()
-                                    if conn_edit: conn_edit.close()
-                                    
-                            if col_btn_edi2.form_submit_button("❌ Cancelar", use_container_width=True):
+                        st.markdown("<div class='subtitulo-formulario'>⚙️ Sensores de Servicio Activos (8 Slots Ampliados)</div>", unsafe_allow_html=True)
+                        col_s1, col_s2 = st.columns(2)
+                        edit_s1 = col_s1.number_input("ID Sensor - Servicio 1", value=int(srv_actual.get('id_sensor_servicio_1', 0)), step=None)
+                        edit_s2 = col_s2.number_input("ID Sensor - Servicio 2", value=int(srv_actual.get('id_sensor_servicio_2', 0)), step=None)
+                        
+                        col_s3, col_s4, col_s5 = st.columns(3)
+                        edit_s3 = col_s3.number_input("ID Sensor - Servicio 3", value=int(srv_actual.get('id_sensor_servicio_3', 0)), step=None)
+                        edit_s4 = col_s4.number_input("ID Sensor - Servicio 4", value=int(srv_actual.get('id_sensor_servicio_4', 0)), step=None)
+                        edit_s5 = col_s5.number_input("ID Sensor - Servicio 5", value=int(srv_actual.get('id_sensor_servicio_5', 0)), step=None)
+                        
+                        col_s6, col_s7, col_s8 = st.columns(3)
+                        edit_s6 = col_s6.number_input("ID Sensor - Servicio 6", value=int(srv_actual.get('id_sensor_servicio_6', 0)), step=None)
+                        edit_s7 = col_s7.number_input("ID Sensor - Servicio 7", value=int(srv_actual.get('id_sensor_servicio_7', 0)), step=None)
+                        edit_s8 = col_s8.number_input("ID Sensor - Servicio 8", value=int(srv_actual.get('id_sensor_servicio_8', 0)), step=None)
+                        
+                        col_btn_edi1, col_btn_edi2 = st.columns(2)
+                        # ============ CAMBIO 2: Botón "Actualizar" dentro del formulario ============
+                        if col_btn_edi1.form_submit_button("💾 Actualizar", use_container_width=True):
+                            try:
+                                conn_edit = conectar_bd()
+                                cursor_edit = conn_edit.cursor()
+                                ip_edit = srv_actual['ip']
+                                upd_query = """
+                                    UPDATE servidores 
+                                    SET nombre_alias=%s, servicios=%s, id_sensor_cpu=%s, id_sensor_ram=%s, 
+                                        id_sensor_disco_1=%s, id_sensor_disco_2=%s, id_sensor_disco_3=%s, id_sensor_disco_4=%s, id_sensor_disco_5=%s, id_sensor_disco_6=%s,
+                                        id_sensor_servicio_1=%s, id_sensor_servicio_2=%s, id_sensor_servicio_3=%s, id_sensor_servicio_4=%s, id_sensor_servicio_5=%s,
+                                        id_sensor_servicio_6=%s, id_sensor_servicio_7=%s, id_sensor_servicio_8=%s,
+                                        id_sensor_red_total=%s, id_sensor_red_entrante=%s, id_sensor_red_saliente=%s, id_sensor_latencia=%s
+                                    WHERE ip=%s
+                                """
+                                cursor_edit.execute(upd_query, (
+                                    edit_alias.strip(), edit_servicios.strip(), int(edit_cpu), int(edit_ram), 
+                                    int(edit_d1), int(edit_d2), int(edit_d3), int(edit_d4), int(edit_d5), int(edit_d6),
+                                    int(edit_s1), int(edit_s2), int(edit_s3), int(edit_s4), int(edit_s5),
+                                    int(edit_s6), int(edit_s7), int(edit_s8),
+                                    int(edit_red_unica), int(edit_red_unica), int(edit_red_unica), int(edit_lat), ip_edit
+                                ))
+                                conn_edit.commit()
+                                st.success("✅ Estructura modificada con éxito en la base de datos.")
                                 st.session_state.accion_infra = None
+                                st.cache_data.clear()
                                 st.rerun()
+                            except Exception as ex:
+                                st.error(f"❌ Error al actualizar: {ex}")
+                            finally:
+                                if cursor_edit: cursor_edit.close()
+                                if conn_edit: conn_edit.close()
+                        # ============ FIN CAMBIO 2 ============
+                                
+                        if col_btn_edi2.form_submit_button("❌ Cancelar", use_container_width=True):
+                            st.session_state.accion_infra = None
+                            st.rerun()
 
                 elif st.session_state.accion_infra == "desactivar" and hay_filtro and not ver_todos:
                     st.markdown("### ⚠️ Suspensión Lógica de Monitoreo")
@@ -1040,7 +996,8 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     col_btn_reg1, col_btn_reg2 = st.columns(2)
                     
-                    if col_btn_reg1.form_submit_button("💾 Registrar Servidor", use_container_width=True):
+                    # ============ CAMBIO 3: Botón "Registrar" ============
+                    if col_btn_reg1.form_submit_button("💾 Registrar", use_container_width=True):
                         if not reg_ip.strip() or not reg_alias.strip():
                             st.error("❌ Error: La Dirección IP y el nombre son campos obligatorios.")
                         elif not validar_ip(reg_ip):
@@ -1087,6 +1044,7 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             finally:
                                 if cursor_write: cursor_write.close()
                                 if conn_write: conn_write.close()
+                    # ============ FIN CAMBIO 3 ============
                                 
                     if col_btn_reg2.form_submit_button("❌ Cancelar Operación", use_container_width=True):
                         st.session_state.accion_infra = None
