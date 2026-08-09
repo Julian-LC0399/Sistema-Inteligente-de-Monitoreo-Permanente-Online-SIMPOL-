@@ -160,7 +160,8 @@ def limpiar_estado_capacity():
         'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
         'p1_filtros_aplicados', 'p1_reporte_generado',
         'p2_servidor_seleccionado', 'p2_metrica_filtro',
-        'p2_formato_filtro', 'p2_mostrar_tabla'
+        'p2_formato_filtro', 'p2_mostrar_tabla',
+        'modulo_capacity_activo'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -257,6 +258,9 @@ def gestionar_limpieza_filtros(seccion_destino):
     elif seccion_destino == "📈 Capacity planning":
         tab_actual = st.query_params.get("tab_capacity")
 
+    # =============================================================
+    # LIMPIEZA DE MONITOREO
+    # =============================================================
     if seccion_destino != "🖥️ Monitoreo en vivo":
         if "filtro_monitoreo_nombre" in st.session_state:
             st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor--"
@@ -273,12 +277,27 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "filtro_aplicado_tab2" in st.session_state:
             st.session_state["filtro_aplicado_tab2"] = False
 
+    # =============================================================
+    # LIMPIEZA DE GESTIÓN DE USUARIOS
+    # =============================================================
     if seccion_destino != "👥 Gestión de usuarios":
         if "filtro_analista" in st.session_state:
-            st.session_state["filtro_analista"] = "-- Seleccione un Analista --"
+            st.session_state.filtro_analista = "-- Seleccione un Analista --"
         if "accion_personal" in st.session_state:
-            st.session_state["accion_personal"] = None
+            st.session_state.accion_personal = None
+        if "filtro_aplicado_p1" in st.session_state:
+            st.session_state.filtro_aplicado_p1 = False
+        if "filtro_auditoria_usr" in st.session_state:
+            st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
+        if "filtro_aplicado_p2" in st.session_state:
+            st.session_state.filtro_aplicado_p2 = False
+        # 🔥 CORRECCIÓN: Resetear wb_filtro_analista, NO eliminarlo
+        if "wb_filtro_analista" in st.session_state:
+            st.session_state.wb_filtro_analista = "-- Seleccione un Analista --"
 
+    # =============================================================
+    # LIMPIEZA DE SERVIDORES
+    # =============================================================
     if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
@@ -289,12 +308,38 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "accion_adicional" in st.session_state:
             st.session_state["accion_adicional"] = None
 
+    # =============================================================
+    # LIMPIEZA DE REPORTES
+    # =============================================================
     if seccion_destino != "📄 Reportes":
         limpiar_estado_reportes()
         st.session_state["filtros_aplicados"] = False
 
+    # =============================================================
+    # LIMPIEZA DE CAPACITY PLANNING
+    # =============================================================
     if seccion_destino != "📈 Capacity planning":
         limpiar_estado_capacity()
+        if "p1_servidor" in st.session_state:
+            st.session_state.p1_servidor = "-- Seleccione un Servidor --"
+        if "p1_metrica" in st.session_state:
+            st.session_state.p1_metrica = ""
+        if "p1_dias" in st.session_state:
+            st.session_state.p1_dias = 30
+        if "p1_ajuste" in st.session_state:
+            st.session_state.p1_ajuste = 0
+        if "p1_filtros_aplicados" in st.session_state:
+            st.session_state.p1_filtros_aplicados = False
+        if "p1_reporte_generado" in st.session_state:
+            st.session_state.p1_reporte_generado = False
+        if "p2_servidor_seleccionado" in st.session_state:
+            st.session_state.p2_servidor_seleccionado = "-- Seleccione un Servidor --"
+        if "p2_metrica_filtro" in st.session_state:
+            st.session_state.p2_metrica_filtro = "Todas"
+        if "p2_formato_filtro" in st.session_state:
+            st.session_state.p2_formato_filtro = "Todos"
+        if "p2_mostrar_tabla" in st.session_state:
+            st.session_state.p2_mostrar_tabla = False
         if "servidor_seleccionado_capacity" in st.session_state:
             st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
         if "metrica_seleccionada_capacity" in st.session_state:
@@ -304,6 +349,9 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "reporte_generado" in st.session_state:
             st.session_state["reporte_generado"] = False
 
+    # =============================================================
+    # LIMPIEZA DE ALERTAS
+    # =============================================================
     if seccion_destino != "🔔 Alertas":
         if "sb_alerta_srv" in st.session_state:
             st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
@@ -313,10 +361,9 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["filtro_alerta_estado"] = "No Resueltas"
 
     # =============================================================
-    # 🔥 CORRECCIÓN: LIMPIEZA COMPLETA DE UMBRALES
+    # LIMPIEZA DE UMBRALES
     # =============================================================
     if seccion_destino != "⚙️ Umbrales":
-        # Pestaña 1 - Configuración
         if "filtro_umbral_servidor" in st.session_state:
             st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
         if "filtro_umbral_componente" in st.session_state:
@@ -329,8 +376,6 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["aplicar_filtro_config"] = False
         if "umbrales_modificados" in st.session_state:
             st.session_state["umbrales_modificados"] = False
-        
-        # Pestaña 2 - Histórico
         if "filtro_historico_servidor" in st.session_state:
             st.session_state["filtro_historico_servidor"] = "-- Seleccione un Servidor --"
         if "filtro_historico_umbral" in st.session_state:
@@ -445,9 +490,7 @@ def main():
     # =============================================================
     if seccion_anterior == "📄 Reportes" and seccion_actual == "📈 Capacity planning":
         logging.info("🧹 Limpieza radical: Reportes -> Capacity")
-        
         limpiar_todas_variables_reportes()
-        
         keys_extra = [
             'temp_servidor', 'temp_sensor', 'temp_fecha_i', 'temp_fecha_f', 'temp_formato',
             'servidor_seleccionado_reporte', 'filtro_sensor_general', 'filtro_fecha_i',
@@ -456,7 +499,6 @@ def main():
         for key in keys_extra:
             if key in st.session_state:
                 del st.session_state[key]
-        
         st.session_state["_seccion_anterior"] = seccion_actual
         st.rerun()
         return
@@ -491,7 +533,6 @@ def main():
     if seleccion == "📈 Capacity planning":
         placeholder = st.empty()
         placeholder.empty()
-        
         with placeholder.container():
             try:
                 from modulos import capacity
