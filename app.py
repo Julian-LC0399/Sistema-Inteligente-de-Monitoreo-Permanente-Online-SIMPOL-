@@ -312,11 +312,35 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "filtro_alerta_estado" in st.session_state:
             st.session_state["filtro_alerta_estado"] = "No Resueltas"
 
+    # =============================================================
+    # 🔥 CORRECCIÓN: LIMPIEZA COMPLETA DE UMBRALES
+    # =============================================================
     if seccion_destino != "⚙️ Umbrales":
+        # Pestaña 1 - Configuración
         if "filtro_umbral_servidor" in st.session_state:
             st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
         if "filtro_umbral_componente" in st.session_state:
             st.session_state["filtro_umbral_componente"] = "-- Seleccione un Componente --"
+        if "config_servidor_seleccionado" in st.session_state:
+            st.session_state["config_servidor_seleccionado"] = "-- Seleccione un Servidor --"
+        if "config_componente_seleccionado" in st.session_state:
+            st.session_state["config_componente_seleccionado"] = "-- Seleccione un Componente --"
+        if "aplicar_filtro_config" in st.session_state:
+            st.session_state["aplicar_filtro_config"] = False
+        if "umbrales_modificados" in st.session_state:
+            st.session_state["umbrales_modificados"] = False
+        
+        # Pestaña 2 - Histórico
+        if "filtro_historico_servidor" in st.session_state:
+            st.session_state["filtro_historico_servidor"] = "-- Seleccione un Servidor --"
+        if "filtro_historico_umbral" in st.session_state:
+            st.session_state["filtro_historico_umbral"] = "-- Seleccione un Umbral --"
+        if "historico_servidor_seleccionado" in st.session_state:
+            st.session_state["historico_servidor_seleccionado"] = "-- Seleccione un Servidor --"
+        if "historico_umbral_seleccionado" in st.session_state:
+            st.session_state["historico_umbral_seleccionado"] = "-- Seleccione un Umbral --"
+        if "aplicar_filtro_historico" in st.session_state:
+            st.session_state["aplicar_filtro_historico"] = False
 
     if tab_actual:
         if seccion_destino == "🖥️ Servidores":
@@ -417,15 +441,13 @@ def main():
     seccion_actual = st.session_state["seccion_actual"]
     
     # =============================================================
-    # 🔥 SOLUCIÓN DEFINITIVA: LIMPIEZA COMPLETA AL CAMBIAR DE REPORTES A CAPACITY
+    # LIMPIEZA RADICAL: Reportes -> Capacity
     # =============================================================
     if seccion_anterior == "📄 Reportes" and seccion_actual == "📈 Capacity planning":
         logging.info("🧹 Limpieza radical: Reportes -> Capacity")
         
-        # 1. Limpiar TODAS las variables de reportes
         limpiar_todas_variables_reportes()
         
-        # 2. Limpiar cualquier variable residual de reportes
         keys_extra = [
             'temp_servidor', 'temp_sensor', 'temp_fecha_i', 'temp_fecha_f', 'temp_formato',
             'servidor_seleccionado_reporte', 'filtro_sensor_general', 'filtro_fecha_i',
@@ -435,10 +457,7 @@ def main():
             if key in st.session_state:
                 del st.session_state[key]
         
-        # 3. Actualizar sección anterior
         st.session_state["_seccion_anterior"] = seccion_actual
-        
-        # 4. 🔥 FORZAR RECARGA COMPLETA
         st.rerun()
         return
     
@@ -465,17 +484,14 @@ def main():
     st.query_params["c"] = st.session_state.get("cargo", "Analista")
     
     # =============================================================
-    # 🔥 RENDERIZAR MÓDULO - CON st.empty() PARA LIMPIAR EL DOM
+    # RENDERIZAR MÓDULO
     # =============================================================
     seleccion = st.session_state["seccion_actual"]
     
-    # Si es capacity, forzar limpieza del DOM primero
     if seleccion == "📈 Capacity planning":
-        # Limpiar el placeholder
         placeholder = st.empty()
         placeholder.empty()
         
-        # Crear un nuevo placeholder para el contenido
         with placeholder.container():
             try:
                 from modulos import capacity
@@ -488,7 +504,6 @@ def main():
                 logging.error(f"Error cargando Capacity: {e}")
                 st.error(f"Error en Capacity: {e}")
     else:
-        # Para los demás módulos, renderizar normalmente
         try:
             if seleccion == "🏠 Inicio":
                 from modulos import inicio

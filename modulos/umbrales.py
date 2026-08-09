@@ -161,9 +161,6 @@ def guardar_nuevos_umbrales(ip, dict_umbrales, usuario_id, justificacion):
             conn.close()
         return False
 
-# =====================================================================
-# FUNCION PARA OBTENER OPCIONES DE UMBRALES SEGUN SERVIDOR
-# =====================================================================
 def obtener_opciones_umbrales(servidor_seleccionado, servidores):
     """Retorna las opciones de umbrales disponibles según el servidor seleccionado"""
     opciones = ["-- Seleccione un Umbral --"]
@@ -175,11 +172,9 @@ def obtener_opciones_umbrales(servidor_seleccionado, servidores):
     if not serv_info:
         return opciones
     
-    # Verificar qué sensores tiene el servidor
     tiene_cpu = int(serv_info.get('id_sensor_cpu') or 0) > 0
     tiene_ram = int(serv_info.get('id_sensor_ram') or 0) > 0
     
-    # Agregar opción "Todos los Umbrales" solo si hay al menos un sensor
     if tiene_cpu or tiene_ram:
         opciones.append("-- Todos los Umbrales --")
     
@@ -190,27 +185,21 @@ def obtener_opciones_umbrales(servidor_seleccionado, servidores):
     if tiene_ram:
         opciones.append("🗲 RAM")
     
-    # Discos
     letras = {1: 'C', 2: 'D', 3: 'E', 4: 'F', 5: 'G', 6: 'Y'}
     for d in range(1, 7):
         if int(serv_info.get(f'id_sensor_disco_{d}') or 0) > 0:
             opciones.append(f"💾 Disco {letras[d]}")
     
-    # Red
     if (int(serv_info.get('id_sensor_red_total') or 0) > 0 or
         int(serv_info.get('id_sensor_red_entrante') or 0) > 0 or
         int(serv_info.get('id_sensor_red_saliente') or 0) > 0):
         opciones.append("🌐 Red")
     
-    # Latencia
     if int(serv_info.get('id_sensor_latencia') or 0) > 0:
         opciones.append("⏱️ Latencia")
     
     return opciones
 
-# =====================================================================
-# FUNCION PARA RENDERIZAR TABLA HISTORICO - CON FILTROS
-# =====================================================================
 def renderizar_tabla_historico_umbrales(filtro_servidor, filtro_umbral, servidores):
     """Renderiza la tabla de histórico con filtros de servidor y umbral"""
     
@@ -220,10 +209,8 @@ def renderizar_tabla_historico_umbrales(filtro_servidor, filtro_umbral, servidor
         st.warning(f"🚫 No hay registros de umbrales para '{filtro_servidor}'.")
         return
     
-    # Obtener información del servidor
     serv_info = next((s for s in servidores if s['nombre_alias'] == filtro_servidor), None)
     
-    # Mapa de columnas
     mapa_columnas = {
         "id_historico": "ID",
         "ip_servidor": "IP SERVIDOR",
@@ -265,14 +252,10 @@ def renderizar_tabla_historico_umbrales(filtro_servidor, filtro_umbral, servidor
         "justificacion": "JUSTIFICACION"
     }
     
-    # Columnas base siempre visibles
     columnas_base = ["fecha_change", "nombre_alias"]
-    
-    # Definir qué columnas mostrar según el filtro de umbral
     columnas_umbral = []
     
     if filtro_umbral == "-- Todos los Umbrales --":
-        # Mostrar todas las columnas del servidor
         if serv_info:
             if int(serv_info.get('id_sensor_cpu') or 0) > 0:
                 columnas_umbral.extend(["cpu_buen_estado", "cpu_advertencia", "cpu_critico"])
@@ -295,7 +278,6 @@ def renderizar_tabla_historico_umbrales(filtro_servidor, filtro_umbral, servidor
         columnas_umbral = ["ram_buen_estado", "ram_advertencia", "ram_critico"]
     
     elif filtro_umbral.startswith("💾 Disco"):
-        # Extraer letra del disco
         letra = filtro_umbral.replace("💾 Disco ", "")
         discos_map = {'C': '1', 'D': '2', 'E': '3', 'F': '4', 'G': '5', 'Y': '6'}
         d_num = discos_map.get(letra)
@@ -308,13 +290,11 @@ def renderizar_tabla_historico_umbrales(filtro_servidor, filtro_umbral, servidor
     elif filtro_umbral == "⏱️ Latencia":
         columnas_umbral = ["latencia_limite_ms", "perdida_limite_pct"]
     
-    # Si no hay columnas definidas, usar las básicas
     if not columnas_umbral:
         columnas_umbral = ["cpu_critico", "ram_critico"]
     
     columnas_final = columnas_base + columnas_umbral + ["justificacion"]
     
-    # Construir tabla HTML
     html_tabla = """<div style="overflow: auto; max-height: 480px; width: 100%; border: 1px solid #d1d8e0; border-radius: 4px;">
         <table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', sans-serif; font-size: 12px; background-color: white;">
         <thead><tr>"""
@@ -358,11 +338,24 @@ def renderizar_tabla_historico_umbrales(filtro_servidor, filtro_umbral, servidor
     st.caption(f"📊 Mostrando {len(registros)} registros - Umbral: {filtro_umbral}")
 
 
-# =====================================================================
-# VISTA PRINCIPAL - CON BOTONES FILTRAR EN AMBAS PESTAÑAS
-# =====================================================================
-
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
+    
+    # =============================================================
+    # 🔥 LIMPIEZA AL ENTRAR AL MÓDULO
+    # =============================================================
+    if st.session_state.get("_seccion_anterior") != "⚙️ Umbrales":
+        st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
+        st.session_state["filtro_umbral_componente"] = "-- Seleccione un Componente --"
+        st.session_state["filtro_historico_servidor"] = "-- Seleccione un Servidor --"
+        st.session_state["filtro_historico_umbral"] = "-- Seleccione un Umbral --"
+        st.session_state["umbrales_modificados"] = False
+        st.session_state["aplicar_filtro_config"] = False
+        st.session_state["aplicar_filtro_historico"] = False
+        if "_limpiar_config" in st.query_params:
+            del st.query_params["_limpiar_config"]
+        if "_limpiar_historico" in st.query_params:
+            del st.query_params["_limpiar_historico"]
+    
     st.markdown("""
         <style>
             .stSelectbox label {
@@ -413,14 +406,10 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     
     servidores = obtener_lista_servidores()
     
-    # =========================================================================
-    # INICIALIZAR ESTADOS
-    # =========================================================================
     VALOR_DEFECTO = "-- Seleccione un Servidor --"
     VALOR_COMP_DEFECTO = "-- Seleccione un Componente --"
     VALOR_UMBRAL_DEFECTO = "-- Seleccione un Umbral --"
 
-    # Estados para pestaña 1 (Configuración)
     if "filtro_umbral_servidor" not in st.session_state:
         st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
     if "filtro_umbral_componente" not in st.session_state:
@@ -434,7 +423,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     if "config_componente_seleccionado" not in st.session_state:
         st.session_state["config_componente_seleccionado"] = VALOR_COMP_DEFECTO
     
-    # Estados para pestaña 2 (Histórico)
     if "filtro_historico_servidor" not in st.session_state:
         st.session_state["filtro_historico_servidor"] = VALOR_DEFECTO
     if "filtro_historico_umbral" not in st.session_state:
@@ -446,9 +434,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     if "historico_umbral_seleccionado" not in st.session_state:
         st.session_state["historico_umbral_seleccionado"] = VALOR_UMBRAL_DEFECTO
 
-    # =========================================================================
-    # PROCESAR LIMPIEZA VIA QUERY_PARAMS
-    # =========================================================================
     if "_limpiar_config" in st.query_params and st.query_params["_limpiar_config"] == "1":
         st.session_state["filtro_umbral_servidor"] = VALOR_DEFECTO
         st.session_state["filtro_umbral_componente"] = VALOR_COMP_DEFECTO
@@ -468,17 +453,11 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         del st.query_params["_limpiar_historico"]
         st.rerun()
 
-    # =========================================================================
-    # TABS
-    # =========================================================================
     tab1, tab2 = st.tabs(
         ["⚙️ Configuración", "📋 Histórico de Umbrales"],
         key="tabs_umbrales"
     )
 
-    # =========================================================================
-    # PESTAÑA 1: CONFIGURACIÓN
-    # =========================================================================
     with tab1:
         lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores if s.get('nombre_alias')])))
         opciones_servidores = [VALOR_DEFECTO] + lista_nombres_bd
@@ -522,7 +501,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.query_params["_limpiar_config"] = "1"
                 st.rerun()
 
-        # Determinar qué filtros aplicar en configuración
         if st.session_state.get("aplicar_filtro_config", False):
             filtro_umbral_servidor = st.session_state.get("config_servidor_seleccionado", VALOR_DEFECTO)
             filtro_componente = st.session_state.get("config_componente_seleccionado", VALOR_COMP_DEFECTO)
@@ -745,20 +723,13 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     else:
                         st.info("ℹ️ No hay cambios pendientes. Modifique algún valor para habilitar el guardado.")
 
-    # =========================================================================
-    # PESTAÑA 2: HISTÓRICO DE UMBRALES
-    # =========================================================================
     with tab2:
         lista_nombres_bd = sorted(list(set([s['nombre_alias'] for s in servidores if s.get('nombre_alias')])))
         opciones_servidores = ["-- Seleccione un Servidor --"] + lista_nombres_bd
         
-        # Obtener el servidor seleccionado actual
         servidor_actual = st.session_state.get("filtro_historico_servidor", VALOR_DEFECTO)
-        
-        # Obtener opciones de umbrales según el servidor
         opciones_umbrales = obtener_opciones_umbrales(servidor_actual, servidores)
         
-        # Crear columnas para los dos filtros + botones
         col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 1, 1])
         with col_f1:
             st.selectbox(
@@ -768,7 +739,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 label_visibility="collapsed"
             )
         with col_f2:
-            # Deshabilitar el filtro de umbral si no hay servidor seleccionado
             disabled = servidor_actual == VALOR_DEFECTO
             st.selectbox(
                 "Seleccione un Umbral",
@@ -778,12 +748,10 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 disabled=disabled
             )
         with col_f3:
-            # Botón Filtrar
             if st.button("🔍 Filtrar", key="btn_filtrar_historico", use_container_width=True):
                 servidor_seleccionado = st.session_state.get("filtro_historico_servidor", VALOR_DEFECTO)
                 umbral_seleccionado = st.session_state.get("filtro_historico_umbral", VALOR_UMBRAL_DEFECTO)
                 
-                # Guardar los valores seleccionados
                 st.session_state["historico_servidor_seleccionado"] = servidor_seleccionado
                 st.session_state["historico_umbral_seleccionado"] = umbral_seleccionado
                 st.session_state["aplicar_filtro_historico"] = True
@@ -793,7 +761,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.query_params["_limpiar_historico"] = "1"
                 st.rerun()
         
-        # Determinar qué filtros aplicar en histórico
         if st.session_state.get("aplicar_filtro_historico", False):
             filtro_servidor = st.session_state.get("historico_servidor_seleccionado", VALOR_DEFECTO)
             filtro_umbral = st.session_state.get("historico_umbral_seleccionado", VALOR_UMBRAL_DEFECTO)
@@ -801,7 +768,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
             filtro_servidor = VALOR_DEFECTO
             filtro_umbral = VALOR_UMBRAL_DEFECTO
         
-        # Validación y renderizado
         if filtro_servidor == VALOR_DEFECTO:
             if st.session_state.get("aplicar_filtro_historico", False):
                 st.warning("⚠️ Debe seleccionar un servidor para filtrar.")
