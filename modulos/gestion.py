@@ -49,7 +49,7 @@ def mostrar_pantalla(user_actual, user_id):
         return
 
     # ==========================================================================
-    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS (MANTENIDO)
+    # PROCESAR LIMPIEZA DE FILTROS VIA QUERY_PARAMS
     # ==========================================================================
     if "_limpiar_p1" in st.query_params and st.query_params["_limpiar_p1"] == "1":
         cb_limpiar_p1()
@@ -154,7 +154,7 @@ def mostrar_pantalla(user_actual, user_id):
                 opciones_selectbox = ["-- Seleccione un Analista --", "-- Todos los Analistas --"] + list(mapeo_opciones.keys())
 
                 # =============================================================
-                # FILTROS - CORREGIDO CON LIMPIEZA TOTAL
+                # FILTROS
                 # =============================================================
                 col_f1, col_f2, col_f3 = st.columns([3, 1, 1])
                 with col_f1:
@@ -184,7 +184,6 @@ def mostrar_pantalla(user_actual, user_id):
                 
                 with col_f3:
                     if st.button("🧹 Limpiar", key="btn_p1_limpiar", use_container_width=True):
-                        # Usar query_params para forzar la limpieza
                         st.query_params["_limpiar_p1"] = "1"
                         st.rerun()
 
@@ -250,27 +249,33 @@ def mostrar_pantalla(user_actual, user_id):
                     st.markdown("---")
 
                 # =============================================================
-                # BOTONES DE ACCIÓN
+                # BOTONES DE ACCIÓN - CORREGIDO
                 # =============================================================
-                # Botón Registrar siempre visible
-                if st.button("➕ Registrar Usuario", key="btn_registrar_siempre", use_container_width=True):
-                    st.session_state.accion_personal = "registrar"
-                    st.rerun()
-
-                # Botones de modificación solo si hay filtro específico Y datos mostrados
-                if filtro_aplicado and hay_filtro_especifico and datos_filtrados:
-                    col_b1, col_b2 = st.columns(2)
-                    if col_b1.button("📝 Modificar Cargo", key="btn_modificar", use_container_width=True):
-                        st.session_state.accion_personal = "editar"
+                # El botón "Registrar" SOLO aparece cuando NO hay filtro aplicado
+                if not filtro_aplicado:
+                    # Estado inicial: solo mostrar botón de registrar
+                    if st.button("➕ Registrar Usuario", key="btn_registrar_siempre", use_container_width=True):
+                        st.session_state.accion_personal = "registrar"
                         st.rerun()
-                    if col_b2.button("⚙️ Alterar Estatus", key="btn_estatus", use_container_width=True):
-                        st.session_state.accion_personal = "estatus"
-                        st.rerun()
+                else:
+                    # Cuando hay filtro aplicado, mostrar botones de modificación/estatus
+                    if hay_filtro_especifico and datos_filtrados:
+                        # Filtro específico con datos - mostrar modificar y estatus
+                        col_b1, col_b2 = st.columns(2)
+                        if col_b1.button("📝 Modificar Cargo", key="btn_modificar", use_container_width=True):
+                            st.session_state.accion_personal = "editar"
+                            st.rerun()
+                        if col_b2.button("⚙️ Alterar Estatus", key="btn_estatus", use_container_width=True):
+                            st.session_state.accion_personal = "estatus"
+                            st.rerun()
+                    elif mostrar_todos:
+                        # "Todos los Analistas" - no mostrar botones de acción
+                        st.info("ℹ️ Con 'Todos los Analistas' solo puede visualizar los datos. Para modificar o cambiar estatus, filtre por un analista específico.")
 
                 # =============================================================
                 # FORMULARIOS
                 # =============================================================
-                # REGISTRO
+                # REGISTRO - Solo aparece cuando se presiona el botón Registrar
                 if st.session_state.get("accion_personal") == "registrar":
                     st.markdown("### 📥 Nuevo Integrante")
                     with st.form("form_alta_usr"):
@@ -352,7 +357,7 @@ def mostrar_pantalla(user_actual, user_id):
             if conn: conn.close()
 
     # ==========================================================================
-    # PESTAÑA 2: HISTÓRICO - CORREGIDO
+    # PESTAÑA 2: HISTÓRICO
     # ==========================================================================
     with tab2:
         conn_p2 = None
@@ -466,7 +471,7 @@ def mostrar_pantalla(user_actual, user_id):
 
 
 # ==========================================================================
-# FUNCIONES DE BACKEND (sin cambios)
+# FUNCIONES DE BACKEND
 # ==========================================================================
 def crear_nuevo_usuario(u, c, cargo_val, r, ejecutor_id):
     try:
