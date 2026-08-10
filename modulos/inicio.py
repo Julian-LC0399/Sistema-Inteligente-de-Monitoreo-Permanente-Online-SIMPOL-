@@ -1,6 +1,7 @@
 import streamlit as st
 from database import conectar_bd
 from datetime import datetime
+import os
 
 def obtener_estado_agente_local():
     """
@@ -90,6 +91,7 @@ def mostrar_pantalla():
                     color: #003366 !important;
                     font-weight: bold !important;
                     margin-bottom: 0px;
+                    text-align: center;
                 }
                 .estatus-box {
                     background-color: #f8f9fa;
@@ -174,10 +176,50 @@ def mostrar_pantalla():
                     margin-top: 4px;
                     font-weight: normal;
                 }
+                .logo-container {
+                    display: flex;
+                    justify-content: center;
+                    margin-bottom: 15px;
+                }
+                .logo-container img {
+                    max-width: 250px;
+                    width: 100%;
+                    height: auto;
+                }
             </style>
         """, unsafe_allow_html=True)
 
-        st.markdown(f"<h1 class='bienvenida-titulo'>Bienvenido al sistema, {cargo}</h1>", unsafe_allow_html=True)
+        # =============================================================
+        # AGREGAR IMAGEN DEL LOGO CENTRADA CON DESPLAZAMIENTO A LA DERECHA
+        # =============================================================
+        logo_paths = [
+            os.path.join(os.path.dirname(__file__), 'SIMPOL.jpg'),
+            os.path.join(os.path.dirname(__file__), 'logo-banco.jpg'),
+            'SIMPOL.jpg',
+            'logo-banco.jpg'
+        ]
+        
+        logo_encontrado = None
+        for path in logo_paths:
+            if os.path.exists(path):
+                logo_encontrado = path
+                break
+        
+        if logo_encontrado:
+            # Usar columnas para desplazar la imagen a la derecha
+            col_logo1, col_logo2, col_logo3 = st.columns([1.5, 2, 0.5])
+            with col_logo2:
+                st.image(logo_encontrado, width=250)
+        else:
+            # Si no se encuentra la imagen, mostrar un texto alternativo
+            st.markdown("""
+            <div style="text-align: center; padding: 10px;">
+                <h2 style="color: #003366;">SIMPOL</h2>
+                <p style="color: #666;">Sistema Inteligente de Monitoreo Permanente Online</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown(f"<h1 class='bienvenida-titulo'>Bienvenido al sistema simpol, estimado {cargo}</h1>", unsafe_allow_html=True)
         st.divider()
 
         col1, col2 = st.columns([2, 1])

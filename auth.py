@@ -1,5 +1,45 @@
 import streamlit as st
-from database import verificar_usuario, conectar_bd 
+from database import verificar_usuario, conectar_bd
+import os
+import sys
+import base64
+
+def get_resource_path(relative_path):
+    """Localiza recursos dentro del paquete .exe o en desarrollo"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+def get_logo_base64():
+    """Carga el favicon y lo convierte a base64"""
+    logo_paths = [
+        get_resource_path("favicon.ico"),
+        get_resource_path("centro.jpg"),
+        get_resource_path("SIMPOL.jpg"),
+        "favicon.ico",
+        "centro.jpg",
+        "SIMPOL.jpg"
+    ]
+    
+    for path in logo_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    img_data = f.read()
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext == '.ico':
+                        mime = 'image/x-icon'
+                    elif ext == '.jpg' or ext == '.jpeg':
+                        mime = 'image/jpeg'
+                    elif ext == '.png':
+                        mime = 'image/png'
+                    else:
+                        mime = 'image/jpeg'
+                    return base64.b64encode(img_data).decode(), mime
+            except Exception as e:
+                continue
+    
+    return None, None
 
 def registrar_acceso_auditoria(usuario, cargo, rol):
     """
@@ -24,6 +64,9 @@ def registrar_acceso_auditoria(usuario, cargo, rol):
             conn.close()
 
 def mostrar_login():
+    # Obtener logo en base64
+    logo_b64, logo_mime = get_logo_base64()
+    
     # === ANCLA DE LIMPIEZA DE LOGIN ===
     canvas_login = st.empty()
 
@@ -33,17 +76,37 @@ def mostrar_login():
         with col2:
             st.markdown('<div class="login-container">', unsafe_allow_html=True)
             
-            # TÍTULO PRINCIPAL - Más grande y destacado
-            st.markdown(
-                """
-                <div style='text-align: center; padding: 10px 0 5px 0;'>
-                    <h1 style='color: #003366; font-size: 52px; font-weight: 900; margin-bottom: 5px; letter-spacing: 2px;'>
-                        🏦 SIMPOL
-                    </h1>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            # =============================================================
+            # TÍTULO PRINCIPAL CON LOGO (FAVICON)
+            # =============================================================
+            if logo_b64:
+                st.markdown(
+                    f"""
+                    <div style='text-align: center; padding: 10px 0 5px 0;'>
+                        <div style='display: flex; align-items: center; justify-content: center; gap: 15px;'>
+                            <img src="data:{logo_mime};base64,{logo_b64}" 
+                                 style='width: 60px; height: 60px; object-fit: contain;' 
+                                 alt="SIMPOL Logo">
+                            <h1 style='color: #003366; font-size: 52px; font-weight: 900; margin: 0; letter-spacing: 2px;'>
+                                SIMPOL
+                            </h1>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                # Fallback: solo texto con emoji
+                st.markdown(
+                    """
+                    <div style='text-align: center; padding: 10px 0 5px 0;'>
+                        <h1 style='color: #003366; font-size: 52px; font-weight: 900; margin-bottom: 5px; letter-spacing: 2px;'>
+                            🏦 SIMPOL
+                        </h1>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
             
             # SUBTÍTULO - Más grande, visible y con estilo corporativo
             st.markdown(

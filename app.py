@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 import webbrowser
 import base64
+from PIL import Image
 
 # === 1. CONFIGURACIÓN DE LOGS ===
 logging.basicConfig(
@@ -40,6 +41,7 @@ def get_favicon_base64():
     except Exception as e:
         logging.error(f"Error cargando favicon: {e}")
     
+    # Fallback: SVG por defecto
     svg_icon = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
         <rect width="100" height="100" rx="15" fill="#003366"/>
         <text x="50" y="68" font-size="50" text-anchor="middle" fill="white">🏦</text>
@@ -47,14 +49,38 @@ def get_favicon_base64():
     </svg>'''
     return base64.b64encode(svg_icon.encode()).decode()
 
-# === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
-st.set_page_config(
-    page_title="SIMPOL - Banco Caroní",
-    page_icon="🏦",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+def get_page_icon():
+    """Carga el favicon para usarlo como page_icon en st.set_page_config"""
+    try:
+        favicon_path = get_resource_path("favicon.ico")
+        if os.path.exists(favicon_path):
+            return Image.open(favicon_path)
+    except Exception as e:
+        logging.error(f"Error cargando page_icon: {e}")
+    
+    return None
 
+# === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
+
+# Obtener el icono para la pestaña
+page_icon = get_page_icon()
+
+if page_icon:
+    st.set_page_config(
+        page_title="SIMPOL - Banco Caroní",
+        page_icon=page_icon,
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+else:
+    st.set_page_config(
+        page_title="SIMPOL - Banco Caroní",
+        page_icon="🏦",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+# Favicon para el HTML (refuerzo)
 favicon_b64 = get_favicon_base64()
 st.markdown(f'''
     <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
@@ -62,6 +88,7 @@ st.markdown(f'''
     <link rel="apple-touch-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
 ''', unsafe_allow_html=True)
 
+# CSS
 css_path = get_resource_path("style.css")
 if os.path.exists(css_path):
     try:
@@ -70,6 +97,9 @@ if os.path.exists(css_path):
     except Exception as e:
         logging.error(f"Error cargando style.css: {e}")
 
+# =============================================================
+# ESTILOS - ELIMINADO EL ENCABEZADO CON LOGO/TÍTULO
+# =============================================================
 st.markdown("""
     <style>
         section[data-testid="stSidebar"] {
@@ -117,10 +147,13 @@ st.markdown("""
         }
         .stAppViewMain {
             margin-left: 0px !important;
-            padding-top: 20px !important;
+            padding-top: 0px !important;
         }
         title {
             color: #003366 !important;
+        }
+        .main > div {
+            padding-top: 0px !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -291,7 +324,6 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
         if "filtro_aplicado_p2" in st.session_state:
             st.session_state.filtro_aplicado_p2 = False
-        # 🔥 CORRECCIÓN: Resetear wb_filtro_analista, NO eliminarlo
         if "wb_filtro_analista" in st.session_state:
             st.session_state.wb_filtro_analista = "-- Seleccione un Analista --"
 
