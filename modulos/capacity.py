@@ -9,6 +9,58 @@ from fpdf import FPDF
 from database import conectar_bd, obtener_lista_servidores, obtener_datos_historicos
 
 # =====================================================================
+# FUNCIÓN DE VERIFICACIÓN Y LIMPIEZA FORZADA
+# =====================================================================
+def verificar_y_limpiar_si_cambio_modulo():
+    """
+    Verifica si cambiamos de módulo y limpia el estado de capacity.
+    Esta función se ejecuta AL INICIO de mostrar_pantalla().
+    """
+    # Obtener el módulo actual desde app.py
+    modulo_actual = st.session_state.get("seccion_actual", "")
+    
+    # Verificar si estamos en capacity
+    if modulo_actual == "📈 Capacity planning":
+        # Estamos en capacity, marcar como activo
+        st.session_state._capacity_activo = True
+        return
+    else:
+        # No estamos en capacity, limpiar todo
+        if st.session_state.get("_capacity_activo", False):
+            # Limpiar TODAS las variables de capacity
+            keys_to_clear = [
+                'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
+                'p1_filtros_aplicados', 'p1_reporte_generado',
+                'p2_servidor_seleccionado', 'p2_metrica_filtro',
+                'p2_formato_filtro', 'p2_mostrar_tabla',
+                'modulo_capacity_activo', '_capacity_activo',
+                'servidor_seleccionado_capacity',
+                'metrica_seleccionada_capacity',
+                'dias_prediccion_capacity', 'reporte_generado',
+                'p1_servidor_widget', 'p1_metrica_widget',
+                'p1_dias_widget', 'p1_ajuste_widget',
+                'p2_servidor_widget', 'p2_filtro_metrica',
+                'p2_filtro_formato'
+            ]
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            # Resetear valores por defecto
+            st.session_state.p1_servidor = "-- Seleccione un Servidor --"
+            st.session_state.p1_metrica = ""
+            st.session_state.p1_dias = 30
+            st.session_state.p1_ajuste = 0
+            st.session_state.p1_filtros_aplicados = False
+            st.session_state.p1_reporte_generado = False
+            st.session_state.p2_servidor_seleccionado = "-- Seleccione un Servidor --"
+            st.session_state.p2_metrica_filtro = "Todas"
+            st.session_state.p2_formato_filtro = "Todos"
+            st.session_state.p2_mostrar_tabla = False
+            st.session_state.modulo_capacity_activo = False
+            st.session_state._capacity_activo = False
+
+# =====================================================================
 # CLASE PDF - VERSIÓN DEFINITIVA (EQUILIBRADA)
 # =====================================================================
 class PDF(FPDF):
@@ -99,11 +151,9 @@ class PDF(FPDF):
         if length == 0:
             return
         
-        # Calcular vector unitario
         ux = dx / length
         uy = dy / length
         
-        # Parámetros del patrón
         pattern_length = dash_length + gap_length
         num_segments = int(length / pattern_length) + 1
         
@@ -274,29 +324,24 @@ class PDF(FPDF):
         x_proy = x_inicio + 5 + (len(historico) * paso)
         y_proy = y_inicio + alto - ((min(proyectado, max_val) / max_val) * (alto - 10))
         
-        # Línea histórica (azul)
         self.set_draw_color(0, 51, 102)
         self.set_line_width(1.5)
         for i in range(len(puntos_hist) - 1):
             self.line(puntos_hist[i][0], puntos_hist[i][1], puntos_hist[i+1][0], puntos_hist[i+1][1])
         
-        # Línea de proyección (rojo discontinua) - usando método manual
         self.set_draw_color(200, 0, 0)
         self.set_line_width(1.2)
         self._dashed_line(puntos_hist[-1][0], puntos_hist[-1][1], x_proy, y_proy, 3, 3)
         
-        # Puntos históricos
         for i, (x, y) in enumerate(puntos_hist):
             self.set_fill_color(0, 51, 102)
             self.set_draw_color(0, 51, 102)
             self.circle(x, y, 1.8, "F")
         
-        # Punto proyectado
         self.set_fill_color(200, 0, 0)
         self.set_draw_color(200, 0, 0)
         self.circle(x_proy, y_proy, 2.5, "F")
         
-        # Etiquetas
         self.set_font(family='ArialUnicode', style='I', size=6)
         self.set_xy(x_inicio + 5, y_inicio - 8)
         self.set_text_color(0, 51, 102)
@@ -306,7 +351,6 @@ class PDF(FPDF):
         self.set_text_color(200, 0, 0)
         self.cell(30, 4, "Proyeccion", 0, 0, "R")
         
-        # Valor proyectado
         self.set_font(family='ArialUnicode', style='B', size=7)
         self.set_text_color(200, 0, 0)
         self.set_xy(x_proy - 12, y_proy - 14)
@@ -452,7 +496,6 @@ def listar_reportes_capacity_bd(ip_servidor):
 # FUNCIONES PARA LA BÓVEDA (PESTAÑA 2)
 # =====================================================================
 def listar_reportes_capacity_bd_con_filtros(ip_servidor, metrica_filtro=None, formato_filtro=None, fecha_desde=None, fecha_hasta=None):
-    """Versión con filtros para la bóveda de reportes"""
     conn = conectar_bd()
     resultados = []
     if conn:
@@ -494,7 +537,6 @@ def listar_reportes_capacity_bd_con_filtros(ip_servidor, metrica_filtro=None, fo
     return resultados
 
 def obtener_metricas_disponibles_boveda(ip_servidor):
-    """Obtiene lista de métricas únicas para el filtro"""
     conn = conectar_bd()
     metricas = []
     if conn:
@@ -745,15 +787,12 @@ def generar_pdf_con_graficos(servidor_sel, ip_objetivo, metrica_sel, veredicto,
 # FUNCIÓN PARA OBTENER BYTES DEL PDF (CORREGIDA)
 # =====================================================================
 def obtener_bytes_pdf(pdf):
-    """Convierte un objeto PDF a bytes de manera compatible"""
     try:
-        # Intentar método para fpdf2 (versiones modernas)
         pdf_bytes = pdf.output(dest='S')
         if isinstance(pdf_bytes, str):
             return pdf_bytes.encode('latin1')
         return pdf_bytes
     except:
-        # Fallback usando tempfile para versiones antiguas
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             pdf.output(tmp_file.name)
             with open(tmp_file.name, 'rb') as f:
@@ -762,42 +801,14 @@ def obtener_bytes_pdf(pdf):
             return bytes_pdf
 
 # =====================================================================
-# FUNCIÓN PARA LIMPIAR EL ESTADO DEL MÓDULO CAPACITY
-# =====================================================================
-def limpiar_estado_capacity():
-    """Limpia todas las variables de estado del módulo capacity"""
-    keys_to_clear = [
-        'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
-        'p1_filtros_aplicados', 'p1_reporte_generado',
-        'p2_servidor_seleccionado', 'p2_metrica_filtro',
-        'p2_formato_filtro', 'p2_mostrar_tabla',
-        'modulo_capacity_activo'
-    ]
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
-
-# =====================================================================
 # VISTA PRINCIPAL
 # =====================================================================
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
     
     # =============================================================
-    # DETECTAR EL MÓDULO ACTUAL Y LIMPIAR SI CAMBIA
+    # VERIFICAR CAMBIO DE MÓDULO Y LIMPIAR SI ES NECESARIO
     # =============================================================
-    # Obtener el módulo actual desde el session_state
-    modulo_actual = st.session_state.get("modulo_actual", "capacity")
-    
-    # Si el módulo actual no es "capacity" y el módulo capacity estaba activo, limpiar
-    if modulo_actual != "capacity" and st.session_state.get("modulo_capacity_activo", False):
-        limpiar_estado_capacity()
-        st.session_state.modulo_capacity_activo = False
-        # No hacer return, solo limpiar y continuar
-        # Pero como no estamos en capacity, mejor salir
-    
-    # Si estamos en el módulo capacity, marcarlo como activo
-    if modulo_actual == "capacity":
-        st.session_state.modulo_capacity_activo = True
+    verificar_y_limpiar_si_cambio_modulo()
     
     # =============================================================
     # INICIALIZAR VARIABLES SI NO EXISTEN
@@ -822,6 +833,8 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
         st.session_state.p2_formato_filtro = "Todos"
     if "p2_mostrar_tabla" not in st.session_state:
         st.session_state.p2_mostrar_tabla = False
+    if "modulo_capacity_activo" not in st.session_state:
+        st.session_state.modulo_capacity_activo = False
 
     st.markdown("""
         <style>
@@ -957,9 +970,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             )
                             st.session_state.p1_ajuste = porcentaje_ajuste_analista
 
-                        # =============================================================
-                        # BOTONES CON TAMAÑO IGUAL - CORREGIDO
-                        # =============================================================
                         col_btn_filtrar, col_btn_limpiar = st.columns(2, gap="small")
                         
                         with col_btn_filtrar:
@@ -1153,7 +1163,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             valores_historicos=valores_historicos
                         )
 
-                        # ===== CORRECCIÓN: Obtener bytes del PDF de manera compatible =====
                         bytes_pdf = obtener_bytes_pdf(pdf)
 
                         csv_lineas = [
@@ -1199,17 +1208,15 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                             )
 
         # =====================================================================
-        # PESTAÑA 2 - BÓVEDA CON BOTONES ALINEADOS VERTICALMENTE
+        # PESTAÑA 2 - BÓVEDA
         # =====================================================================
         with pestana_boveda:
             st.markdown("#### 📜 Repositorio de Informes Archivados")
             
             st.markdown("##### 🔍 Filtros de Búsqueda")
             
-            # CSS para alinear botones verticalmente con los selectboxes
             st.markdown("""
                 <style>
-                    /* Contenedor de columnas - alinear todo en la parte inferior */
                     div[data-testid="column"] {
                         display: flex !important;
                         flex-direction: column !important;
@@ -1217,15 +1224,12 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         height: 100% !important;
                         min-height: 80px !important;
                     }
-                    /* Los selectboxes deben estar en la parte superior de su columna */
                     div[data-testid="stSelectbox"] {
                         margin-bottom: auto !important;
                     }
-                    /* Las etiquetas de los selectboxes */
                     div[data-testid="stSelectbox"] label {
                         margin-bottom: 4px !important;
                     }
-                    /* Los botones deben estar alineados con la base de los selectboxes */
                     div[data-testid="column"]:has(button) {
                         justify-content: flex-end !important;
                         padding-bottom: 0px !important;
@@ -1237,21 +1241,15 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         height: 38px !important;
                         width: 100% !important;
                     }
-                    /* Ajustar el contenedor de las columnas */
                     .row-widget.stColumns {
                         align-items: flex-end !important;
                     }
-                    /* Espacio entre los elementos */
                     .stSelectbox div[data-baseweb="select"] {
                         margin-top: 0px !important;
                     }
                 </style>
             """, unsafe_allow_html=True)
             
-            # =============================================================
-            # FILTROS DE BÓVEDA - COLUMNAS BALANCEADAS
-            # =============================================================
-            # Las columnas 4 y 5 (botones) deben tener el mismo peso que las columnas de los selectboxes
             col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([2, 1.5, 1.2, 1.2, 1.2])
             
             with col_f1:
@@ -1264,7 +1262,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 st.session_state.p2_servidor_seleccionado = servidor_boveda
             
             with col_f2:
-                # Mostrar métricas disponibles según el servidor seleccionado
                 if servidor_boveda != "-- Seleccione un Servidor --":
                     info_servidor = next((s for s in servidores_activos if s['nombre_alias'] == servidor_boveda), None)
                     if info_servidor:
@@ -1294,11 +1291,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                 )
                 st.session_state.p2_formato_filtro = formato_filtro
             
-            # =============================================================
-            # BOTONES SIEMPRE VISIBLES CON ALINEACIÓN VERTICAL
-            # =============================================================
             with col_f4:
-                # Espacio para empujar el botón hacia abajo y alinearlo con los selectboxes
                 st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
                 if st.button("🔍 Filtrar", use_container_width=True, key="p2_btn_filtrar"):
                     st.session_state.p2_mostrar_tabla = True
@@ -1312,9 +1305,6 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                     st.session_state.p2_mostrar_tabla = False
                     st.rerun()
             
-            # =============================================================
-            # MOSTRAR RESULTADOS (SOLO SI HAY SERVIDOR SELECCIONADO)
-            # =============================================================
             if servidor_boveda == "-- Seleccione un Servidor --":
                 st.info("🖥️ Seleccione un servidor para ver sus reportes archivados.")
             else:

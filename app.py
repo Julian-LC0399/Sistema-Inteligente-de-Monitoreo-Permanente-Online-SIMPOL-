@@ -5,7 +5,6 @@ import logging
 from datetime import datetime
 import webbrowser
 import base64
-from PIL import Image
 
 # === 1. CONFIGURACIÓN DE LOGS ===
 logging.basicConfig(
@@ -49,33 +48,22 @@ def get_favicon_base64():
     </svg>'''
     return base64.b64encode(svg_icon.encode()).decode()
 
-def get_page_icon():
-    """Carga el favicon para usarlo como page_icon en st.set_page_config"""
-    try:
-        favicon_path = get_resource_path("favicon.ico")
-        if os.path.exists(favicon_path):
-            return Image.open(favicon_path)
-    except Exception as e:
-        logging.error(f"Error cargando page_icon: {e}")
-    
-    return None
-
 # === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
 
-# Obtener el icono para la pestaña
-page_icon = get_page_icon()
+# Obtener la ruta del favicon (sin PIL)
+favicon_path = get_resource_path("favicon.ico")
 
-if page_icon:
+if os.path.exists(favicon_path):
     st.set_page_config(
         page_title="SIMPOL - Banco Caroní",
-        page_icon=page_icon,
+        page_icon=favicon_path,  # ✅ Usar ruta directamente
         layout="wide",
         initial_sidebar_state="expanded"
     )
 else:
     st.set_page_config(
         page_title="SIMPOL - Banco Caroní",
-        page_icon="🏦",
+        page_icon="🏦",  # Fallback a emoji
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -277,20 +265,44 @@ def limpiar_todas_variables_reportes():
 
 def gestionar_limpieza_filtros(seccion_destino):
     """Gestiona la limpieza de filtros al cambiar de módulo"""
-    if seccion_destino == "🖥️ Monitoreo en vivo":
-        return
     
-    if "srv" in st.query_params or st.session_state.get("_srv_redirect_pending"):
-        return
-
-    tab_actual = None
-    if seccion_destino == "🖥️ Servidores":
-        tab_actual = st.query_params.get("tab_servidores")
-    elif seccion_destino == "👥 Gestión de usuarios":
-        tab_actual = st.query_params.get("tab_gestion")
-    elif seccion_destino == "📈 Capacity planning":
-        tab_actual = st.query_params.get("tab_capacity")
-
+    # =============================================================
+    # LIMPIEZA FORZADA DE CAPACITY
+    # =============================================================
+    if seccion_destino != "📈 Capacity planning":
+        # Forzar limpieza de todas las variables de capacity
+        keys_capacity = [
+            'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
+            'p1_filtros_aplicados', 'p1_reporte_generado',
+            'p2_servidor_seleccionado', 'p2_metrica_filtro',
+            'p2_formato_filtro', 'p2_mostrar_tabla',
+            'modulo_capacity_activo', '_capacity_activo',
+            'servidor_seleccionado_capacity',
+            'metrica_seleccionada_capacity',
+            'dias_prediccion_capacity', 'reporte_generado',
+            'p1_servidor_widget', 'p1_metrica_widget',
+            'p1_dias_widget', 'p1_ajuste_widget',
+            'p2_servidor_widget', 'p2_filtro_metrica',
+            'p2_filtro_formato'
+        ]
+        for key in keys_capacity:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        # Resetear valores por defecto
+        st.session_state.p1_servidor = "-- Seleccione un Servidor --"
+        st.session_state.p1_metrica = ""
+        st.session_state.p1_dias = 30
+        st.session_state.p1_ajuste = 0
+        st.session_state.p1_filtros_aplicados = False
+        st.session_state.p1_reporte_generado = False
+        st.session_state.p2_servidor_seleccionado = "-- Seleccione un Servidor --"
+        st.session_state.p2_metrica_filtro = "Todas"
+        st.session_state.p2_formato_filtro = "Todos"
+        st.session_state.p2_mostrar_tabla = False
+        st.session_state.modulo_capacity_activo = False
+        st.session_state._capacity_activo = False
+    
     # =============================================================
     # LIMPIEZA DE MONITOREO
     # =============================================================
@@ -348,38 +360,9 @@ def gestionar_limpieza_filtros(seccion_destino):
         st.session_state["filtros_aplicados"] = False
 
     # =============================================================
-    # LIMPIEZA DE CAPACITY PLANNING
+    # LIMPIEZA DE CAPACITY PLANNING (YA SE HIZO ARRIBA)
     # =============================================================
-    if seccion_destino != "📈 Capacity planning":
-        limpiar_estado_capacity()
-        if "p1_servidor" in st.session_state:
-            st.session_state.p1_servidor = "-- Seleccione un Servidor --"
-        if "p1_metrica" in st.session_state:
-            st.session_state.p1_metrica = ""
-        if "p1_dias" in st.session_state:
-            st.session_state.p1_dias = 30
-        if "p1_ajuste" in st.session_state:
-            st.session_state.p1_ajuste = 0
-        if "p1_filtros_aplicados" in st.session_state:
-            st.session_state.p1_filtros_aplicados = False
-        if "p1_reporte_generado" in st.session_state:
-            st.session_state.p1_reporte_generado = False
-        if "p2_servidor_seleccionado" in st.session_state:
-            st.session_state.p2_servidor_seleccionado = "-- Seleccione un Servidor --"
-        if "p2_metrica_filtro" in st.session_state:
-            st.session_state.p2_metrica_filtro = "Todas"
-        if "p2_formato_filtro" in st.session_state:
-            st.session_state.p2_formato_filtro = "Todos"
-        if "p2_mostrar_tabla" in st.session_state:
-            st.session_state.p2_mostrar_tabla = False
-        if "servidor_seleccionado_capacity" in st.session_state:
-            st.session_state["servidor_seleccionado_capacity"] = "-- Seleccione un Servidor --"
-        if "metrica_seleccionada_capacity" in st.session_state:
-            st.session_state["metrica_seleccionada_capacity"] = "CPU"
-        if "dias_prediccion_capacity" in st.session_state:
-            st.session_state["dias_prediccion_capacity"] = 30
-        if "reporte_generado" in st.session_state:
-            st.session_state["reporte_generado"] = False
+    # Nota: Ya se limpió al inicio de la función
 
     # =============================================================
     # LIMPIEZA DE ALERTAS
@@ -418,6 +401,17 @@ def gestionar_limpieza_filtros(seccion_destino):
             st.session_state["historico_umbral_seleccionado"] = "-- Seleccione un Umbral --"
         if "aplicar_filtro_historico" in st.session_state:
             st.session_state["aplicar_filtro_historico"] = False
+
+    # =============================================================
+    # RECUPERAR TAB_ACTUAL PARA MANTENER PESTAÑAS
+    # =============================================================
+    tab_actual = None
+    if seccion_destino == "🖥️ Servidores":
+        tab_actual = st.query_params.get("tab_servidores")
+    elif seccion_destino == "👥 Gestión de usuarios":
+        tab_actual = st.query_params.get("tab_gestion")
+    elif seccion_destino == "📈 Capacity planning":
+        tab_actual = st.query_params.get("tab_capacity")
 
     if tab_actual:
         if seccion_destino == "🖥️ Servidores":

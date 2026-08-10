@@ -2,6 +2,13 @@ import streamlit as st
 from database import conectar_bd
 from datetime import datetime
 import os
+import sys  # ← AGREGAR ESTA LÍNEA
+
+def get_resource_path(relative_path):
+    """Localiza recursos dentro del paquete .exe o en desarrollo"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 def obtener_estado_agente_local():
     """
@@ -190,16 +197,22 @@ def mostrar_pantalla():
         """, unsafe_allow_html=True)
 
         # =============================================================
-        # AGREGAR IMAGEN DEL LOGO CENTRADA CON DESPLAZAMIENTO A LA DERECHA
+        # AGREGAR IMAGEN DEL LOGO - USANDO get_resource_path()
         # =============================================================
+        logo_encontrado = None
+        
+        # Buscar en múltiples rutas usando get_resource_path
         logo_paths = [
-            os.path.join(os.path.dirname(__file__), 'SIMPOL.jpg'),
-            os.path.join(os.path.dirname(__file__), 'logo-banco.jpg'),
-            'SIMPOL.jpg',
-            'logo-banco.jpg'
+            get_resource_path("SIMPOL.jpg"),
+            get_resource_path("logo-banco.jpg"),
+            get_resource_path("logo.jpg"),
+            get_resource_path("inicio.jpg"),
+            os.path.join(os.path.dirname(__file__), "SIMPOL.jpg"),
+            os.path.join(os.path.dirname(__file__), "logo-banco.jpg"),
+            "SIMPOL.jpg",
+            "logo-banco.jpg"
         ]
         
-        logo_encontrado = None
         for path in logo_paths:
             if os.path.exists(path):
                 logo_encontrado = path
