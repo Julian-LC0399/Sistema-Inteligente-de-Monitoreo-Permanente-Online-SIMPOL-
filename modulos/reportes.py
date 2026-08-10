@@ -1054,7 +1054,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                         reporte_blob = descargar_contenido_blob(item['id'])
                         if reporte_blob:
                             st.download_button(
-                                label=f"📥 Abrir {item['formato']}",
+                                label=f"📥 Descargar {item['formato']}",
                                 data=bytes(reporte_blob),
                                 file_name=item['nombre_archivo'],
                                 mime="application/pdf" if item['formato'] == "PDF" else "text/csv",
