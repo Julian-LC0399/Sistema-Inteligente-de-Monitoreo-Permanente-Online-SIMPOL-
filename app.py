@@ -5,7 +5,6 @@ import logging
 from datetime import datetime
 import webbrowser
 import base64
-from PIL import Image
 
 # === 1. CONFIGURACIÓN DE LOGS ===
 logging.basicConfig(
@@ -49,33 +48,22 @@ def get_favicon_base64():
     </svg>'''
     return base64.b64encode(svg_icon.encode()).decode()
 
-def get_page_icon():
-    """Carga el favicon para usarlo como page_icon en st.set_page_config"""
-    try:
-        favicon_path = get_resource_path("favicon.ico")
-        if os.path.exists(favicon_path):
-            return Image.open(favicon_path)
-    except Exception as e:
-        logging.error(f"Error cargando page_icon: {e}")
-    
-    return None
-
 # === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
 
-# Obtener el icono para la pestaña
-page_icon = get_page_icon()
+# Obtener la ruta del favicon (sin PIL)
+favicon_path = get_resource_path("favicon.ico")
 
-if page_icon:
+if os.path.exists(favicon_path):
     st.set_page_config(
         page_title="SIMPOL - Banco Caroní",
-        page_icon=page_icon,
+        page_icon=favicon_path,  # ✅ Usar ruta directamente
         layout="wide",
         initial_sidebar_state="expanded"
     )
 else:
     st.set_page_config(
         page_title="SIMPOL - Banco Caroní",
-        page_icon="🏦",
+        page_icon="🏦",  # Fallback a emoji
         layout="wide",
         initial_sidebar_state="expanded"
     )
