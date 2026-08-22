@@ -100,6 +100,83 @@ MAPEO_DISCOS = {
 }
 
 # =============================================================================
+# ENVIO DIARIO DE ESTADO (6 AM HORA VENEZUELA)
+# =============================================================================
+
+def enviar_mensaje_diario():
+    """
+    Envía un mensaje diario a las 6:00 AM hora Venezuela
+    para confirmar que el agente sigue operativo
+    """
+    try:
+        # Intentar usar pytz para hora Venezuela
+        try:
+            import pytz
+            zona_venezuela = pytz.timezone('America/Caracas')
+            ahora = datetime.now(zona_venezuela)
+        except:
+            ahora = datetime.now()
+        
+        mensaje = f"""
+🟢 SISTEMA SIMPOL - REPORTE DIARIO DE OPERATIVIDAD
+
+Fecha: {ahora.strftime('%Y-%m-%d %H:%M:%S')}
+Estado: ✅ SISTEMA OPERATIVO
+Servidores monitoreados: ACTIVOS
+Agente: CORRIENDO
+
+El sistema de monitoreo se encuentra funcionando correctamente.
+Todos los sensores están activos y reportando.
+
+---
+SIMPOL - Banco Caroni
+Monitoreo Permanente Online
+"""
+        enviar_telegram(mensaje)
+        log("[DIARIO] Mensaje de operatividad enviado a las 6:00 AM")
+        return True
+    except Exception as e:
+        log(f"[DIARIO] Error enviando mensaje diario: {e}")
+        return False
+
+def verificar_envio_diario():
+    """
+    Verifica si ya se envió el mensaje diario hoy
+    """
+    archivo_marcador = os.path.join(LOG_DIR, "ultimo_envio_diario.txt")
+    
+    # Si el archivo no existe, enviar
+    if not os.path.exists(archivo_marcador):
+        return True
+    
+    try:
+        with open(archivo_marcador, "r") as f:
+            ultima_fecha = f.read().strip()
+        
+        hoy = datetime.now().strftime('%Y-%m-%d')
+        
+        # Si la última fecha no es hoy, enviar
+        if ultima_fecha != hoy:
+            return True
+        else:
+            return False
+    except:
+        return True
+
+def guardar_marcador_envio_diario():
+    """
+    Guarda que ya se envió el mensaje hoy
+    """
+    archivo_marcador = os.path.join(LOG_DIR, "ultimo_envio_diario.txt")
+    try:
+        with open(archivo_marcador, "w") as f:
+            f.write(datetime.now().strftime('%Y-%m-%d'))
+        return True
+    except Exception as e:
+        log(f"[DIARIO] Error guardando marcador: {e}")
+        return False
+
+# =============================================================================
 # FUNCIONES DE TELEGRAM - GUARDAN EN ARCHIVO
 # =============================================================================
 def guardar_mensaje_telegram(mensaje):
@@ -149,14 +226,14 @@ def formatear_mensaje_alerta(ip, nombre, componente, estado, comentario, val_pct
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     if estado == "CRITICO":
-        titulo = "== ALERTA CRITICA - SIMPOL =="
-        accion = "ATENCION: ACCION INMEDIATA REQUERIDA"
+        titulo = "🚨 ALERTA CRITICA - SIMPOL"
+        accion = "⚠️ ATENCION: ACCION INMEDIATA REQUERIDA"
     elif estado == "PRECAUCION":
-        titulo = "== ALERTA DE PRECAUCION - SIMPOL =="
-        accion = "ATENCION: Revisar componente con atencion"
+        titulo = "⚠️ ALERTA DE PRECAUCION - SIMPOL"
+        accion = "⚡ ATENCION: Revisar componente con atencion"
     else:
-        titulo = "== SISTEMA NORMALIZADO - SIMPOL =="
-        accion = "OK: Todo operando dentro de parametros"
+        titulo = "✅ SISTEMA NORMALIZADO - SIMPOL"
+        accion = "✔️ OK: Todo operando dentro de parametros"
     
     mensaje = f"""
 {titulo}
@@ -183,7 +260,7 @@ def formatear_mensaje_resuelto(ip, nombre, componente, estado_anterior, comentar
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     mensaje = f"""
-== ALERTA RESUELTA - SIMPOL ==
+✅ ALERTA RESUELTA - SIMPOL
 
 Servidor: {nombre}
 IP: {ip}
@@ -287,7 +364,7 @@ def obtener_umbrales_servidor(ip):
     return umbrales
 
 # =============================================================================
-# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS
+# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS - MODIFICADA SOLO CAMBIOS DE ESTADO
 # =============================================================================
 def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val_dispo, val_pct, sensor_id):
     conn = conectar_bd_con_reintentos()
@@ -297,6 +374,10 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
     
     try:
         cursor = conn.cursor(dictionary=True)
+        
+        # =============================================================
+        # 1. OBTENER ESTADO ACTUAL DE LA ALERTA (si existe)
+        # =============================================================
         query_check = """
             SELECT id, tipo_alerta 
             FROM alertas 
@@ -305,13 +386,19 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
         """
         cursor.execute(query_check, (ip, componente))
         alerta_existente = cursor.fetchone()
-
+        
+        # =============================================================
+        # 2. OBTENER NOMBRE DEL SERVIDOR
+        # =============================================================
         cursor_temp = conn.cursor(dictionary=True)
         cursor_temp.execute("SELECT nombre_alias FROM servidores WHERE ip = %s LIMIT 1", (ip,))
         srv = cursor_temp.fetchone()
         nombre_servidor = srv["nombre_alias"] if srv else ip
         cursor_temp.close()
-
+        
+        # =============================================================
+        # 3. CONSTRUIR COMENTARIO SEGÚN COMPONENTE
+        # =============================================================
         if "Servicio_" in componente:
             if estado_calculado == "ESTABLE":
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se encuentra operativo y estable."
@@ -336,8 +423,14 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
             else:
                 comentario = f"Componente {componente} (ID Sensor: {sensor_id}) en estado critico. Reporta {val_pct:.1f}% disponible."
 
+        # =============================================================
+        # 4. GESTIONAR ALERTA SEGÚN ESTADO CALCULADO
+        # =============================================================
+        
+        # CASO: El componente está ESTABLE
         if estado_calculado == "ESTABLE":
             if alerta_existente:
+                # ✅ CAMBIO: Hay una alerta activa que ahora se resuelve
                 estado_anterior = alerta_existente["tipo_alerta"]
                 query_close = """
                     UPDATE alertas 
@@ -350,11 +443,14 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 conn.commit()
                 log(f"Alerta resuelta para {componente} en {ip} - ESTABLE (era {estado_anterior})")
                 
-                mensaje_resuelto = formatear_mensaje_resuelto(
-                    ip, nombre_servidor, componente, estado_anterior, comentario
-                )
-                enviar_telegram(mensaje_resuelto)
+                # ✅ ENVIAR TELEGRAM SOLO SI HUBO CAMBIO (estaba en CRITICO o PRECAUCION)
+                if estado_anterior != "ESTABLE":
+                    mensaje_resuelto = formatear_mensaje_resuelto(
+                        ip, nombre_servidor, componente, estado_anterior, comentario
+                    )
+                    enviar_telegram(mensaje_resuelto)
             else:
+                # Verificar si ya existe una alerta ESTABLE activa
                 query_check_estable = """
                     SELECT id FROM alertas 
                     WHERE ip_servidor = %s AND componente = %s 
@@ -365,6 +461,7 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 estable_existente = cursor.fetchone()
                 
                 if not estable_existente:
+                    # No existe alerta ESTABLE, crearla (pero NO enviar Telegram)
                     query_insert = """
                         INSERT INTO alertas (
                             ip_servidor, componente, tipo_alerta, 
@@ -379,26 +476,41 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                     conn.commit()
                     log(f"Alerta ESTABLE registrada para {componente} en {ip}")
                     
-                    mensaje_estable = formatear_mensaje_alerta(
-                        ip, nombre_servidor, componente, "ESTABLE", comentario, val_pct
-                    )
-                    enviar_telegram(mensaje_estable)
+                    # ❌ NO enviar Telegram para estados ESTABLE (solo si es el primer registro)
+                    # mensaje_estable = formatear_mensaje_alerta(...)
+                    # enviar_telegram(mensaje_estable)
             
             cursor.close()
             conn.close()
             return
 
-        mensaje_alerta = formatear_mensaje_alerta(
-            ip, nombre_servidor, componente, estado_calculado, comentario, val_pct
-        )
-        enviar_telegram(mensaje_alerta)
-
+        # =============================================================
+        # CASO: El componente está CRITICO o PRECAUCION
+        # =============================================================
+        
+        # Verificar si ya existe una alerta activa con el MISMO estado
         if alerta_existente:
             if alerta_existente["tipo_alerta"] == estado_calculado:
+                # ✅ MISMO ESTADO: NO enviar Telegram, solo actualizar en BD
+                log(f"Estado {estado_calculado} ya existe para {componente} - sin cambios (no se envía Telegram)")
+                
+                # Actualizar valores en la alerta existente
+                query_update = """
+                    UPDATE alertas 
+                    SET val_total_gb_momento = %s,
+                        val_disponible_gb_momento = %s,
+                        val_disponible_pct_momento = %s,
+                        comentario = %s
+                    WHERE id = %s
+                """
+                cursor.execute(query_update, (val_total, val_dispo, val_pct, comentario, alerta_existente["id"]))
+                conn.commit()
+                
                 cursor.close()
                 conn.close()
                 return
             else:
+                # ✅ CAMBIO DE ESTADO: Cerrar alerta anterior y crear nueva
                 query_close = """
                     UPDATE alertas 
                     SET estado_alerta = 'RESUELTA', 
@@ -408,7 +520,9 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 """
                 cursor.execute(query_close, (alerta_existente["id"],))
                 conn.commit()
-
+                log(f"Alerta anterior cerrada. Nuevo estado: {estado_calculado}")
+        
+        # Crear NUEVA alerta con el estado actual
         query_insert = """
             INSERT INTO alertas (
                 ip_servidor, componente, tipo_alerta, 
@@ -422,6 +536,12 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
         ))
         conn.commit()
         log(f"Nueva alerta {estado_calculado} para {componente} en {ip}")
+        
+        # ✅ ENVIAR TELEGRAM SOLO SI ES CRITICO O PRECAUCION (y hay cambio)
+        mensaje_alerta = formatear_mensaje_alerta(
+            ip, nombre_servidor, componente, estado_calculado, comentario, val_pct
+        )
+        enviar_telegram(mensaje_alerta)
         
         cursor.close()
         conn.close()
@@ -491,8 +611,9 @@ def ejecutar_motor_agente():
     print("="*80)
     print(" Presiona Control + C para detener el agente.\n", flush=True)
     
+    # ✅ Mensaje de inicio (se envía UNA SOLA VEZ al iniciar el agente)
     mensaje_inicio = f"""
-== SIMPOL AGENTE INICIADO ==
+🚀 SIMPOL AGENTE INICIADO
 
 Sistema: Agente de Monitoreo SIMPOL
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -508,6 +629,30 @@ El sistema esta vigilando los servidores del Banco Caroni
         while AGENTE_EN_EJECUCION:
             ciclo_num += 1
             log("INICIO DE CICLO")
+            
+            # =============================================================
+            # VERIFICAR ENVIO DIARIO (6:00 AM)
+            # =============================================================
+            try:
+                # Obtener hora actual en Venezuela
+                try:
+                    import pytz
+                    zona_venezuela = pytz.timezone('America/Caracas')
+                    ahora = datetime.now(zona_venezuela)
+                except:
+                    ahora = datetime.now()
+                
+                # Si son las 6:00 AM +/- 2 minutos y no se ha enviado hoy
+                if ahora.hour == 6 and ahora.minute < 3:
+                    if verificar_envio_diario():
+                        log("[DIARIO] Es 6:00 AM, enviando mensaje de operatividad...")
+                        if enviar_mensaje_diario():
+                            guardar_marcador_envio_diario()
+                        else:
+                            log("[DIARIO] Error enviando mensaje diario")
+            except Exception as e:
+                log(f"[DIARIO] Error en verificacion: {e}")
+            
             conn = conectar_bd_con_reintentos()
             if not conn:
                 log("Sin BD, esperando 15s")
@@ -838,7 +983,7 @@ El sistema esta vigilando los servidores del Banco Caroni
         print("="*80, flush=True)
         
         mensaje_cierre = f"""
-== SIMPOL AGENTE DETENIDO ==
+🛑 SIMPOL AGENTE DETENIDO
 
 Sistema: Agente de Monitoreo SIMPOL
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
