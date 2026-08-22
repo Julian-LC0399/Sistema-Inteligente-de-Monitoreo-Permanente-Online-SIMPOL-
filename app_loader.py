@@ -161,7 +161,8 @@ def get_script_dir():
 
 def signal_handler(signum, frame):
     global SISTEMA_ACTIVO
-    logger.info(f"[SISTEMA] Señal {signum} recibida, cerrando...")
+    logger.info(f"[SISTEMA] Señal {signum} recibida, cerrando TODO el sistema...")
+    print("\n[INFO] Cerrando el sistema completo...")
     SISTEMA_ACTIVO = False
     detener_todo()
     eliminar_lock_file()
@@ -523,13 +524,17 @@ def mostrar_consola():
     print("  http://127.0.0.1:8501")
     print("  ------------------------------------------------------")
     print()
-    print("  [AGENTE] INICIANDO...")
-    print("  [MENSAJES] INICIANDO...")
-    print("  [STREAMLIT] INICIANDO...")
+    print("  ⚠️ IMPORTANTE:")
+    print("  ------------------------------------------------------")
+    print("  ✅ Agente y Enviador corren en segundo plano")
+    print("  ✅ Puedes cerrar la interfaz web sin afectar el monitoreo")
+    print("  ✅ El agente sigue monitoreando y guardando alertas")
+    print("  ✅ El enviador sigue procesando mensajes pendientes")
+    print("  ✅ Para detener TODOS los servicios: Presiona Ctrl+C en esta ventana")
     print("  ------------------------------------------------------")
     print()
     print("  Para ver logs, revisa: simpol_loader.log")
-    print("  Presiona Ctrl+C para detener el sistema")
+    print("  Presiona Ctrl+C para detener el sistema COMPLETO")
     print("  ------------------------------------------------------")
     print()
 
@@ -582,22 +587,50 @@ def main():
 
     logger.info("[SISTEMA] Sistema completamente iniciado")
     print("\n[SISTEMA] Sistema iniciado correctamente")
-    print("[SISTEMA] Presiona Ctrl+C para detener\n")
+    print("[SISTEMA] Presiona Ctrl+C para detener TODO el sistema\n")
     
     try:
         while SISTEMA_ACTIVO:
-            if STREAMLIT_PROCESS and not STREAMLIT_PROCESS.is_alive():
-                logger.error("[SISTEMA] Streamlit se detuvo inesperadamente")
-                print("\n[ERROR] Streamlit se detuvo. Revisa los logs.")
-                SISTEMA_ACTIVO = False
-                break
+            # =============================================================
+            # NUEVO COMPORTAMIENTO: Streamlit puede cerrarse sin afectar
+            # los servicios críticos (Agente y Enviador)
+            # =============================================================
             
+            if STREAMLIT_PROCESS and not STREAMLIT_PROCESS.is_alive():
+                logger.warning("[SISTEMA] Streamlit se detuvo. Los servicios continúan.")
+                print("\n[INFO] Interfaz web cerrada. Agente y enviador siguen activos.")
+                print("[INFO] Para reiniciar la interfaz, vuelve a ejecutar el .exe")
+                print("[INFO] O presiona Ctrl+C para detener TODO el sistema\n")
+                
+                # Opcional: Intentar reiniciar Streamlit automáticamente
+                # Descomenta las siguientes líneas si quieres que se reinicie solo
+                # logger.info("[STREAMLIT] Intentando reiniciar...")
+                # STREAMLIT_PROCESS = multiprocessing.Process(
+                #     target=ejecutar_streamlit,
+                #     name="StreamlitServer"
+                # )
+                # STREAMLIT_PROCESS.start()
+                # if STREAMLIT_PROCESS.is_alive():
+                #     logger.info(f"[STREAMLIT] Reiniciado - PID: {STREAMLIT_PROCESS.pid}")
+                #     print("[INFO] Streamlit reiniciado correctamente")
+                # else:
+                #     logger.error("[STREAMLIT] No se pudo reiniciar")
+                
+                # Para evitar que siga mostrando el mensaje, esperamos 60 segundos
+                # antes de volver a intentar
+                time.sleep(60)
+                continue
+            
+            # Verificar agente - SIEMPRE debe estar corriendo
             if AGENTE_PROCESS and not AGENTE_PROCESS.is_alive():
                 logger.warning("[SISTEMA] El agente se detuvo, reintentando...")
+                print("[INFO] El agente se detuvo. Reintentando iniciar...")
                 iniciar_agente()
             
+            # Verificar enviador - SIEMPRE debe estar corriendo
             if ENVIADOR_PROCESS and not ENVIADOR_PROCESS.is_alive():
                 logger.warning("[SISTEMA] El enviador se detuvo, reintentando...")
+                print("[INFO] El enviador se detuvo. Reintentando iniciar...")
                 iniciar_enviador()
             
             time.sleep(5)
