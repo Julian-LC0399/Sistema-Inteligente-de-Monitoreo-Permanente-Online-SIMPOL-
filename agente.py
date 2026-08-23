@@ -88,8 +88,8 @@ def obtener_ruta_mensajes():
 
 MENSAJES_FILE = obtener_ruta_mensajes()
 
-# Todos los estados se notifican
-ESTADOS_TELEGRAM = ["CRITICO", "PRECAUCION", "ESTABLE"]
+# ✅ ESTADOS CON ACENTOS PARA COINCIDIR CON LA BD
+ESTADOS_TELEGRAM = ["CRÍTICO", "PRECAUCIÓN", "ESTABLE"]
 
 AGENTE_EN_EJECUCION = False
 _SOCKET_LOCK = None  
@@ -98,6 +98,83 @@ MAPEO_DISCOS = {
     "DISCO_1": "C:\\", "DISCO_2": "D:\\", "DISCO_3": "E:\\",
     "DISCO_4": "F:\\", "DISCO_5": "G:\\", "DISCO_6": "Y:\\"
 }
+
+# =============================================================================
+# ENVIO DIARIO DE ESTADO (6 AM HORA VENEZUELA)
+# =============================================================================
+
+def enviar_mensaje_diario():
+    """
+    Envía un mensaje diario a las 6:00 AM hora Venezuela
+    para confirmar que el agente sigue operativo
+    """
+    try:
+        # Intentar usar pytz para hora Venezuela
+        try:
+            import pytz
+            zona_venezuela = pytz.timezone('America/Caracas')
+            ahora = datetime.now(zona_venezuela)
+        except:
+            ahora = datetime.now()
+        
+        mensaje = f"""
+🟢 SISTEMA SIMPOL - REPORTE DIARIO DE OPERATIVIDAD
+
+Fecha: {ahora.strftime('%Y-%m-%d %H:%M:%S')}
+Estado: ✅ SISTEMA OPERATIVO
+Servidores monitoreados: ACTIVOS
+Agente: CORRIENDO
+
+El sistema de monitoreo se encuentra funcionando correctamente.
+Todos los sensores están activos y reportando.
+
+---
+SIMPOL - Banco Caroni
+Monitoreo Permanente Online
+"""
+        enviar_telegram(mensaje)
+        log("[DIARIO] Mensaje de operatividad enviado a las 6:00 AM")
+        return True
+    except Exception as e:
+        log(f"[DIARIO] Error enviando mensaje diario: {e}")
+        return False
+
+def verificar_envio_diario():
+    """
+    Verifica si ya se envió el mensaje diario hoy
+    """
+    archivo_marcador = os.path.join(LOG_DIR, "ultimo_envio_diario.txt")
+    
+    # Si el archivo no existe, enviar
+    if not os.path.exists(archivo_marcador):
+        return True
+    
+    try:
+        with open(archivo_marcador, "r") as f:
+            ultima_fecha = f.read().strip()
+        
+        hoy = datetime.now().strftime('%Y-%m-%d')
+        
+        # Si la última fecha no es hoy, enviar
+        if ultima_fecha != hoy:
+            return True
+        else:
+            return False
+    except:
+        return True
+
+def guardar_marcador_envio_diario():
+    """
+    Guarda que ya se envió el mensaje hoy
+    """
+    archivo_marcador = os.path.join(LOG_DIR, "ultimo_envio_diario.txt")
+    try:
+        with open(archivo_marcador, "w") as f:
+            f.write(datetime.now().strftime('%Y-%m-%d'))
+        return True
+    except Exception as e:
+        log(f"[DIARIO] Error guardando marcador: {e}")
+        return False
 
 # =============================================================================
 # FUNCIONES DE TELEGRAM - GUARDAN EN ARCHIVO
@@ -148,15 +225,16 @@ def formatear_mensaje_alerta(ip, nombre, componente, estado, comentario, val_pct
     """
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    if estado == "CRITICO":
-        titulo = "== ALERTA CRITICA - SIMPOL =="
-        accion = "ATENCION: ACCION INMEDIATA REQUERIDA"
-    elif estado == "PRECAUCION":
-        titulo = "== ALERTA DE PRECAUCION - SIMPOL =="
-        accion = "ATENCION: Revisar componente con atencion"
+    # ✅ Comparaciones con acentos
+    if estado == "CRÍTICO":
+        titulo = "🚨 ALERTA CRITICA - SIMPOL"
+        accion = "⚠️ ATENCION: ACCION INMEDIATA REQUERIDA"
+    elif estado == "PRECAUCIÓN":
+        titulo = "⚠️ ALERTA DE PRECAUCION - SIMPOL"
+        accion = "⚡ ATENCION: Revisar componente con atencion"
     else:
-        titulo = "== SISTEMA NORMALIZADO - SIMPOL =="
-        accion = "OK: Todo operando dentro de parametros"
+        titulo = "✅ SISTEMA NORMALIZADO - SIMPOL"
+        accion = "✔️ OK: Todo operando dentro de parametros"
     
     mensaje = f"""
 {titulo}
@@ -183,7 +261,7 @@ def formatear_mensaje_resuelto(ip, nombre, componente, estado_anterior, comentar
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     mensaje = f"""
-== ALERTA RESUELTA - SIMPOL ==
+✅ ALERTA RESUELTA - SIMPOL
 
 Servidor: {nombre}
 IP: {ip}
@@ -287,7 +365,7 @@ def obtener_umbrales_servidor(ip):
     return umbrales
 
 # =============================================================================
-# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS
+# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS - CON ACENTOS PARA BD
 # =============================================================================
 def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val_dispo, val_pct, sensor_id):
     conn = conectar_bd_con_reintentos()
@@ -297,6 +375,10 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
     
     try:
         cursor = conn.cursor(dictionary=True)
+        
+        # =============================================================
+        # 1. OBTENER ESTADO ACTUAL DE LA ALERTA (si existe)
+        # =============================================================
         query_check = """
             SELECT id, tipo_alerta 
             FROM alertas 
@@ -305,39 +387,51 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
         """
         cursor.execute(query_check, (ip, componente))
         alerta_existente = cursor.fetchone()
-
+        
+        # =============================================================
+        # 2. OBTENER NOMBRE DEL SERVIDOR
+        # =============================================================
         cursor_temp = conn.cursor(dictionary=True)
         cursor_temp.execute("SELECT nombre_alias FROM servidores WHERE ip = %s LIMIT 1", (ip,))
         srv = cursor_temp.fetchone()
         nombre_servidor = srv["nombre_alias"] if srv else ip
         cursor_temp.close()
-
+        
+        # =============================================================
+        # 3. CONSTRUIR COMENTARIO SEGÚN COMPONENTE - CON ACENTOS
+        # =============================================================
         if "Servicio_" in componente:
             if estado_calculado == "ESTABLE":
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se encuentra operativo y estable."
-            elif estado_calculado == "PRECAUCION":
+            elif estado_calculado == "PRECAUCIÓN":
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) presenta fallos intermitentes o degradacion."
-            elif estado_calculado == "CRITICO":
+            elif estado_calculado == "CRÍTICO":
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se encuentra caido o en estado critico."
             else:
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) en estado {estado_calculado}."
         elif componente in ["RED", "LATENCIA"]:
             if estado_calculado == "ESTABLE":
                 comentario = f"Problema en {componente} (ID Sensor: {sensor_id}) resuelto. Metrica reporta: {val_pct:.1f}."
-            elif estado_calculado == "PRECAUCION":
+            elif estado_calculado == "PRECAUCIÓN":
                 comentario = f"Problema en {componente} (ID Sensor: {sensor_id}). Metrica reporta: {val_pct:.1f}."
             else:
                 comentario = f"Problema critico en {componente} (ID Sensor: {sensor_id}). Metrica reporta: {val_pct:.1f}."
         else:
             if estado_calculado == "ESTABLE":
                 comentario = f"Componente {componente} (ID Sensor: {sensor_id}) normalizado. Reporta {val_pct:.1f}% disponible."
-            elif estado_calculado == "PRECAUCION":
+            elif estado_calculado == "PRECAUCIÓN":
                 comentario = f"Componente {componente} (ID Sensor: {sensor_id}) en precaucion. Reporta {val_pct:.1f}% disponible."
             else:
                 comentario = f"Componente {componente} (ID Sensor: {sensor_id}) en estado critico. Reporta {val_pct:.1f}% disponible."
 
+        # =============================================================
+        # 4. GESTIONAR ALERTA SEGÚN ESTADO CALCULADO - CON ACENTOS
+        # =============================================================
+        
+        # CASO: El componente está ESTABLE
         if estado_calculado == "ESTABLE":
             if alerta_existente:
+                # ✅ CAMBIO: Hay una alerta activa que ahora se resuelve
                 estado_anterior = alerta_existente["tipo_alerta"]
                 query_close = """
                     UPDATE alertas 
@@ -350,11 +444,14 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 conn.commit()
                 log(f"Alerta resuelta para {componente} en {ip} - ESTABLE (era {estado_anterior})")
                 
-                mensaje_resuelto = formatear_mensaje_resuelto(
-                    ip, nombre_servidor, componente, estado_anterior, comentario
-                )
-                enviar_telegram(mensaje_resuelto)
+                # ✅ ENVIAR TELEGRAM SOLO SI HUBO CAMBIO (estaba en CRÍTICO o PRECAUCIÓN)
+                if estado_anterior != "ESTABLE":
+                    mensaje_resuelto = formatear_mensaje_resuelto(
+                        ip, nombre_servidor, componente, estado_anterior, comentario
+                    )
+                    enviar_telegram(mensaje_resuelto)
             else:
+                # Verificar si ya existe una alerta ESTABLE activa
                 query_check_estable = """
                     SELECT id FROM alertas 
                     WHERE ip_servidor = %s AND componente = %s 
@@ -365,6 +462,7 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 estable_existente = cursor.fetchone()
                 
                 if not estable_existente:
+                    # No existe alerta ESTABLE, crearla (pero NO enviar Telegram)
                     query_insert = """
                         INSERT INTO alertas (
                             ip_servidor, componente, tipo_alerta, 
@@ -378,27 +476,38 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                     ))
                     conn.commit()
                     log(f"Alerta ESTABLE registrada para {componente} en {ip}")
-                    
-                    mensaje_estable = formatear_mensaje_alerta(
-                        ip, nombre_servidor, componente, "ESTABLE", comentario, val_pct
-                    )
-                    enviar_telegram(mensaje_estable)
             
             cursor.close()
             conn.close()
             return
 
-        mensaje_alerta = formatear_mensaje_alerta(
-            ip, nombre_servidor, componente, estado_calculado, comentario, val_pct
-        )
-        enviar_telegram(mensaje_alerta)
-
+        # =============================================================
+        # CASO: El componente está CRÍTICO o PRECAUCIÓN
+        # =============================================================
+        
+        # Verificar si ya existe una alerta activa con el MISMO estado
         if alerta_existente:
             if alerta_existente["tipo_alerta"] == estado_calculado:
+                # ✅ MISMO ESTADO: NO enviar Telegram, solo actualizar en BD
+                log(f"Estado {estado_calculado} ya existe para {componente} - sin cambios (no se envía Telegram)")
+                
+                # Actualizar valores en la alerta existente
+                query_update = """
+                    UPDATE alertas 
+                    SET val_total_gb_momento = %s,
+                        val_disponible_gb_momento = %s,
+                        val_disponible_pct_momento = %s,
+                        comentario = %s
+                    WHERE id = %s
+                """
+                cursor.execute(query_update, (val_total, val_dispo, val_pct, comentario, alerta_existente["id"]))
+                conn.commit()
+                
                 cursor.close()
                 conn.close()
                 return
             else:
+                # ✅ CAMBIO DE ESTADO: Cerrar alerta anterior y crear nueva
                 query_close = """
                     UPDATE alertas 
                     SET estado_alerta = 'RESUELTA', 
@@ -408,7 +517,9 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 """
                 cursor.execute(query_close, (alerta_existente["id"],))
                 conn.commit()
-
+                log(f"Alerta anterior cerrada. Nuevo estado: {estado_calculado}")
+        
+        # Crear NUEVA alerta con el estado actual
         query_insert = """
             INSERT INTO alertas (
                 ip_servidor, componente, tipo_alerta, 
@@ -422,6 +533,12 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
         ))
         conn.commit()
         log(f"Nueva alerta {estado_calculado} para {componente} en {ip}")
+        
+        # ✅ ENVIAR TELEGRAM SOLO SI ES CRÍTICO O PRECAUCIÓN (y hay cambio)
+        mensaje_alerta = formatear_mensaje_alerta(
+            ip, nombre_servidor, componente, estado_calculado, comentario, val_pct
+        )
+        enviar_telegram(mensaje_alerta)
         
         cursor.close()
         conn.close()
@@ -491,8 +608,9 @@ def ejecutar_motor_agente():
     print("="*80)
     print(" Presiona Control + C para detener el agente.\n", flush=True)
     
+    # ✅ Mensaje de inicio (se envía UNA SOLA VEZ al iniciar el agente)
     mensaje_inicio = f"""
-== SIMPOL AGENTE INICIADO ==
+🚀 SIMPOL AGENTE INICIADO
 
 Sistema: Agente de Monitoreo SIMPOL
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -508,6 +626,30 @@ El sistema esta vigilando los servidores del Banco Caroni
         while AGENTE_EN_EJECUCION:
             ciclo_num += 1
             log("INICIO DE CICLO")
+            
+            # =============================================================
+            # VERIFICAR ENVIO DIARIO (6:00 AM)
+            # =============================================================
+            try:
+                # Obtener hora actual en Venezuela
+                try:
+                    import pytz
+                    zona_venezuela = pytz.timezone('America/Caracas')
+                    ahora = datetime.now(zona_venezuela)
+                except:
+                    ahora = datetime.now()
+                
+                # Si son las 6:00 AM +/- 2 minutos y no se ha enviado hoy
+                if ahora.hour == 6 and ahora.minute < 3:
+                    if verificar_envio_diario():
+                        log("[DIARIO] Es 6:00 AM, enviando mensaje de operatividad...")
+                        if enviar_mensaje_diario():
+                            guardar_marcador_envio_diario()
+                        else:
+                            log("[DIARIO] Error enviando mensaje diario")
+            except Exception as e:
+                log(f"[DIARIO] Error en verificacion: {e}")
+            
             conn = conectar_bd_con_reintentos()
             if not conn:
                 log("Sin BD, esperando 15s")
@@ -610,14 +752,16 @@ El sistema esta vigilando los servidores del Banco Caroni
                     status_discos = {}
                     status_servicios = {}
                     
-                    # CPU
+                    # =============================================================
+                    # CPU - CON ACENTOS
+                    # =============================================================
                     if id_cpu > 0:
                         v_cpu = safe_float(telemetria.get("cpu") or telemetria.get("CPU", 0.0))
                         
                         if v_cpu >= umbrales["cpu_critico"]:
-                            status_cpu = "CRITICO"
+                            status_cpu = "CRÍTICO"
                         elif v_cpu >= umbrales["cpu_advertencia"]:
-                            status_cpu = "PRECAUCION"
+                            status_cpu = "PRECAUCIÓN"
                         else:
                             status_cpu = "ESTABLE"
                         
@@ -632,20 +776,22 @@ El sistema esta vigilando los servidores del Banco Caroni
                             parametros_sql.append(v_core)
                             cores.append(f"P{idx_core}:{v_core:.1f}%")
                         
-                        estado_icon = "[CRIT]" if status_cpu == "CRITICO" else ("[PREC]" if status_cpu == "PRECAUCION" else "[EST]")
+                        estado_icon = "[CRIT]" if status_cpu == "CRÍTICO" else ("[PREC]" if status_cpu == "PRECAUCIÓN" else "[EST]")
                         print(f"    CPU (ID:{id_cpu}): {v_cpu:.1f}% {estado_icon}")
                         print(f"        Cores: {' '.join(cores)}")
 
-                    # RAM
+                    # =============================================================
+                    # RAM - CON ACENTOS
+                    # =============================================================
                     if id_ram > 0:
                         v_ram_total = safe_float(telemetria.get("ram_total_gb") or telemetria.get("RAM_TOTAL_GB", 0.0))
                         v_ram_pct = safe_float(telemetria.get("ram_pct") or telemetria.get("ram_disponible_pct") or telemetria.get("RAM_PCT", 100.0))
                         v_ram_gb = safe_float(telemetria.get("ram_gb") or telemetria.get("ram_disponible_gb") or telemetria.get("RAM_GB", 0.0))
                         
                         if v_ram_pct <= umbrales["ram_critico"]:
-                            status_ram = "CRITICO"
+                            status_ram = "CRÍTICO"
                         elif v_ram_pct <= umbrales["ram_advertencia"]:
-                            status_ram = "PRECAUCION"
+                            status_ram = "PRECAUCIÓN"
                         else:
                             status_ram = "ESTABLE"
                         
@@ -653,10 +799,12 @@ El sistema esta vigilando los servidores del Banco Caroni
                         columnas_sql.extend(["val_ram_total_gb", "val_ram_disponible_pct", "val_ram_disponible_gb"])
                         parametros_sql.extend([v_ram_total, v_ram_pct, v_ram_gb])
                         
-                        estado_icon = "[CRIT]" if status_ram == "CRITICO" else ("[PREC]" if status_ram == "PRECAUCION" else "[EST]")
+                        estado_icon = "[CRIT]" if status_ram == "CRÍTICO" else ("[PREC]" if status_ram == "PRECAUCIÓN" else "[EST]")
                         print(f"    RAM (ID:{id_ram}): {v_ram_pct:.1f}% {estado_icon} ({v_ram_gb:.1f}/{v_ram_total:.1f} GB)")
 
+                    # =============================================================
                     # RED
+                    # =============================================================
                     v_red_tot = safe_float(telemetria.get("red_total") or telemetria.get("RED_TOTAL", 0.0))
                     v_red_ent = safe_float(telemetria.get("red_entrante") or telemetria.get("RED_ENTRANTE", 0.0))
                     v_red_sal = safe_float(telemetria.get("red_saliente") or telemetria.get("RED_SALIENTE", 0.0))
@@ -678,7 +826,9 @@ El sistema esta vigilando los servidores del Banco Caroni
                     if red_parts:
                         print(f"    RED: {' | '.join(red_parts)}")
 
-                    # DISCOS
+                    # =============================================================
+                    # DISCOS - CON ACENTOS
+                    # =============================================================
                     for i in range(1, 7):
                         id_sensor_disco = ids_discos[i-1]
                         if id_sensor_disco > 0:
@@ -692,17 +842,17 @@ El sistema esta vigilando los servidores del Banco Caroni
                             clave_advertencia = f"disco_{i}_advertencia"
                             
                             if pct_libre <= umbrales[clave_critico]:
-                                st_disco = "CRITICO"
+                                st_disco = "CRÍTICO"
                             elif pct_libre <= umbrales[clave_advertencia]:
-                                st_disco = "PRECAUCION"
+                                st_disco = "PRECAUCIÓN"
                             else:
                                 st_disco = "ESTABLE"
                             
                             if status_prtg in [2, 3]:
-                                st_disco = "CRITICO"
+                                st_disco = "CRÍTICO"
                             elif status_prtg == 4:
                                 if st_disco == "ESTABLE":
-                                    st_disco = "PRECAUCION"
+                                    st_disco = "PRECAUCIÓN"
                                 
                             status_discos[i] = st_disco
                             registrar_o_resolver_alerta(ip, letra_unidad, st_disco, total_gb, libres_gb, pct_libre, id_sensor_disco)
@@ -710,10 +860,12 @@ El sistema esta vigilando los servidores del Banco Caroni
                             columnas_sql.extend([f"val_disco_{i}_total_gb", f"val_disco_{i}_pct_libre", f"val_disco_{i}_libres_gb"])
                             parametros_sql.extend([total_gb, pct_libre, libres_gb])
                             
-                            estado_icon = "[CRIT]" if st_disco == "CRITICO" else ("[PREC]" if st_disco == "PRECAUCION" else "[EST]")
+                            estado_icon = "[CRIT]" if st_disco == "CRÍTICO" else ("[PREC]" if st_disco == "PRECAUCIÓN" else "[EST]")
                             print(f"    DISCO {letra_unidad} (ID:{id_sensor_disco}): {pct_libre:.1f}% {estado_icon} ({libres_gb:.1f}/{total_gb:.1f} GB)")
 
-                    # SERVICIOS
+                    # =============================================================
+                    # SERVICIOS - CON ACENTOS
+                    # =============================================================
                     for j in range(1, 9):
                         id_sensor_servicio = ids_servicios[j-1]
                         if id_sensor_servicio > 0:
@@ -722,13 +874,13 @@ El sistema esta vigilando los servidores del Banco Caroni
                             
                             if status_prtg_srv:
                                 if int(status_prtg_srv) in [2, 3]:
-                                    st_servicio = "CRITICO"
+                                    st_servicio = "CRÍTICO"
                                 elif int(status_prtg_srv) == 4:
-                                    st_servicio = "PRECAUCION"
+                                    st_servicio = "PRECAUCIÓN"
                                 elif int(status_prtg_srv) == 1:
                                     st_servicio = "ACTIVO"
                             
-                            nivel_alerta = "CRITICO" if st_servicio in ["DOWN", "CRITICO", "INACTIVO"] else ("PRECAUCION" if st_servicio == "PRECAUCION" else "ESTABLE")
+                            nivel_alerta = "CRÍTICO" if st_servicio in ["DOWN", "CRÍTICO", "INACTIVO"] else ("PRECAUCIÓN" if st_servicio == "PRECAUCIÓN" else "ESTABLE")
                             registrar_o_resolver_alerta(ip, f"Servicio_{j}", nivel_alerta, 0, 0, 0, id_sensor_servicio)
 
                             columnas_sql.append(f"estado_servicio_{j}")
@@ -736,15 +888,17 @@ El sistema esta vigilando los servidores del Banco Caroni
                             
                             status_servicios[j] = nivel_alerta
                             
-                            if st_servicio == "CRITICO":
+                            if st_servicio == "CRÍTICO":
                                 estado_icon = "[CRIT]"
-                            elif st_servicio == "PRECAUCION":
+                            elif st_servicio == "PRECAUCIÓN":
                                 estado_icon = "[PREC]"
                             else:
                                 estado_icon = "[OK]"
                             print(f"    SERVICIO {j} (ID:{id_sensor_servicio}): {st_servicio} {estado_icon}")
 
-                    # LATENCIA
+                    # =============================================================
+                    # LATENCIA - CON ACENTOS
+                    # =============================================================
                     if id_latencia > 0:
                         v_ping = safe_float(telemetria.get("latencia_ping") or telemetria.get("LATENCIA_PING", 0.0))
                         v_max = safe_float(telemetria.get("latencia_max") or telemetria.get("LATENCIA_MAX", 0.0))
@@ -752,9 +906,9 @@ El sistema esta vigilando los servidores del Banco Caroni
                         v_loss = safe_float(telemetria.get("latencia_perdida") or telemetria.get("LATENCIA_LOSS", 0.0))
 
                         if v_ping >= umbrales["latencia_limite_ms"] or v_loss >= umbrales["perdida_limite_pct"]:
-                            status_latencia = "CRITICO"
+                            status_latencia = "CRÍTICO"
                         elif v_ping >= 50.0 or v_loss > 0.0:
-                            status_latencia = "PRECAUCION"
+                            status_latencia = "PRECAUCIÓN"
                         else:
                             status_latencia = "ESTABLE"
                         
@@ -763,38 +917,40 @@ El sistema esta vigilando los servidores del Banco Caroni
                         columnas_sql.extend(["val_latencia_ping", "val_latencia_max", "val_latencia_min", "val_latencia_perdida"])
                         parametros_sql.extend([v_ping, v_max, v_min, v_loss])
                         
-                        estado_icon = "[CRIT]" if status_latencia == "CRITICO" else ("[PREC]" if status_latencia == "PRECAUCION" else "[EST]")
+                        estado_icon = "[CRIT]" if status_latencia == "CRÍTICO" else ("[PREC]" if status_latencia == "PRECAUCIÓN" else "[EST]")
                         print(f"    LATENCIA (ID:{id_latencia}): Ping {v_ping:.1f}ms {estado_icon} (Max:{v_max:.1f}ms | Perdida:{v_loss:.1f}%)")
 
+                    # =============================================================
                     # ESTADO DEL SISTEMA
+                    # =============================================================
                     tiene_critico = False
                     tiene_precaucion = False
                     
-                    if status_cpu == "CRITICO":
+                    if status_cpu == "CRÍTICO":
                         tiene_critico = True
-                    elif status_cpu == "PRECAUCION":
+                    elif status_cpu == "PRECAUCIÓN":
                         tiene_precaucion = True
                     
-                    if status_ram == "CRITICO":
+                    if status_ram == "CRÍTICO":
                         tiene_critico = True
-                    elif status_ram == "PRECAUCION":
+                    elif status_ram == "PRECAUCIÓN":
                         tiene_precaucion = True
                     
-                    if status_latencia == "CRITICO":
+                    if status_latencia == "CRÍTICO":
                         tiene_critico = True
-                    elif status_latencia == "PRECAUCION":
+                    elif status_latencia == "PRECAUCIÓN":
                         tiene_precaucion = True
                     
                     for st_d in status_discos.values():
-                        if st_d == "CRITICO":
+                        if st_d == "CRÍTICO":
                             tiene_critico = True
-                        elif st_d == "PRECAUCION":
+                        elif st_d == "PRECAUCIÓN":
                             tiene_precaucion = True
                     
                     for st_s in status_servicios.values():
-                        if st_s == "CRITICO":
+                        if st_s == "CRÍTICO":
                             tiene_critico = True
-                        elif st_s == "PRECAUCION":
+                        elif st_s == "PRECAUCIÓN":
                             tiene_precaucion = True
                     
                     if tiene_critico:
@@ -838,7 +994,7 @@ El sistema esta vigilando los servidores del Banco Caroni
         print("="*80, flush=True)
         
         mensaje_cierre = f"""
-== SIMPOL AGENTE DETENIDO ==
+🛑 SIMPOL AGENTE DETENIDO
 
 Sistema: Agente de Monitoreo SIMPOL
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}

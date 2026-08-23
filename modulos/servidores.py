@@ -809,11 +809,9 @@ def mostrar_tabla_servidores(rol_usuario=None):
                 else:
                     if not ver_todos:
                         col_b1, col_b2 = st.columns(2)
-                        # ============ CAMBIO 1: Botón "Editar Servidor" ============
                         if col_b1.button("✏️ Editar Servidor", use_container_width=True, key="btn_crud_editar"):
                             st.session_state.accion_infra = "editar"
                             st.rerun()
-                        # ============ FIN CAMBIO 1 ============
                         if col_b2.button("❌ Desactivar", use_container_width=True, key="btn_crud_desactivar"):
                             st.session_state.accion_infra = "desactivar"
                             st.rerun()
@@ -826,10 +824,12 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     fecha_act = srv_actual['fecha_alta'].strftime("%Y-%m-%d %H:%M") if srv_actual['fecha_alta'] else "N/A"
                     
                     with st.form("form_edicion_srv"):
+                        # ✅ CAMBIO: Sección de información base bloqueada con 3 columnas (agregado "Tipo")
                         st.markdown("<div class='subtitulo-formulario'>🔒 Información Base Bloqueada</div>", unsafe_allow_html=True)
-                        col_lock1, col_lock2 = st.columns(2)
+                        col_lock1, col_lock2, col_lock3 = st.columns(3)
                         col_lock1.text_input("Fecha de Alta Institucional", value=fecha_act, disabled=True)
                         col_lock2.text_input("Sistema Operativo Asignado", value=srv_actual['sistema_operativo'], disabled=True)
+                        col_lock3.text_input("Tipo de Infraestructura", value=srv_actual.get('tipo', 'Virtual'), disabled=True)
                         
                         st.markdown("<div class='subtitulo-formulario'>📋 Identificación Comercial</div>", unsafe_allow_html=True)
                         col_edi_p1, col_edi_p2 = st.columns(2)
@@ -872,7 +872,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                         edit_s8 = col_s8.number_input("ID Sensor - Servicio 8", value=int(srv_actual.get('id_sensor_servicio_8', 0)), step=None)
                         
                         col_btn_edi1, col_btn_edi2 = st.columns(2)
-                        # ============ CAMBIO 2: Botón "Actualizar" dentro del formulario ============
                         if col_btn_edi1.form_submit_button("💾 Actualizar", use_container_width=True):
                             try:
                                 conn_edit = conectar_bd()
@@ -904,7 +903,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             finally:
                                 if cursor_edit: cursor_edit.close()
                                 if conn_edit: conn_edit.close()
-                        # ============ FIN CAMBIO 2 ============
                                 
                         if col_btn_edi2.form_submit_button("❌ Cancelar", use_container_width=True):
                             st.session_state.accion_infra = None
@@ -951,10 +949,10 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     reg_ip = col_reg_p1.text_input("Dirección IP (Campo Requerido)", placeholder="Ej: 10.10.1.50")
                     reg_alias = col_reg_p2.text_input("Nombre / Alias del Servidor (Requerido)", placeholder="Ej: SRV-PROD-BD")
                     
+                    # ✅ CAMBIO: Selector de Tipo de Infraestructura (Virtual/físico)
                     col_reg_p3, col_reg_p4 = st.columns(2)
                     reg_so = col_reg_p3.selectbox("Sistema Operativo Base Instalado", ["Windows", "Linux", "No especificado"])
-                    reg_tipo = "Virtual"
-                    st.markdown('<p style="color:#666; margin-top:8px;">📌 <strong>Tipo de Infraestructura:</strong> Virtual (Arquitectura definida)</p>', unsafe_allow_html=True)
+                    reg_tipo = col_reg_p4.selectbox("Tipo de Infraestructura", ["Virtual", "físico"], index=0)
                     
                     st.markdown("<div class='subtitulo-formulario'>🛠️ Configuración de Sensores Básicos (PRTG)</div>", unsafe_allow_html=True)
                     col_reg_e1, col_reg_e2 = st.columns(2)
@@ -996,7 +994,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                     
                     col_btn_reg1, col_btn_reg2 = st.columns(2)
                     
-                    # ============ CAMBIO 3: Botón "Registrar" ============
                     if col_btn_reg1.form_submit_button("💾 Registrar", use_container_width=True):
                         if not reg_ip.strip() or not reg_alias.strip():
                             st.error("❌ Error: La Dirección IP y el nombre son campos obligatorios.")
@@ -1044,7 +1041,6 @@ def mostrar_tabla_servidores(rol_usuario=None):
                             finally:
                                 if cursor_write: cursor_write.close()
                                 if conn_write: conn_write.close()
-                    # ============ FIN CAMBIO 3 ============
                                 
                     if col_btn_reg2.form_submit_button("❌ Cancelar Operación", use_container_width=True):
                         st.session_state.accion_infra = None
