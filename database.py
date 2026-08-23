@@ -403,7 +403,7 @@ def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_
         conn.close()
         return True
     except Exception as e:
-        logging.error(f"Error crítico al archivar reporte V3.9.9: {e}")
+        logging.error(f"Error crítico al archivar reporte: {e}")
         if conn: conn.close()
         return False
 
@@ -428,6 +428,6 @@ def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_se
         conn.close()
         return True
     except Exception as e:
-        logging.error(f"Error crítico al archivar reporte de Capacity V3.9.9: {e}")
+        logging.error(f"Error crítico al archivar reporte de Capacity: {e}")
         if conn: conn.close()
         return False
