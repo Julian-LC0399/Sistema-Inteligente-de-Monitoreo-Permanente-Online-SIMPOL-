@@ -92,7 +92,8 @@ MENSAJES_FILE = obtener_ruta_mensajes()
 ESTADOS_TELEGRAM = ["CRÍTICO", "PRECAUCIÓN", "ESTABLE"]
 
 AGENTE_EN_EJECUCION = False
-_SOCKET_LOCK = None  
+_SOCKET_LOCK = None
+MOTIVO_CIERRE = "Desconocido"  # Variable para almacenar el motivo de cierre
 
 MAPEO_DISCOS = {
     "DISCO_1": "C:\\", "DISCO_2": "D:\\", "DISCO_3": "E:\\",
@@ -552,7 +553,7 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
 # FUNCION PRINCIPAL DEL AGENTE
 # =============================================================================
 def ejecutar_motor_agente():
-    global AGENTE_EN_EJECUCION, _SOCKET_LOCK
+    global AGENTE_EN_EJECUCION, _SOCKET_LOCK, MOTIVO_CIERRE
     
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -988,8 +989,12 @@ El sistema esta vigilando los servidores del Banco Caroni
             time.sleep(15)
 
     except KeyboardInterrupt:
+        # ✅ Registrar el motivo de cierre por Ctrl+C
+        MOTIVO_CIERRE = "Ctrl+C (Interrupción manual por el usuario)"
+        
         print("\n\n" + "="*80)
         print(" PARADA MANUAL DETECTADA")
+        print(f" Motivo: {MOTIVO_CIERRE}")
         print(" Finalizando agente SIMPOL...")
         print("="*80, flush=True)
         
@@ -998,11 +1003,41 @@ El sistema esta vigilando los servidores del Banco Caroni
 
 Sistema: Agente de Monitoreo SIMPOL
 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Motivo: {MOTIVO_CIERRE}
 Estado: Agente fuera de linea
 
 El monitoreo se ha detenido manualmente
 """
         enviar_telegram(mensaje_cierre)
+        
+    except Exception as e:
+        # ✅ Registrar el motivo de cierre por error inesperado
+        MOTIVO_CIERRE = f"Error inesperado: {str(e)}"
+        
+        print("\n\n" + "="*80)
+        print(" ERROR CRITICO DETECTADO")
+        print(f" Motivo: {MOTIVO_CIERRE}")
+        print(" Finalizando agente SIMPOL...")
+        print("="*80, flush=True)
+        
+        import traceback
+        traceback.print_exc()
+        
+        mensaje_cierre = f"""
+🛑 SIMPOL AGENTE DETENIDO - ERROR CRÍTICO
+
+Sistema: Agente de Monitoreo SIMPOL
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Motivo: {MOTIVO_CIERRE}
+Estado: Agente fuera de linea por error
+
+El sistema ha detectado un error crítico y se ha detenido.
+Revise los logs para más detalles.
+"""
+        enviar_telegram(mensaje_cierre)
+        
+        # Re-lanzar la excepción para que se vea en la consola
+        raise
         
     finally:
         if _SOCKET_LOCK:
