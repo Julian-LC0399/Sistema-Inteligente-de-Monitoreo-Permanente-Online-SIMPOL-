@@ -338,10 +338,14 @@ def renderizar_tabla_historico_umbrales(filtro_servidor, filtro_umbral, servidor
     st.caption(f"📊 Mostrando {len(registros)} registros - Umbral: {filtro_umbral}")
 
 
+# =====================================================================
+# 🔥 VISTA PRINCIPAL - SOLO ELIMINA time.sleep(1)
+# =====================================================================
+
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
     
     # =============================================================
-    # 🔥 LIMPIEZA AL ENTRAR AL MÓDULO
+    # LIMPIEZA AL ENTRAR AL MÓDULO
     # =============================================================
     if st.session_state.get("_seccion_anterior") != "⚙️ Umbrales":
         st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
@@ -716,7 +720,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
                                         st.success("✅ Umbrales actualizados correctamente. El agente detectara el cambio en el proximo ciclo.")
                                         st.session_state["_guardando"] = True
                                         st.session_state["umbrales_modificados"] = False
-                                        time.sleep(1)
+                                        # ✅ time.sleep(1) ELIMINADO
                                         st.rerun()
                                     else:
                                         st.error("❌ Error al guardar los umbrales. Verifique los logs.")

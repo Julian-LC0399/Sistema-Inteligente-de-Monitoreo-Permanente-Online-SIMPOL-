@@ -311,7 +311,7 @@ def renderizar_contenido(placeholder, filtro_servidor, filtro_criticidad, servid
 
 
 # =====================================================================
-# VISTA PRINCIPAL
+# 🔥 VISTA PRINCIPAL - SOLO CAMBIA LA PARTE DEL BUCLE
 # =====================================================================
 
 def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Sistema"):
@@ -419,7 +419,7 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     filtro_aplicado = st.session_state.get("filtro_aplicado", False)
 
     # =============================================================
-    # CONTENEDOR CON AUTO-REFRESH
+    # 🔥 CONTENEDOR CON AUTO-REFRESH (VERSIÓN WEB)
     # =============================================================
     if not filtro_aplicado:
         st.info("🔍 Seleccione los filtros y presione 'Filtrar' para visualizar las alertas.")
@@ -431,10 +431,16 @@ def mostrar_pantalla(nombre_analista="Analista", usuario_id=1, usuario_login="Si
     # RENDERIZAR EL CONTENIDO INMEDIATAMENTE
     renderizar_contenido(placeholder, filtro_servidor, filtro_criticidad, servidores)
     
-    # BUCLE DE ACTUALIZACIÓN
-    while True:
-        time.sleep(15)
+    # =============================================================
+    # 🔥 NUEVO: Auto-refresh con @st.fragment (reemplaza el while True)
+    # =============================================================
+    @st.fragment(run_every=15)
+    def refrescar_alertas():
+        """Actualiza el contenido cada 15 segundos (versión web)"""
         renderizar_contenido(placeholder, filtro_servidor, filtro_criticidad, servidores)
+    
+    # Ejecutar el fragmento (se ejecutará cada 15s)
+    refrescar_alertas()
 
 
 if __name__ == "__main__":
