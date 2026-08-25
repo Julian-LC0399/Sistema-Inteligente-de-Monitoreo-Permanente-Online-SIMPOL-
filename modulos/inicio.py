@@ -2,13 +2,45 @@ import streamlit as st
 from database import conectar_bd
 from datetime import datetime
 import os
-import sys  # ← AGREGAR ESTA LÍNEA
+import sys
+import base64
 
 def get_resource_path(relative_path):
     """Localiza recursos dentro del paquete .exe o en desarrollo"""
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
+
+def encontrar_logo():
+    """
+    Busca el logo en múltiples ubicaciones posibles
+    """
+    # Nombres posibles del archivo
+    posibles_nombres = ["SIMPOL.jpg", "SIMPOL.jpeg", "logo.jpg", "logo-banco.jpg", "inicio.jpg"]
+    
+    # Carpetas donde buscar
+    carpetas = [
+        os.path.dirname(os.path.abspath(__file__)),  # modulos/
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),  # raíz del proyecto
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "img"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "images"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static"),
+        os.getcwd(),
+    ]
+    
+    # Si es .exe, agregar _MEIPASS
+    if hasattr(sys, '_MEIPASS'):
+        carpetas.insert(0, sys._MEIPASS)
+    
+    # Buscar en todas las combinaciones
+    for nombre in posibles_nombres:
+        for carpeta in carpetas:
+            ruta = os.path.join(carpeta, nombre)
+            if os.path.exists(ruta):
+                return ruta
+    
+    return None
 
 def obtener_estado_agente_local():
     """
@@ -193,42 +225,61 @@ def mostrar_pantalla():
                     width: 100%;
                     height: auto;
                 }
+                .logo-texto {
+                    text-align: center;
+                    padding: 10px;
+                }
+                .logo-texto h2 {
+                    color: #003366 !important;
+                    margin: 0;
+                }
+                .logo-texto p {
+                    color: #666 !important;
+                    margin: 5px 0 0 0;
+                }
             </style>
         """, unsafe_allow_html=True)
 
         # =============================================================
-        # AGREGAR IMAGEN DEL LOGO - USANDO get_resource_path()
+        # MOSTRAR LOGO - BÚSQUEDA MEJORADA
         # =============================================================
-        logo_encontrado = None
+        logo_path = encontrar_logo()
         
-        # Buscar en múltiples rutas usando get_resource_path
-        logo_paths = [
-            get_resource_path("SIMPOL.jpg"),
-            get_resource_path("logo-banco.jpg"),
-            get_resource_path("logo.jpg"),
-            get_resource_path("inicio.jpg"),
-            os.path.join(os.path.dirname(__file__), "SIMPOL.jpg"),
-            os.path.join(os.path.dirname(__file__), "logo-banco.jpg"),
-            "SIMPOL.jpg",
-            "logo-banco.jpg"
-        ]
-        
-        for path in logo_paths:
-            if os.path.exists(path):
-                logo_encontrado = path
-                break
-        
-        if logo_encontrado:
-            # Usar columnas para desplazar la imagen a la derecha
-            col_logo1, col_logo2, col_logo3 = st.columns([1.5, 2, 0.5])
-            with col_logo2:
-                st.image(logo_encontrado, width=250)
+        if logo_path:
+            try:
+                # Leer la imagen y codificarla en base64
+                with open(logo_path, "rb") as f:
+                    imagen_b64 = base64.b64encode(f.read()).decode()
+                
+                # Determinar el tipo MIME
+                if logo_path.lower().endswith('.png'):
+                    mime_type = 'image/png'
+                elif logo_path.lower().endswith('.jpeg') or logo_path.lower().endswith('.jpg'):
+                    mime_type = 'image/jpeg'
+                else:
+                    mime_type = 'image/jpeg'
+                
+                # Mostrar usando HTML
+                st.markdown(f"""
+                <div class="logo-container">
+                    <img src="data:{mime_type};base64,{imagen_b64}" alt="SIMPOL Logo" style="max-width: 250px; width: 100%; height: auto;">
+                </div>
+                """, unsafe_allow_html=True)
+            except Exception as e:
+                # Si falla la carga, mostrar texto alternativo
+                st.markdown("""
+                <div class="logo-texto">
+                    <h2>🏦 SIMPOL</h2>
+                    <p>Sistema Inteligente de Monitoreo Permanente Online</p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            # Si no se encuentra la imagen, mostrar un texto alternativo
+            # Si no se encuentra la imagen, mostrar texto
             st.markdown("""
-            <div style="text-align: center; padding: 10px;">
-                <h2 style="color: #003366;">SIMPOL</h2>
-                <p style="color: #666;">Sistema Inteligente de Monitoreo Permanente Online</p>
+            <div class="logo-texto">
+                <h2>🏦 SIMPOL</h2>
+                <p>Sistema Inteligente de Monitoreo Permanente Online</p>
+                <p style="font-size: 11px; color: #999;">(Logo no encontrado)</p>
             </div>
             """, unsafe_allow_html=True)
 

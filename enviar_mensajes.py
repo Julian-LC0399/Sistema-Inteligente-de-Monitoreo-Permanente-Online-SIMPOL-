@@ -34,6 +34,7 @@ MENSAJES_FILE = obtener_ruta_mensajes()
 # =============================================================================
 MINUTOS_A_MANTENER = 1
 SEGUNDOS_A_MANTENER = MINUTOS_A_MANTENER * 60
+INTERVALO_EJECUCION = 15  # Segundos entre ejecuciones
 
 # =============================================================================
 # LOGS
@@ -165,7 +166,7 @@ def verificar_conexion():
         return False
 
 # =============================================================================
-# FUNCION PRINCIPAL
+# FUNCION PRINCIPAL (PROCESA MENSAJES UNA VEZ)
 # =============================================================================
 def procesar_mensajes():
     log("=" * 60)
@@ -320,31 +321,86 @@ def procesar_mensajes():
     log("=" * 60)
 
 # =============================================================================
+# EJECUTAR EN BUCLE (FUNCIONA EN .EXE Y DESARROLLO)
+# =============================================================================
+def ejecutar_en_bucle():
+    """
+    Ejecuta el procesador de mensajes en un bucle infinito
+    con un intervalo de 30 segundos entre ejecuciones.
+    """
+    log("=" * 70)
+    log("🔄 ENVIADOR SIMPOL - MODO BUCLE ACTIVADO")
+    log(f"Intervalo entre ejecuciones: {INTERVALO_EJECUCION} segundos")
+    log(f"Archivo de mensajes: {MENSAJES_FILE}")
+    log("Presiona Ctrl+C para detener")
+    log("=" * 70)
+    
+    contador = 0
+    ejecutando = True
+    
+    try:
+        while ejecutando:
+            contador += 1
+            log(f"\n🔄 Ciclo #{contador} - {obtener_hora_actual()}")
+            log("-" * 50)
+            
+            try:
+                procesar_mensajes()
+            except Exception as e:
+                log(f"[ERROR] Error en ciclo #{contador}: {e}")
+                import traceback
+                log(traceback.format_exc())
+            
+            if not ejecutando:
+                break
+            
+            log(f"⏳ Esperando {INTERVALO_EJECUCION} segundos para el próximo ciclo...")
+            
+            # Esperar con verificación de interrupción
+            for _ in range(INTERVALO_EJECUCION):
+                if not ejecutando:
+                    break
+                time.sleep(1)
+    
+    except KeyboardInterrupt:
+        log("\n🛑 ENVIADOR DETENIDO POR USUARIO")
+    except Exception as e:
+        log(f"[ERROR] Error crítico en bucle: {e}")
+    finally:
+        log("📌 Enviador finalizado")
+
+# =============================================================================
 # EJECUTAR
 # =============================================================================
 if __name__ == "__main__":
     modo_auto = '--auto' in sys.argv
+    modo_bucle = '--bucle' in sys.argv or '--loop' in sys.argv
     
-    if modo_auto:
+    # Si es modo bucle, ejecutar en bucle infinito
+    if modo_bucle or not modo_auto:
+        # En modo desarrollo o .exe, ejecutar en bucle
+        ejecutar_en_bucle()
+    else:
+        # Modo auto: ejecutar una sola vez (para tareas programadas)
         try:
             sys.stdout = open(os.devnull, 'w')
             sys.stderr = open(os.devnull, 'w')
         except:
             pass
-    
-    try:
-        socket.setdefaulttimeout(30)
-        procesar_mensajes()
-    except KeyboardInterrupt:
-        log("\n[STOP] Interrumpido")
-    except Exception as e:
+        
         try:
-            with open(LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(f"{obtener_hora_actual()} - [CRITICO] {e}\n")
-                import traceback
-                traceback.print_exc(file=f)
-        except:
-            pass
-    
-    if not modo_auto and not sys.stdin.isatty():
-        input("\nPresiona Enter para salir...")
+            socket.setdefaulttimeout(30)
+            procesar_mensajes()
+        except KeyboardInterrupt:
+            log("\n[STOP] Interrumpido")
+        except Exception as e:
+            try:
+                with open(LOG_FILE, "a", encoding="utf-8") as f:
+                    f.write(f"{obtener_hora_actual()} - [CRITICO] {e}\n")
+                    import traceback
+                    traceback.print_exc(file=f)
+            except:
+                pass
+        
+        if not sys.stdin.isatty():
+            input("\nPresiona Enter para salir...")

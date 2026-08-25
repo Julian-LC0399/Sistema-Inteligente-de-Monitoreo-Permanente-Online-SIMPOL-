@@ -5,6 +5,8 @@ import mysql.connector
 from datetime import datetime
 import socket
 import json
+import signal
+import atexit
 
 # =============================================================================
 # CONFIGURACION DE LOGS - USANDO CARPETA COMPARTIDA
@@ -49,11 +51,11 @@ except ImportError as e:
 # CONFIGURACION DE BASE DE DATOS
 # =============================================================================
 DB_CONFIG = {
-    "host": "127.0.0.1", 
-    "user": "root", 
-    "password": "1234", 
-    "database": "simpol", 
-    "auth_plugin": "mysql_native_password", 
+    "host": "127.0.0.1",
+    "user": "root",
+    "password": "1234",
+    "database": "simpol",
+    "auth_plugin": "mysql_native_password",
     "use_pure": True,
     "connect_timeout": 15
 }
@@ -88,16 +90,130 @@ def obtener_ruta_mensajes():
 
 MENSAJES_FILE = obtener_ruta_mensajes()
 
-# ✅ ESTADOS CON ACENTOS PARA COINCIDIR CON LA BD
+# =============================================================================
+# ARCHIVO DE LATIDO PARA DETECTAR CIERRE EN .EXE
+# =============================================================================
+HEARTBEAT_FILE = os.path.join(LOG_DIR, "agente_heartbeat.txt")
+PID_FILE = os.path.join(LOG_DIR, "agente_simpol.pid")
+
+def actualizar_heartbeat():
+    """Escribe la hora actual en el archivo de latido"""
+    try:
+        with open(HEARTBEAT_FILE, "w") as f:
+            f.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        return True
+    except:
+        return False
+
+def eliminar_heartbeat():
+    """Elimina el archivo de latido al cerrar"""
+    try:
+        if os.path.exists(HEARTBEAT_FILE):
+            os.remove(HEARTBEAT_FILE)
+        return True
+    except:
+        return False
+
+def verificar_y_notificar_cierre():
+    """
+    Verifica si el agente anterior no cerró correctamente
+    y envía un mensaje de cierre si es necesario.
+    """
+    try:
+        # Verificar si existe el archivo de latido de una ejecución anterior
+        if not os.path.exists(HEARTBEAT_FILE):
+            return
+        
+        with open(HEARTBEAT_FILE, "r") as f:
+            contenido = f.read().strip()
+        
+        try:
+            fecha_heartbeat = datetime.strptime(contenido, '%Y-%m-%d %H:%M:%S')
+            ahora = datetime.now()
+            diferencia = (ahora - fecha_heartbeat).total_seconds()
+            
+            # Si el heartbeat tiene más de 45 segundos, significa que el agente anterior murió
+            if diferencia > 45:
+                log(f"[DETECCION] Agente anterior no cerró correctamente (heartbeat de {diferencia:.0f}s)")
+                
+                # Intentar enviar mensaje de cierre
+                try:
+                    mensaje_cierre = f"""
+⚠️ SIMPOL AGENTE DETENIDO DE FORMA INESPERADA
+
+Sistema: Agente de Monitoreo SIMPOL
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Motivo: Cierre inesperado del proceso (ventana cerrada con X o error crítico)
+Estado: Agente fuera de linea
+
+El agente se detuvo de forma abrupta sin notificar.
+"""
+                    enviar_telegram(mensaje_cierre)
+                    log("[DETECCION] Mensaje de cierre inesperado enviado a Telegram")
+                except Exception as e:
+                    log(f"[DETECCION] Error enviando mensaje de cierre: {e}")
+                
+                # Eliminar el heartbeat para que no se procese de nuevo
+                os.remove(HEARTBEAT_FILE)
+                log("[DETECCION] Heartbeat eliminado después de notificar")
+                
+        except ValueError:
+            # Si no se puede parsear, eliminar el archivo
+            os.remove(HEARTBEAT_FILE)
+            log("[DETECCION] Heartbeat corrupto eliminado")
+            
+    except Exception as e:
+        log(f"[DETECCION] Error en verificación de cierre: {e}")
+
+# =============================================================================
+# VARIABLES GLOBALES
+# =============================================================================
 ESTADOS_TELEGRAM = ["CRÍTICO", "PRECAUCIÓN", "ESTABLE"]
 
 AGENTE_EN_EJECUCION = False
-_SOCKET_LOCK = None  
+_SOCKET_LOCK = None
+MOTIVO_CIERRE = "Desconocido"
+_CIERRE_ENVIADO = False  # Control para evitar duplicados
 
 MAPEO_DISCOS = {
     "DISCO_1": "C:\\", "DISCO_2": "D:\\", "DISCO_3": "E:\\",
     "DISCO_4": "F:\\", "DISCO_5": "G:\\", "DISCO_6": "Y:\\"
 }
+
+# =============================================================================
+# FUNCION DE CIERRE - SOLO SE EJECUTA UNA VEZ
+# =============================================================================
+
+def enviar_mensaje_cierre(motivo="Desconocido"):
+    """
+    Envía mensaje de cierre a Telegram.
+    Esta función es segura y puede llamarse múltiples veces sin duplicar.
+    """
+    global _CIERRE_ENVIADO
+
+    # Si ya se envió, salir
+    if _CIERRE_ENVIADO:
+        log("[CIERRE] Mensaje ya enviado anteriormente, omitiendo duplicado")
+        return True
+
+    try:
+        mensaje_cierre = f"""
+🛑 SIMPOL AGENTE DETENIDO
+
+Sistema: Agente de Monitoreo SIMPOL
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Motivo: {motivo}
+Estado: Agente fuera de linea
+
+El monitoreo se ha detenido.
+"""
+        enviar_telegram(mensaje_cierre)
+        _CIERRE_ENVIADO = True
+        log(f"[CIERRE] Mensaje enviado a Telegram. Motivo: {motivo}")
+        return True
+    except Exception as e:
+        log(f"[CIERRE] Error enviando mensaje: {e}")
+        return False
 
 # =============================================================================
 # ENVIO DIARIO DE ESTADO (6 AM HORA VENEZUELA)
@@ -116,7 +232,7 @@ def enviar_mensaje_diario():
             ahora = datetime.now(zona_venezuela)
         except:
             ahora = datetime.now()
-        
+
         mensaje = f"""
 🟢 SISTEMA SIMPOL - REPORTE DIARIO DE OPERATIVIDAD
 
@@ -144,22 +260,16 @@ def verificar_envio_diario():
     Verifica si ya se envió el mensaje diario hoy
     """
     archivo_marcador = os.path.join(LOG_DIR, "ultimo_envio_diario.txt")
-    
-    # Si el archivo no existe, enviar
+
     if not os.path.exists(archivo_marcador):
         return True
-    
+
     try:
         with open(archivo_marcador, "r") as f:
             ultima_fecha = f.read().strip()
-        
+
         hoy = datetime.now().strftime('%Y-%m-%d')
-        
-        # Si la última fecha no es hoy, enviar
-        if ultima_fecha != hoy:
-            return True
-        else:
-            return False
+        return ultima_fecha != hoy
     except:
         return True
 
@@ -184,10 +294,8 @@ def guardar_mensaje_telegram(mensaje):
     Guarda el mensaje en un archivo JSON en la carpeta compartida
     """
     try:
-        # Crear carpeta si no existe
         os.makedirs(os.path.dirname(MENSAJES_FILE), exist_ok=True)
-        
-        # Leer mensajes existentes
+
         mensajes = []
         if os.path.exists(MENSAJES_FILE):
             try:
@@ -195,17 +303,15 @@ def guardar_mensaje_telegram(mensaje):
                     mensajes = json.load(f)
             except:
                 mensajes = []
-        
-        # Agregar nuevo mensaje
+
         mensajes.append({
             "fecha": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "mensaje": mensaje
         })
-        
-        # Guardar todos
+
         with open(MENSAJES_FILE, "w", encoding="utf-8") as f:
             json.dump(mensajes, f, ensure_ascii=False, indent=2)
-        
+
         log(f"Mensaje guardado en: {MENSAJES_FILE} (Total: {len(mensajes)})")
         return True
     except Exception as e:
@@ -224,8 +330,7 @@ def formatear_mensaje_alerta(ip, nombre, componente, estado, comentario, val_pct
     Formatea un mensaje de alerta para Telegram
     """
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    # ✅ Comparaciones con acentos
+
     if estado == "CRÍTICO":
         titulo = "🚨 ALERTA CRITICA - SIMPOL"
         accion = "⚠️ ATENCION: ACCION INMEDIATA REQUERIDA"
@@ -235,7 +340,7 @@ def formatear_mensaje_alerta(ip, nombre, componente, estado, comentario, val_pct
     else:
         titulo = "✅ SISTEMA NORMALIZADO - SIMPOL"
         accion = "✔️ OK: Todo operando dentro de parametros"
-    
+
     mensaje = f"""
 {titulo}
 
@@ -246,12 +351,12 @@ Estado: {estado}
 Hora: {timestamp}
 Detalle: {comentario}
 """
-    
+
     if val_pct is not None:
         mensaje += f"Valor: {val_pct:.1f}%\n"
-    
+
     mensaje += f"\n{accion}"
-    
+
     return mensaje.strip()
 
 def formatear_mensaje_resuelto(ip, nombre, componente, estado_anterior, comentario):
@@ -259,7 +364,7 @@ def formatear_mensaje_resuelto(ip, nombre, componente, estado_anterior, comentar
     Mensaje cuando se resuelve una alerta
     """
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
+
     mensaje = f"""
 ✅ ALERTA RESUELTA - SIMPOL
 
@@ -295,16 +400,16 @@ def conectar_bd_con_reintentos(max_intentos=3, delay=2):
 
 def obtener_umbrales_servidor(ip):
     conn = conectar_bd_con_reintentos()
-    
+
     umbrales = {
-        "cpu_buen_estado": 69.0, 
-        "cpu_advertencia": 70.0, 
+        "cpu_buen_estado": 69.0,
+        "cpu_advertencia": 70.0,
         "cpu_critico": 85.0,
-        "cpu_p_buen_estado": 69.0, 
-        "cpu_p_advertencia": 70.0, 
+        "cpu_p_buen_estado": 69.0,
+        "cpu_p_advertencia": 70.0,
         "cpu_p_critico": 85.0,
-        "ram_buen_estado": 20.0, 
-        "ram_advertencia": 15.0, 
+        "ram_buen_estado": 20.0,
+        "ram_advertencia": 15.0,
         "ram_critico": 10.0,
         "disco_1_buen_estado": 25.0, "disco_1_advertencia": 15.0, "disco_1_critico": 5.0,
         "disco_2_buen_estado": 25.0, "disco_2_advertencia": 15.0, "disco_2_critico": 5.0,
@@ -312,21 +417,21 @@ def obtener_umbrales_servidor(ip):
         "disco_4_buen_estado": 25.0, "disco_4_advertencia": 15.0, "disco_4_critico": 5.0,
         "disco_5_buen_estado": 25.0, "disco_5_advertencia": 15.0, "disco_5_critico": 5.0,
         "disco_6_buen_estado": 25.0, "disco_6_advertencia": 15.0, "disco_6_critico": 5.0,
-        "red_limite_total_mbps": 100.0, 
-        "red_limite_entrante_mbps": 50.0, 
+        "red_limite_total_mbps": 100.0,
+        "red_limite_entrante_mbps": 50.0,
         "red_limite_saliente_mbps": 50.0,
-        "latencia_limite_ms": 150.0, 
+        "latencia_limite_ms": 150.0,
         "perdida_limite_pct": 1.0
     }
-    
+
     if not conn:
         log(f"Sin conexion BD para {ip}, usando umbrales por defecto")
         return umbrales
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT 
+            SELECT
                 cpu_buen_estado, cpu_advertencia, cpu_critico,
                 cpu_p_buen_estado, cpu_p_advertencia, cpu_p_critico,
                 ram_buen_estado, ram_advertencia, ram_critico,
@@ -338,14 +443,14 @@ def obtener_umbrales_servidor(ip):
                 disco_6_buen_estado, disco_6_advertencia, disco_6_critico,
                 red_limite_total_mbps, red_limite_entrante_mbps, red_limite_saliente_mbps,
                 latencia_limite_ms, perdida_limite_pct
-            FROM historico_umbrales 
-            WHERE ip_servidor = %s 
-            ORDER BY id_historico DESC 
+            FROM historico_umbrales
+            WHERE ip_servidor = %s
+            ORDER BY id_historico DESC
             LIMIT 1
         """
         cursor.execute(query, (ip,))
         row = cursor.fetchone()
-        
+
         if row:
             log(f"Umbrales encontrados para {ip}: CPU Crit={row['cpu_critico']}%, RAM Crit={row['ram_critico']}%")
             for key in umbrales.keys():
@@ -353,53 +458,44 @@ def obtener_umbrales_servidor(ip):
                     umbrales[key] = float(row[key])
         else:
             log(f"Sin umbrales configurados para {ip}, usando valores por defecto")
-            
+
         cursor.close()
         conn.close()
-        
+
     except Exception as e:
         log(f"Error obteniendo umbrales para {ip}: {e}")
         if conn and conn.is_connected():
             conn.close()
-    
+
     return umbrales
 
 # =============================================================================
-# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS - CON ACENTOS PARA BD
+# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS
 # =============================================================================
 def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val_dispo, val_pct, sensor_id):
     conn = conectar_bd_con_reintentos()
     if not conn:
         log(f"No se pudo conectar a BD para gestionar alerta de {componente}")
         return
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
-        
-        # =============================================================
-        # 1. OBTENER ESTADO ACTUAL DE LA ALERTA (si existe)
-        # =============================================================
+
         query_check = """
-            SELECT id, tipo_alerta 
-            FROM alertas 
-            WHERE ip_servidor = %s AND componente = %s AND estado_alerta = 'ACTIVA' 
+            SELECT id, tipo_alerta
+            FROM alertas
+            WHERE ip_servidor = %s AND componente = %s AND estado_alerta = 'ACTIVA'
             LIMIT 1
         """
         cursor.execute(query_check, (ip, componente))
         alerta_existente = cursor.fetchone()
-        
-        # =============================================================
-        # 2. OBTENER NOMBRE DEL SERVIDOR
-        # =============================================================
+
         cursor_temp = conn.cursor(dictionary=True)
         cursor_temp.execute("SELECT nombre_alias FROM servidores WHERE ip = %s LIMIT 1", (ip,))
         srv = cursor_temp.fetchone()
         nombre_servidor = srv["nombre_alias"] if srv else ip
         cursor_temp.close()
-        
-        # =============================================================
-        # 3. CONSTRUIR COMENTARIO SEGÚN COMPONENTE - CON ACENTOS
-        # =============================================================
+
         if "Servicio_" in componente:
             if estado_calculado == "ESTABLE":
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se encuentra operativo y estable."
@@ -424,76 +520,60 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
             else:
                 comentario = f"Componente {componente} (ID Sensor: {sensor_id}) en estado critico. Reporta {val_pct:.1f}% disponible."
 
-        # =============================================================
-        # 4. GESTIONAR ALERTA SEGÚN ESTADO CALCULADO - CON ACENTOS
-        # =============================================================
-        
-        # CASO: El componente está ESTABLE
         if estado_calculado == "ESTABLE":
             if alerta_existente:
-                # ✅ CAMBIO: Hay una alerta activa que ahora se resuelve
                 estado_anterior = alerta_existente["tipo_alerta"]
                 query_close = """
-                    UPDATE alertas 
-                    SET estado_alerta = 'RESUELTA', 
-                        fecha_fin = CURRENT_TIMESTAMP(3), 
-                        comentario = %s 
+                    UPDATE alertas
+                    SET estado_alerta = 'RESUELTA',
+                        fecha_fin = CURRENT_TIMESTAMP(3),
+                        comentario = %s
                     WHERE id = %s
                 """
                 cursor.execute(query_close, (comentario, alerta_existente["id"]))
                 conn.commit()
                 log(f"Alerta resuelta para {componente} en {ip} - ESTABLE (era {estado_anterior})")
-                
-                # ✅ ENVIAR TELEGRAM SOLO SI HUBO CAMBIO (estaba en CRÍTICO o PRECAUCIÓN)
+
                 if estado_anterior != "ESTABLE":
                     mensaje_resuelto = formatear_mensaje_resuelto(
                         ip, nombre_servidor, componente, estado_anterior, comentario
                     )
                     enviar_telegram(mensaje_resuelto)
             else:
-                # Verificar si ya existe una alerta ESTABLE activa
                 query_check_estable = """
-                    SELECT id FROM alertas 
-                    WHERE ip_servidor = %s AND componente = %s 
+                    SELECT id FROM alertas
+                    WHERE ip_servidor = %s AND componente = %s
                     AND tipo_alerta = 'ESTABLE' AND estado_alerta = 'ACTIVA'
                     LIMIT 1
                 """
                 cursor.execute(query_check_estable, (ip, componente))
                 estable_existente = cursor.fetchone()
-                
+
                 if not estable_existente:
-                    # No existe alerta ESTABLE, crearla (pero NO enviar Telegram)
                     query_insert = """
                         INSERT INTO alertas (
-                            ip_servidor, componente, tipo_alerta, 
-                            val_total_gb_momento, val_disponible_gb_momento, 
+                            ip_servidor, componente, tipo_alerta,
+                            val_total_gb_momento, val_disponible_gb_momento,
                             val_disponible_pct_momento, estado_alerta, comentario
                         ) VALUES (%s, %s, %s, %s, %s, %s, 'ACTIVA', %s)
                     """
                     cursor.execute(query_insert, (
-                        ip, componente, "ESTABLE", 
+                        ip, componente, "ESTABLE",
                         val_total, val_dispo, val_pct, comentario
                     ))
                     conn.commit()
                     log(f"Alerta ESTABLE registrada para {componente} en {ip}")
-            
+
             cursor.close()
             conn.close()
             return
 
-        # =============================================================
-        # CASO: El componente está CRÍTICO o PRECAUCIÓN
-        # =============================================================
-        
-        # Verificar si ya existe una alerta activa con el MISMO estado
         if alerta_existente:
             if alerta_existente["tipo_alerta"] == estado_calculado:
-                # ✅ MISMO ESTADO: NO enviar Telegram, solo actualizar en BD
                 log(f"Estado {estado_calculado} ya existe para {componente} - sin cambios (no se envía Telegram)")
-                
-                # Actualizar valores en la alerta existente
+
                 query_update = """
-                    UPDATE alertas 
+                    UPDATE alertas
                     SET val_total_gb_momento = %s,
                         val_disponible_gb_momento = %s,
                         val_disponible_pct_momento = %s,
@@ -502,47 +582,44 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 """
                 cursor.execute(query_update, (val_total, val_dispo, val_pct, comentario, alerta_existente["id"]))
                 conn.commit()
-                
+
                 cursor.close()
                 conn.close()
                 return
             else:
-                # ✅ CAMBIO DE ESTADO: Cerrar alerta anterior y crear nueva
                 query_close = """
-                    UPDATE alertas 
-                    SET estado_alerta = 'RESUELTA', 
+                    UPDATE alertas
+                    SET estado_alerta = 'RESUELTA',
                         fecha_fin = CURRENT_TIMESTAMP(3),
-                        comentario = 'Cambio de nivel - Cerrada por nueva alerta' 
+                        comentario = 'Cambio de nivel - Cerrada por nueva alerta'
                     WHERE id = %s
                 """
                 cursor.execute(query_close, (alerta_existente["id"],))
                 conn.commit()
                 log(f"Alerta anterior cerrada. Nuevo estado: {estado_calculado}")
-        
-        # Crear NUEVA alerta con el estado actual
+
         query_insert = """
             INSERT INTO alertas (
-                ip_servidor, componente, tipo_alerta, 
-                val_total_gb_momento, val_disponible_gb_momento, 
+                ip_servidor, componente, tipo_alerta,
+                val_total_gb_momento, val_disponible_gb_momento,
                 val_disponible_pct_momento, estado_alerta, comentario
             ) VALUES (%s, %s, %s, %s, %s, %s, 'ACTIVA', %s)
         """
         cursor.execute(query_insert, (
-            ip, componente, estado_calculado, 
+            ip, componente, estado_calculado,
             val_total, val_dispo, val_pct, comentario
         ))
         conn.commit()
         log(f"Nueva alerta {estado_calculado} para {componente} en {ip}")
-        
-        # ✅ ENVIAR TELEGRAM SOLO SI ES CRÍTICO O PRECAUCIÓN (y hay cambio)
+
         mensaje_alerta = formatear_mensaje_alerta(
             ip, nombre_servidor, componente, estado_calculado, comentario, val_pct
         )
         enviar_telegram(mensaje_alerta)
-        
+
         cursor.close()
         conn.close()
-        
+
     except Exception as e:
         log(f"Error en gestion de alerta para {componente}: {e}")
         if conn and conn.is_connected():
@@ -552,32 +629,82 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
 # FUNCION PRINCIPAL DEL AGENTE
 # =============================================================================
 def ejecutar_motor_agente():
-    global AGENTE_EN_EJECUCION, _SOCKET_LOCK
-    
+    global AGENTE_EN_EJECUCION, _SOCKET_LOCK, MOTIVO_CIERRE
+
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%H:%M:%S')} - >>> EJECUTANDO MOTOR DEL AGENTE <<<\n")
     except:
         pass
-    
+
     log("INICIANDO MOTOR DEL AGENTE")
-    
-    PID_FILE = os.path.join(LOG_DIR, "agente_simpol.pid")
-    
+
+    # =============================================================
+    # VERIFICAR CIERRE INESPERADO DE LA EJECUCIÓN ANTERIOR
+    # =============================================================
+    verificar_y_notificar_cierre()
+
+    # =============================================================
+    # VERIFICAR SI EL AGENTE YA ESTÁ CORRIENDO
+    # =============================================================
+
+    # 1. Verificar PID file
+    pid_en_uso = False
     if os.path.exists(PID_FILE):
         try:
             with open(PID_FILE, "r") as f:
                 old_pid = int(f.read().strip())
+            # Verificar si el proceso existe
             try:
-                import signal
                 os.kill(old_pid, 0)
+                pid_en_uso = True
                 print(f"\n[ALERTA] El agente ya esta ejecutandose (PID: {old_pid})", flush=True)
-                sys.exit(0)
+                log(f"[INICIO] PID {old_pid} en uso")
             except OSError:
+                # El proceso no existe, eliminar PID file
                 os.remove(PID_FILE)
-        except:
-            pass
-    
+                log("[INICIO] PID file eliminado (proceso no existe)")
+        except Exception as e:
+            log(f"[INICIO] Error verificando PID: {e}")
+            try:
+                os.remove(PID_FILE)
+            except:
+                pass
+
+    if pid_en_uso:
+        log("[INICIO] Agente ya en ejecución. Saliendo...")
+        sys.exit(0)
+
+    # 2. Verificar Heartbeat file (solo si el PID no existe)
+    if os.path.exists(HEARTBEAT_FILE):
+        try:
+            # Si llegamos aquí, el PID no existe, así que el heartbeat es huérfano
+            os.remove(HEARTBEAT_FILE)
+            log("[INICIO] Heartbeat file eliminado (huérfano)")
+        except Exception as e:
+            log(f"[INICIO] Error eliminando heartbeat: {e}")
+
+    # 3. Verificar socket de bloqueo (puerto 9999)
+    socket_en_uso = False
+    try:
+        test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_socket.settimeout(1)
+        result = test_socket.connect_ex(("127.0.0.1", 9999))
+        test_socket.close()
+        if result == 0:
+            socket_en_uso = True
+            print(f"\n[ALERTA] El puerto 9999 ya está en uso. El agente ya está ejecutandose.", flush=True)
+            log("[INICIO] Puerto 9999 en uso")
+    except Exception as e:
+        log(f"[INICIO] Error verificando socket: {e}")
+
+    if socket_en_uso:
+        log("[INICIO] Socket en uso. Saliendo...")
+        sys.exit(0)
+
+    # =============================================================
+    # CREAR PID FILE PARA ESTA EJECUCIÓN
+    # =============================================================
     current_pid = os.getpid()
     try:
         with open(PID_FILE, "w") as f:
@@ -585,7 +712,7 @@ def ejecutar_motor_agente():
         log(f"PID {current_pid} guardado en {PID_FILE}")
     except Exception as e:
         log(f"Error guardando PID: {e}")
-    
+
     try:
         _SOCKET_LOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         _SOCKET_LOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -600,15 +727,52 @@ def ejecutar_motor_agente():
         except:
             pass
         sys.exit(0)
-        
+
     AGENTE_EN_EJECUCION = True
     log("AGENTE_EN_EJECUCION = True")
+
+    # =============================================================
+    # CREAR ARCHIVO DE LATIDO PARA DETECTAR CIERRE EN .EXE
+    # =============================================================
+    actualizar_heartbeat()
+    log("[HEARTBEAT] Archivo de latido creado")
+
+    # =============================================================
+    # MANEJADORES DE SEÑALES Y CIERRE
+    # =============================================================
+
+    def signal_handler(signum, frame):
+        global AGENTE_EN_EJECUCION, MOTIVO_CIERRE
+        if signum == 2:
+            MOTIVO_CIERRE = "Ctrl+C (Interrupción manual por el usuario)"
+        elif signum == 15:
+            MOTIVO_CIERRE = "Terminación forzada por el sistema (SIGTERM)"
+        else:
+            MOTIVO_CIERRE = f"Señal {signum} recibida"
+
+        log(f"[SEÑAL] Recibida señal {signum} - {MOTIVO_CIERRE}")
+        AGENTE_EN_EJECUCION = False
+
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        log("[INFO] Manejadores de señales registrados")
+    except Exception as e:
+        log(f"[WARN] No se pudieron registrar manejadores: {e}")
+
+    # Registrar función de cierre que se ejecutará al salir
+    def closure_handler():
+        if AGENTE_EN_EJECUCION:
+            MOTIVO_CIERRE = "Terminación forzada del proceso"
+        enviar_mensaje_cierre(MOTIVO_CIERRE)
+
+    atexit.register(closure_handler)
+
     print("\n" + "="*80)
     print(" SISTEMA DE MONITOREO SIMPOL - AGENTE ACTIVO")
     print("="*80)
     print(" Presiona Control + C para detener el agente.\n", flush=True)
-    
-    # ✅ Mensaje de inicio (se envía UNA SOLA VEZ al iniciar el agente)
+
     mensaje_inicio = f"""
 🚀 SIMPOL AGENTE INICIADO
 
@@ -626,20 +790,18 @@ El sistema esta vigilando los servidores del Banco Caroni
         while AGENTE_EN_EJECUCION:
             ciclo_num += 1
             log("INICIO DE CICLO")
-            
+
             # =============================================================
             # VERIFICAR ENVIO DIARIO (6:00 AM)
             # =============================================================
             try:
-                # Obtener hora actual en Venezuela
                 try:
                     import pytz
                     zona_venezuela = pytz.timezone('America/Caracas')
                     ahora = datetime.now(zona_venezuela)
                 except:
                     ahora = datetime.now()
-                
-                # Si son las 6:00 AM +/- 2 minutos y no se ha enviado hoy
+
                 if ahora.hour == 6 and ahora.minute < 3:
                     if verificar_envio_diario():
                         log("[DIARIO] Es 6:00 AM, enviando mensaje de operatividad...")
@@ -649,7 +811,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                             log("[DIARIO] Error enviando mensaje diario")
             except Exception as e:
                 log(f"[DIARIO] Error en verificacion: {e}")
-            
+
             conn = conectar_bd_con_reintentos()
             if not conn:
                 log("Sin BD, esperando 15s")
@@ -659,14 +821,14 @@ El sistema esta vigilando los servidores del Banco Caroni
             try:
                 cursor_ins = conn.cursor(dictionary=True)
                 cursor_ins.execute("""
-                    SELECT DISTINCT s.* 
-                    FROM servidores s 
-                    WHERE s.estado_monitoreo = 1 
+                    SELECT DISTINCT s.*
+                    FROM servidores s
+                    WHERE s.estado_monitoreo = 1
                     ORDER BY s.nombre_alias ASC
                 """)
                 servidores = cursor_ins.fetchall()
                 cursor_ins.close()
-                
+
                 log(f"Servidores activos encontrados: {len(servidores)}")
 
                 if not servidores:
@@ -683,7 +845,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                         servidores_unicos[ip] = srv
                     else:
                         log(f"Duplicado detectado para IP {ip}, usando el primero encontrado")
-                
+
                 servidores = list(servidores_unicos.values())
 
                 servidores_con_sensores = []
@@ -696,14 +858,14 @@ El sistema esta vigilando los servidores del Banco Caroni
                     id_latencia = int(srv.get("id_sensor_latencia") or 0)
                     ids_discos = [int(srv.get(f"id_sensor_disco_{i}") or 0) for i in range(1, 7)]
                     ids_servicios = [int(srv.get(f"id_sensor_servicio_{i}") or 0) for i in range(1, 9)]
-                    
+
                     total_sensores = id_cpu + id_ram + id_red_total + id_red_entrante + id_red_saliente + id_latencia + sum(ids_discos) + sum(ids_servicios)
-                    
+
                     if total_sensores > 0:
                         servidores_con_sensores.append(srv)
                     else:
                         log(f"Servidor {srv['nombre_alias']} ({srv['ip']}) ignorado - sin sensores configurados")
-                
+
                 servidores = servidores_con_sensores
 
                 print("\n" + "="*80)
@@ -720,51 +882,49 @@ El sistema esta vigilando los servidores del Banco Caroni
                 for idx, srv in enumerate(servidores, 1):
                     ip = srv["ip"]
                     nombre = srv["nombre_alias"] or ip
-                    
+
                     log(f"Procesando: {nombre} ({ip})")
-                    
+
                     print(f"\n[{idx}/{len(servidores)}] SERVIDOR: {nombre}")
                     print(f"    IP: {ip}")
                     print("    " + "-"*70)
-                    
+
                     id_cpu = int(srv.get("id_sensor_cpu") or 0)
                     id_ram = int(srv.get("id_sensor_ram") or 0)
                     id_red_total = int(srv.get("id_sensor_red_total") or srv.get("id_sensor_red") or 0)
                     id_red_entrante = int(srv.get("id_sensor_red_entrante") or 0)
                     id_red_saliente = int(srv.get("id_sensor_red_saliente") or 0)
                     id_latencia = int(srv.get("id_sensor_latencia") or 0)
-                    
+
                     ids_discos = [int(srv.get(f"id_sensor_disco_{i}") or 0) for i in range(1, 7)]
                     ids_servicios = [int(srv.get(f"id_sensor_servicio_{i}") or 0) for i in range(1, 9)]
-                    
+
                     log(f"Obteniendo telemetria para {nombre}...")
                     telemetria = obtener_telemetria_total(srv)
-                    
+
                     umbrales = obtener_umbrales_servidor(ip)
                     log(f"UMBRALES ACTUALES para {nombre}: RAM Crit={umbrales['ram_critico']}%, CPU Crit={umbrales['cpu_critico']}%")
 
                     columnas_sql = ["ip_servidor"]
                     parametros_sql = [str(ip)]
-                    
+
                     status_cpu = "ESTABLE"
                     status_ram = "ESTABLE"
                     status_latencia = "ESTABLE"
                     status_discos = {}
                     status_servicios = {}
-                    
-                    # =============================================================
-                    # CPU - CON ACENTOS
-                    # =============================================================
+
+                    # CPU
                     if id_cpu > 0:
                         v_cpu = safe_float(telemetria.get("cpu") or telemetria.get("CPU", 0.0))
-                        
+
                         if v_cpu >= umbrales["cpu_critico"]:
                             status_cpu = "CRÍTICO"
                         elif v_cpu >= umbrales["cpu_advertencia"]:
                             status_cpu = "PRECAUCIÓN"
                         else:
                             status_cpu = "ESTABLE"
-                        
+
                         registrar_o_resolver_alerta(ip, "CPU", status_cpu, 100, 100 - v_cpu, v_cpu, id_cpu)
                         columnas_sql.append("val_cpu")
                         parametros_sql.append(v_cpu)
@@ -775,40 +935,36 @@ El sistema esta vigilando los servidores del Banco Caroni
                             columnas_sql.append(f"val_cpu_p{idx_core}")
                             parametros_sql.append(v_core)
                             cores.append(f"P{idx_core}:{v_core:.1f}%")
-                        
+
                         estado_icon = "[CRIT]" if status_cpu == "CRÍTICO" else ("[PREC]" if status_cpu == "PRECAUCIÓN" else "[EST]")
                         print(f"    CPU (ID:{id_cpu}): {v_cpu:.1f}% {estado_icon}")
                         print(f"        Cores: {' '.join(cores)}")
 
-                    # =============================================================
-                    # RAM - CON ACENTOS
-                    # =============================================================
+                    # RAM
                     if id_ram > 0:
                         v_ram_total = safe_float(telemetria.get("ram_total_gb") or telemetria.get("RAM_TOTAL_GB", 0.0))
                         v_ram_pct = safe_float(telemetria.get("ram_pct") or telemetria.get("ram_disponible_pct") or telemetria.get("RAM_PCT", 100.0))
                         v_ram_gb = safe_float(telemetria.get("ram_gb") or telemetria.get("ram_disponible_gb") or telemetria.get("RAM_GB", 0.0))
-                        
+
                         if v_ram_pct <= umbrales["ram_critico"]:
                             status_ram = "CRÍTICO"
                         elif v_ram_pct <= umbrales["ram_advertencia"]:
                             status_ram = "PRECAUCIÓN"
                         else:
                             status_ram = "ESTABLE"
-                        
+
                         registrar_o_resolver_alerta(ip, "RAM", status_ram, v_ram_total, v_ram_gb, v_ram_pct, id_ram)
                         columnas_sql.extend(["val_ram_total_gb", "val_ram_disponible_pct", "val_ram_disponible_gb"])
                         parametros_sql.extend([v_ram_total, v_ram_pct, v_ram_gb])
-                        
+
                         estado_icon = "[CRIT]" if status_ram == "CRÍTICO" else ("[PREC]" if status_ram == "PRECAUCIÓN" else "[EST]")
                         print(f"    RAM (ID:{id_ram}): {v_ram_pct:.1f}% {estado_icon} ({v_ram_gb:.1f}/{v_ram_total:.1f} GB)")
 
-                    # =============================================================
                     # RED
-                    # =============================================================
                     v_red_tot = safe_float(telemetria.get("red_total") or telemetria.get("RED_TOTAL", 0.0))
                     v_red_ent = safe_float(telemetria.get("red_entrante") or telemetria.get("RED_ENTRANTE", 0.0))
                     v_red_sal = safe_float(telemetria.get("red_saliente") or telemetria.get("RED_SALIENTE", 0.0))
-                    
+
                     red_parts = []
                     if id_red_total > 0:
                         columnas_sql.append("val_red_total")
@@ -822,13 +978,11 @@ El sistema esta vigilando los servidores del Banco Caroni
                         columnas_sql.append("val_red_saliente")
                         parametros_sql.append(v_red_sal)
                         red_parts.append(f"Saliente:{v_red_sal:.1f}Mbps")
-                    
+
                     if red_parts:
                         print(f"    RED: {' | '.join(red_parts)}")
 
-                    # =============================================================
-                    # DISCOS - CON ACENTOS
-                    # =============================================================
+                    # DISCOS
                     for i in range(1, 7):
                         id_sensor_disco = ids_discos[i-1]
                         if id_sensor_disco > 0:
@@ -837,41 +991,39 @@ El sistema esta vigilando los servidores del Banco Caroni
                             pct_libre = safe_float(telemetria.get(f"disco_{i}_pct") or telemetria.get(f"disco_{i}_pct_libre") or telemetria.get(f"DISCO_{i}_PCT", 0.0))
                             libres_gb = safe_float(telemetria.get(f"disco_{i}_gb") or telemetria.get(f"disco_{i}_libres_gb") or telemetria.get(f"DISCO_{i}_GB", 0.0))
                             status_prtg = int(telemetria.get(f"disco_{i}_prtg_status", 5))
-                            
+
                             clave_critico = f"disco_{i}_critico"
                             clave_advertencia = f"disco_{i}_advertencia"
-                            
+
                             if pct_libre <= umbrales[clave_critico]:
                                 st_disco = "CRÍTICO"
                             elif pct_libre <= umbrales[clave_advertencia]:
                                 st_disco = "PRECAUCIÓN"
                             else:
                                 st_disco = "ESTABLE"
-                            
+
                             if status_prtg in [2, 3]:
                                 st_disco = "CRÍTICO"
                             elif status_prtg == 4:
                                 if st_disco == "ESTABLE":
                                     st_disco = "PRECAUCIÓN"
-                                
+
                             status_discos[i] = st_disco
                             registrar_o_resolver_alerta(ip, letra_unidad, st_disco, total_gb, libres_gb, pct_libre, id_sensor_disco)
-                            
+
                             columnas_sql.extend([f"val_disco_{i}_total_gb", f"val_disco_{i}_pct_libre", f"val_disco_{i}_libres_gb"])
                             parametros_sql.extend([total_gb, pct_libre, libres_gb])
-                            
+
                             estado_icon = "[CRIT]" if st_disco == "CRÍTICO" else ("[PREC]" if st_disco == "PRECAUCIÓN" else "[EST]")
                             print(f"    DISCO {letra_unidad} (ID:{id_sensor_disco}): {pct_libre:.1f}% {estado_icon} ({libres_gb:.1f}/{total_gb:.1f} GB)")
 
-                    # =============================================================
-                    # SERVICIOS - CON ACENTOS
-                    # =============================================================
+                    # SERVICIOS
                     for j in range(1, 9):
                         id_sensor_servicio = ids_servicios[j-1]
                         if id_sensor_servicio > 0:
                             st_servicio = str(telemetria.get(f"servicio_{j}_status") or telemetria.get(f"SERVICIO_{j}_STATUS", "ACTIVO")).upper().strip()
                             status_prtg_srv = telemetria.get(f"servicio_{j}_prtg_status")
-                            
+
                             if status_prtg_srv:
                                 if int(status_prtg_srv) in [2, 3]:
                                     st_servicio = "CRÍTICO"
@@ -879,15 +1031,15 @@ El sistema esta vigilando los servidores del Banco Caroni
                                     st_servicio = "PRECAUCIÓN"
                                 elif int(status_prtg_srv) == 1:
                                     st_servicio = "ACTIVO"
-                            
+
                             nivel_alerta = "CRÍTICO" if st_servicio in ["DOWN", "CRÍTICO", "INACTIVO"] else ("PRECAUCIÓN" if st_servicio == "PRECAUCIÓN" else "ESTABLE")
                             registrar_o_resolver_alerta(ip, f"Servicio_{j}", nivel_alerta, 0, 0, 0, id_sensor_servicio)
 
                             columnas_sql.append(f"estado_servicio_{j}")
                             parametros_sql.append(st_servicio)
-                            
+
                             status_servicios[j] = nivel_alerta
-                            
+
                             if st_servicio == "CRÍTICO":
                                 estado_icon = "[CRIT]"
                             elif st_servicio == "PRECAUCIÓN":
@@ -896,9 +1048,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                                 estado_icon = "[OK]"
                             print(f"    SERVICIO {j} (ID:{id_sensor_servicio}): {st_servicio} {estado_icon}")
 
-                    # =============================================================
-                    # LATENCIA - CON ACENTOS
-                    # =============================================================
+                    # LATENCIA
                     if id_latencia > 0:
                         v_ping = safe_float(telemetria.get("latencia_ping") or telemetria.get("LATENCIA_PING", 0.0))
                         v_max = safe_float(telemetria.get("latencia_max") or telemetria.get("LATENCIA_MAX", 0.0))
@@ -911,48 +1061,46 @@ El sistema esta vigilando los servidores del Banco Caroni
                             status_latencia = "PRECAUCIÓN"
                         else:
                             status_latencia = "ESTABLE"
-                        
+
                         registrar_o_resolver_alerta(ip, "LATENCIA", status_latencia, 0, 0, v_ping, id_latencia)
-                        
+
                         columnas_sql.extend(["val_latencia_ping", "val_latencia_max", "val_latencia_min", "val_latencia_perdida"])
                         parametros_sql.extend([v_ping, v_max, v_min, v_loss])
-                        
+
                         estado_icon = "[CRIT]" if status_latencia == "CRÍTICO" else ("[PREC]" if status_latencia == "PRECAUCIÓN" else "[EST]")
                         print(f"    LATENCIA (ID:{id_latencia}): Ping {v_ping:.1f}ms {estado_icon} (Max:{v_max:.1f}ms | Perdida:{v_loss:.1f}%)")
 
-                    # =============================================================
                     # ESTADO DEL SISTEMA
-                    # =============================================================
                     tiene_critico = False
                     tiene_precaucion = False
-                    
+
                     if status_cpu == "CRÍTICO":
                         tiene_critico = True
                     elif status_cpu == "PRECAUCIÓN":
                         tiene_precaucion = True
-                    
+
                     if status_ram == "CRÍTICO":
                         tiene_critico = True
                     elif status_ram == "PRECAUCIÓN":
                         tiene_precaucion = True
-                    
+
                     if status_latencia == "CRÍTICO":
                         tiene_critico = True
                     elif status_latencia == "PRECAUCIÓN":
                         tiene_precaucion = True
-                    
+
                     for st_d in status_discos.values():
                         if st_d == "CRÍTICO":
                             tiene_critico = True
                         elif st_d == "PRECAUCIÓN":
                             tiene_precaucion = True
-                    
+
                     for st_s in status_servicios.values():
                         if st_s == "CRÍTICO":
                             tiene_critico = True
                         elif st_s == "PRECAUCIÓN":
                             tiene_precaucion = True
-                    
+
                     if tiene_critico:
                         estado_sistema = "5"
                     elif tiene_precaucion:
@@ -969,9 +1117,14 @@ El sistema esta vigilando los servidores del Banco Caroni
                     cursor_write.execute(query, parametros_sql)
                     conn.commit()
                     cursor_write.close()
-                    
+
                     log(f"Datos insertados para {nombre}")
                     print("    " + "-"*70)
+
+                    # =============================================================
+                    # ACTUALIZAR ARCHIVO DE LATIDO (INDICA QUE EL AGENTE ESTÁ VIVO)
+                    # =============================================================
+                    actualizar_heartbeat()
 
             except Exception as e_ciclo:
                 log(f"Fallo en bucle: {str(e_ciclo)}")
@@ -979,7 +1132,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                 import traceback
                 traceback.print_exc()
             finally:
-                if conn and conn.is_connected(): 
+                if conn and conn.is_connected():
                     conn.close()
                     log("Conexion BD cerrada")
 
@@ -988,35 +1141,52 @@ El sistema esta vigilando los servidores del Banco Caroni
             time.sleep(15)
 
     except KeyboardInterrupt:
+        MOTIVO_CIERRE = "Ctrl+C (Interrupción manual por el usuario)"
         print("\n\n" + "="*80)
         print(" PARADA MANUAL DETECTADA")
+        print(f" Motivo: {MOTIVO_CIERRE}")
         print(" Finalizando agente SIMPOL...")
         print("="*80, flush=True)
-        
-        mensaje_cierre = f"""
-🛑 SIMPOL AGENTE DETENIDO
+        enviar_mensaje_cierre(MOTIVO_CIERRE)
 
-Sistema: Agente de Monitoreo SIMPOL
-Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Estado: Agente fuera de linea
+    except Exception as e:
+        MOTIVO_CIERRE = f"Error inesperado: {str(e)}"
+        print("\n\n" + "="*80)
+        print(" ERROR CRITICO DETECTADO")
+        print(f" Motivo: {MOTIVO_CIERRE}")
+        print(" Finalizando agente SIMPOL...")
+        print("="*80, flush=True)
+        import traceback
+        traceback.print_exc()
+        enviar_mensaje_cierre(MOTIVO_CIERRE)
+        raise
 
-El monitoreo se ha detenido manualmente
-"""
-        enviar_telegram(mensaje_cierre)
-        
     finally:
+        # =============================================================
+        # ELIMINAR ARCHIVOS DE CONTROL AL CERRAR
+        # =============================================================
+
+        # 1. Eliminar heartbeat
+        eliminar_heartbeat()
+        log("[HEARTBEAT] Archivo de latido eliminado")
+
+        # 2. Eliminar PID file
+        try:
+            if os.path.exists(PID_FILE):
+                os.remove(PID_FILE)
+                log("[FIN] PID file eliminado")
+        except Exception as e:
+            log(f"[FIN] Error eliminando PID: {e}")
+
+        # 3. Cerrar socket
         if _SOCKET_LOCK:
             try:
                 _SOCKET_LOCK.close()
                 print("Socket de bloqueo puerto 9999 liberado.", flush=True)
+                log("[FIN] Socket liberado")
             except Exception as e_sock:
                 print(f"Error al cerrar el socket: {e_sock}", flush=True)
-        try:
-            if os.path.exists(PID_FILE):
-                os.remove(PID_FILE)
-                log("Archivo PID eliminado")
-        except:
-            pass
+
         print("Agente fuera de linea!", flush=True)
 
 if __name__ == "__main__":
