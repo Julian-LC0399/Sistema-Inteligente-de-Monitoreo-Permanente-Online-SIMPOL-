@@ -5,6 +5,8 @@ import mysql.connector
 from datetime import datetime
 import socket
 import json
+import signal
+import atexit
 
 # =============================================================================
 # CONFIGURACION DE LOGS - USANDO CARPETA COMPARTIDA
@@ -88,17 +90,55 @@ def obtener_ruta_mensajes():
 
 MENSAJES_FILE = obtener_ruta_mensajes()
 
-# ✅ ESTADOS CON ACENTOS PARA COINCIDIR CON LA BD
+# =============================================================================
+# VARIABLES GLOBALES
+# =============================================================================
 ESTADOS_TELEGRAM = ["CRÍTICO", "PRECAUCIÓN", "ESTABLE"]
 
 AGENTE_EN_EJECUCION = False
 _SOCKET_LOCK = None
-MOTIVO_CIERRE = "Desconocido"  # Variable para almacenar el motivo de cierre
+MOTIVO_CIERRE = "Desconocido"
+_CIERRE_ENVIADO = False  # Control para evitar duplicados
 
 MAPEO_DISCOS = {
     "DISCO_1": "C:\\", "DISCO_2": "D:\\", "DISCO_3": "E:\\",
     "DISCO_4": "F:\\", "DISCO_5": "G:\\", "DISCO_6": "Y:\\"
 }
+
+# =============================================================================
+# FUNCION DE CIERRE - SOLO SE EJECUTA UNA VEZ
+# =============================================================================
+
+def enviar_mensaje_cierre(motivo="Desconocido"):
+    """
+    Envía mensaje de cierre a Telegram.
+    Esta función es segura y puede llamarse múltiples veces sin duplicar.
+    """
+    global _CIERRE_ENVIADO
+    
+    # Si ya se envió, salir
+    if _CIERRE_ENVIADO:
+        log("[CIERRE] Mensaje ya enviado anteriormente, omitiendo duplicado")
+        return True
+    
+    try:
+        mensaje_cierre = f"""
+🛑 SIMPOL AGENTE DETENIDO
+
+Sistema: Agente de Monitoreo SIMPOL
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Motivo: {motivo}
+Estado: Agente fuera de linea
+
+El monitoreo se ha detenido.
+"""
+        enviar_telegram(mensaje_cierre)
+        _CIERRE_ENVIADO = True
+        log(f"[CIERRE] Mensaje enviado a Telegram. Motivo: {motivo}")
+        return True
+    except Exception as e:
+        log(f"[CIERRE] Error enviando mensaje: {e}")
+        return False
 
 # =============================================================================
 # ENVIO DIARIO DE ESTADO (6 AM HORA VENEZUELA)
@@ -146,7 +186,6 @@ def verificar_envio_diario():
     """
     archivo_marcador = os.path.join(LOG_DIR, "ultimo_envio_diario.txt")
     
-    # Si el archivo no existe, enviar
     if not os.path.exists(archivo_marcador):
         return True
     
@@ -155,12 +194,7 @@ def verificar_envio_diario():
             ultima_fecha = f.read().strip()
         
         hoy = datetime.now().strftime('%Y-%m-%d')
-        
-        # Si la última fecha no es hoy, enviar
-        if ultima_fecha != hoy:
-            return True
-        else:
-            return False
+        return ultima_fecha != hoy
     except:
         return True
 
@@ -185,10 +219,8 @@ def guardar_mensaje_telegram(mensaje):
     Guarda el mensaje en un archivo JSON en la carpeta compartida
     """
     try:
-        # Crear carpeta si no existe
         os.makedirs(os.path.dirname(MENSAJES_FILE), exist_ok=True)
         
-        # Leer mensajes existentes
         mensajes = []
         if os.path.exists(MENSAJES_FILE):
             try:
@@ -197,13 +229,11 @@ def guardar_mensaje_telegram(mensaje):
             except:
                 mensajes = []
         
-        # Agregar nuevo mensaje
         mensajes.append({
             "fecha": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "mensaje": mensaje
         })
         
-        # Guardar todos
         with open(MENSAJES_FILE, "w", encoding="utf-8") as f:
             json.dump(mensajes, f, ensure_ascii=False, indent=2)
         
@@ -226,7 +256,6 @@ def formatear_mensaje_alerta(ip, nombre, componente, estado, comentario, val_pct
     """
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    # ✅ Comparaciones con acentos
     if estado == "CRÍTICO":
         titulo = "🚨 ALERTA CRITICA - SIMPOL"
         accion = "⚠️ ATENCION: ACCION INMEDIATA REQUERIDA"
@@ -366,7 +395,7 @@ def obtener_umbrales_servidor(ip):
     return umbrales
 
 # =============================================================================
-# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS - CON ACENTOS PARA BD
+# FUNCION PRINCIPAL DE REGISTRO DE ALERTAS
 # =============================================================================
 def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val_dispo, val_pct, sensor_id):
     conn = conectar_bd_con_reintentos()
@@ -377,9 +406,6 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
     try:
         cursor = conn.cursor(dictionary=True)
         
-        # =============================================================
-        # 1. OBTENER ESTADO ACTUAL DE LA ALERTA (si existe)
-        # =============================================================
         query_check = """
             SELECT id, tipo_alerta 
             FROM alertas 
@@ -389,18 +415,12 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
         cursor.execute(query_check, (ip, componente))
         alerta_existente = cursor.fetchone()
         
-        # =============================================================
-        # 2. OBTENER NOMBRE DEL SERVIDOR
-        # =============================================================
         cursor_temp = conn.cursor(dictionary=True)
         cursor_temp.execute("SELECT nombre_alias FROM servidores WHERE ip = %s LIMIT 1", (ip,))
         srv = cursor_temp.fetchone()
         nombre_servidor = srv["nombre_alias"] if srv else ip
         cursor_temp.close()
         
-        # =============================================================
-        # 3. CONSTRUIR COMENTARIO SEGÚN COMPONENTE - CON ACENTOS
-        # =============================================================
         if "Servicio_" in componente:
             if estado_calculado == "ESTABLE":
                 comentario = f"Servicio {componente} (ID Sensor: {sensor_id}) se encuentra operativo y estable."
@@ -425,14 +445,8 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
             else:
                 comentario = f"Componente {componente} (ID Sensor: {sensor_id}) en estado critico. Reporta {val_pct:.1f}% disponible."
 
-        # =============================================================
-        # 4. GESTIONAR ALERTA SEGÚN ESTADO CALCULADO - CON ACENTOS
-        # =============================================================
-        
-        # CASO: El componente está ESTABLE
         if estado_calculado == "ESTABLE":
             if alerta_existente:
-                # ✅ CAMBIO: Hay una alerta activa que ahora se resuelve
                 estado_anterior = alerta_existente["tipo_alerta"]
                 query_close = """
                     UPDATE alertas 
@@ -445,14 +459,12 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 conn.commit()
                 log(f"Alerta resuelta para {componente} en {ip} - ESTABLE (era {estado_anterior})")
                 
-                # ✅ ENVIAR TELEGRAM SOLO SI HUBO CAMBIO (estaba en CRÍTICO o PRECAUCIÓN)
                 if estado_anterior != "ESTABLE":
                     mensaje_resuelto = formatear_mensaje_resuelto(
                         ip, nombre_servidor, componente, estado_anterior, comentario
                     )
                     enviar_telegram(mensaje_resuelto)
             else:
-                # Verificar si ya existe una alerta ESTABLE activa
                 query_check_estable = """
                     SELECT id FROM alertas 
                     WHERE ip_servidor = %s AND componente = %s 
@@ -463,7 +475,6 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 estable_existente = cursor.fetchone()
                 
                 if not estable_existente:
-                    # No existe alerta ESTABLE, crearla (pero NO enviar Telegram)
                     query_insert = """
                         INSERT INTO alertas (
                             ip_servidor, componente, tipo_alerta, 
@@ -482,17 +493,10 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
             conn.close()
             return
 
-        # =============================================================
-        # CASO: El componente está CRÍTICO o PRECAUCIÓN
-        # =============================================================
-        
-        # Verificar si ya existe una alerta activa con el MISMO estado
         if alerta_existente:
             if alerta_existente["tipo_alerta"] == estado_calculado:
-                # ✅ MISMO ESTADO: NO enviar Telegram, solo actualizar en BD
                 log(f"Estado {estado_calculado} ya existe para {componente} - sin cambios (no se envía Telegram)")
                 
-                # Actualizar valores en la alerta existente
                 query_update = """
                     UPDATE alertas 
                     SET val_total_gb_momento = %s,
@@ -508,7 +512,6 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 conn.close()
                 return
             else:
-                # ✅ CAMBIO DE ESTADO: Cerrar alerta anterior y crear nueva
                 query_close = """
                     UPDATE alertas 
                     SET estado_alerta = 'RESUELTA', 
@@ -520,7 +523,6 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
                 conn.commit()
                 log(f"Alerta anterior cerrada. Nuevo estado: {estado_calculado}")
         
-        # Crear NUEVA alerta con el estado actual
         query_insert = """
             INSERT INTO alertas (
                 ip_servidor, componente, tipo_alerta, 
@@ -535,7 +537,6 @@ def registrar_o_resolver_alerta(ip, componente, estado_calculado, val_total, val
         conn.commit()
         log(f"Nueva alerta {estado_calculado} para {componente} en {ip}")
         
-        # ✅ ENVIAR TELEGRAM SOLO SI ES CRÍTICO O PRECAUCIÓN (y hay cambio)
         mensaje_alerta = formatear_mensaje_alerta(
             ip, nombre_servidor, componente, estado_calculado, comentario, val_pct
         )
@@ -604,12 +605,43 @@ def ejecutar_motor_agente():
         
     AGENTE_EN_EJECUCION = True
     log("AGENTE_EN_EJECUCION = True")
+    
+    # =============================================================
+    # MANEJADORES DE SEÑALES Y CIERRE
+    # =============================================================
+    
+    def signal_handler(signum, frame):
+        global AGENTE_EN_EJECUCION, MOTIVO_CIERRE
+        if signum == 2:
+            MOTIVO_CIERRE = "Ctrl+C (Interrupción manual por el usuario)"
+        elif signum == 15:
+            MOTIVO_CIERRE = "Terminación forzada por el sistema (SIGTERM)"
+        else:
+            MOTIVO_CIERRE = f"Señal {signum} recibida"
+        
+        log(f"[SEÑAL] Recibida señal {signum} - {MOTIVO_CIERRE}")
+        AGENTE_EN_EJECUCION = False
+    
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        log("[INFO] Manejadores de señales registrados")
+    except Exception as e:
+        log(f"[WARN] No se pudieron registrar manejadores: {e}")
+    
+    # Registrar función de cierre que se ejecutará al salir
+    def closure_handler():
+        if AGENTE_EN_EJECUCION:
+            MOTIVO_CIERRE = "Terminación forzada del proceso"
+        enviar_mensaje_cierre(MOTIVO_CIERRE)
+    
+    atexit.register(closure_handler)
+    
     print("\n" + "="*80)
     print(" SISTEMA DE MONITOREO SIMPOL - AGENTE ACTIVO")
     print("="*80)
     print(" Presiona Control + C para detener el agente.\n", flush=True)
     
-    # ✅ Mensaje de inicio (se envía UNA SOLA VEZ al iniciar el agente)
     mensaje_inicio = f"""
 🚀 SIMPOL AGENTE INICIADO
 
@@ -632,7 +664,6 @@ El sistema esta vigilando los servidores del Banco Caroni
             # VERIFICAR ENVIO DIARIO (6:00 AM)
             # =============================================================
             try:
-                # Obtener hora actual en Venezuela
                 try:
                     import pytz
                     zona_venezuela = pytz.timezone('America/Caracas')
@@ -640,7 +671,6 @@ El sistema esta vigilando los servidores del Banco Caroni
                 except:
                     ahora = datetime.now()
                 
-                # Si son las 6:00 AM +/- 2 minutos y no se ha enviado hoy
                 if ahora.hour == 6 and ahora.minute < 3:
                     if verificar_envio_diario():
                         log("[DIARIO] Es 6:00 AM, enviando mensaje de operatividad...")
@@ -753,9 +783,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                     status_discos = {}
                     status_servicios = {}
                     
-                    # =============================================================
-                    # CPU - CON ACENTOS
-                    # =============================================================
+                    # CPU
                     if id_cpu > 0:
                         v_cpu = safe_float(telemetria.get("cpu") or telemetria.get("CPU", 0.0))
                         
@@ -781,9 +809,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                         print(f"    CPU (ID:{id_cpu}): {v_cpu:.1f}% {estado_icon}")
                         print(f"        Cores: {' '.join(cores)}")
 
-                    # =============================================================
-                    # RAM - CON ACENTOS
-                    # =============================================================
+                    # RAM
                     if id_ram > 0:
                         v_ram_total = safe_float(telemetria.get("ram_total_gb") or telemetria.get("RAM_TOTAL_GB", 0.0))
                         v_ram_pct = safe_float(telemetria.get("ram_pct") or telemetria.get("ram_disponible_pct") or telemetria.get("RAM_PCT", 100.0))
@@ -803,9 +829,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                         estado_icon = "[CRIT]" if status_ram == "CRÍTICO" else ("[PREC]" if status_ram == "PRECAUCIÓN" else "[EST]")
                         print(f"    RAM (ID:{id_ram}): {v_ram_pct:.1f}% {estado_icon} ({v_ram_gb:.1f}/{v_ram_total:.1f} GB)")
 
-                    # =============================================================
                     # RED
-                    # =============================================================
                     v_red_tot = safe_float(telemetria.get("red_total") or telemetria.get("RED_TOTAL", 0.0))
                     v_red_ent = safe_float(telemetria.get("red_entrante") or telemetria.get("RED_ENTRANTE", 0.0))
                     v_red_sal = safe_float(telemetria.get("red_saliente") or telemetria.get("RED_SALIENTE", 0.0))
@@ -827,9 +851,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                     if red_parts:
                         print(f"    RED: {' | '.join(red_parts)}")
 
-                    # =============================================================
-                    # DISCOS - CON ACENTOS
-                    # =============================================================
+                    # DISCOS
                     for i in range(1, 7):
                         id_sensor_disco = ids_discos[i-1]
                         if id_sensor_disco > 0:
@@ -864,9 +886,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                             estado_icon = "[CRIT]" if st_disco == "CRÍTICO" else ("[PREC]" if st_disco == "PRECAUCIÓN" else "[EST]")
                             print(f"    DISCO {letra_unidad} (ID:{id_sensor_disco}): {pct_libre:.1f}% {estado_icon} ({libres_gb:.1f}/{total_gb:.1f} GB)")
 
-                    # =============================================================
-                    # SERVICIOS - CON ACENTOS
-                    # =============================================================
+                    # SERVICIOS
                     for j in range(1, 9):
                         id_sensor_servicio = ids_servicios[j-1]
                         if id_sensor_servicio > 0:
@@ -897,9 +917,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                                 estado_icon = "[OK]"
                             print(f"    SERVICIO {j} (ID:{id_sensor_servicio}): {st_servicio} {estado_icon}")
 
-                    # =============================================================
-                    # LATENCIA - CON ACENTOS
-                    # =============================================================
+                    # LATENCIA
                     if id_latencia > 0:
                         v_ping = safe_float(telemetria.get("latencia_ping") or telemetria.get("LATENCIA_PING", 0.0))
                         v_max = safe_float(telemetria.get("latencia_max") or telemetria.get("LATENCIA_MAX", 0.0))
@@ -921,9 +939,7 @@ El sistema esta vigilando los servidores del Banco Caroni
                         estado_icon = "[CRIT]" if status_latencia == "CRÍTICO" else ("[PREC]" if status_latencia == "PRECAUCIÓN" else "[EST]")
                         print(f"    LATENCIA (ID:{id_latencia}): Ping {v_ping:.1f}ms {estado_icon} (Max:{v_max:.1f}ms | Perdida:{v_loss:.1f}%)")
 
-                    # =============================================================
                     # ESTADO DEL SISTEMA
-                    # =============================================================
                     tiene_critico = False
                     tiene_precaucion = False
                     
@@ -989,54 +1005,24 @@ El sistema esta vigilando los servidores del Banco Caroni
             time.sleep(15)
 
     except KeyboardInterrupt:
-        # ✅ Registrar el motivo de cierre por Ctrl+C
         MOTIVO_CIERRE = "Ctrl+C (Interrupción manual por el usuario)"
-        
         print("\n\n" + "="*80)
         print(" PARADA MANUAL DETECTADA")
         print(f" Motivo: {MOTIVO_CIERRE}")
         print(" Finalizando agente SIMPOL...")
         print("="*80, flush=True)
-        
-        mensaje_cierre = f"""
-🛑 SIMPOL AGENTE DETENIDO
-
-Sistema: Agente de Monitoreo SIMPOL
-Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Motivo: {MOTIVO_CIERRE}
-Estado: Agente fuera de linea
-
-El monitoreo se ha detenido manualmente
-"""
-        enviar_telegram(mensaje_cierre)
+        enviar_mensaje_cierre(MOTIVO_CIERRE)
         
     except Exception as e:
-        # ✅ Registrar el motivo de cierre por error inesperado
         MOTIVO_CIERRE = f"Error inesperado: {str(e)}"
-        
         print("\n\n" + "="*80)
         print(" ERROR CRITICO DETECTADO")
         print(f" Motivo: {MOTIVO_CIERRE}")
         print(" Finalizando agente SIMPOL...")
         print("="*80, flush=True)
-        
         import traceback
         traceback.print_exc()
-        
-        mensaje_cierre = f"""
-🛑 SIMPOL AGENTE DETENIDO - ERROR CRÍTICO
-
-Sistema: Agente de Monitoreo SIMPOL
-Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Motivo: {MOTIVO_CIERRE}
-Estado: Agente fuera de linea por error
-
-El sistema ha detectado un error crítico y se ha detenido.
-Revise los logs para más detalles.
-"""
-        enviar_telegram(mensaje_cierre)
-        
-        # Re-lanzar la excepción para que se vea en la consola
+        enviar_mensaje_cierre(MOTIVO_CIERRE)
         raise
         
     finally:
