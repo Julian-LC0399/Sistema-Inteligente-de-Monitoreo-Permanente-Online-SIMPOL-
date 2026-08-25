@@ -105,43 +105,6 @@ def actualizar_heartbeat():
     except:
         return False
 
-def verificar_heartbeat():
-    """
-    Verifica si el agente está vivo por el archivo de latido.
-    Si el archivo tiene más de 60 segundos, se considera huérfano y se elimina.
-    """
-    try:
-        if not os.path.exists(HEARTBEAT_FILE):
-            return False
-
-        # Leer la fecha del archivo
-        with open(HEARTBEAT_FILE, "r") as f:
-            contenido = f.read().strip()
-
-        # Intentar parsear la fecha
-        try:
-            fecha_heartbeat = datetime.strptime(contenido, '%Y-%m-%d %H:%M:%S')
-            ahora = datetime.now()
-            diferencia = (ahora - fecha_heartbeat).total_seconds()
-
-            # Si el archivo tiene más de 60 segundos, considerarlo huérfano
-            if diferencia > 60:
-                log(f"[HEARTBEAT] Archivo huérfano detectado ({diferencia:.0f}s de antigüedad). Eliminando...")
-                os.remove(HEARTBEAT_FILE)
-                return False
-            else:
-                log(f"[HEARTBEAT] Archivo de latido válido ({diferencia:.0f}s de antigüedad)")
-                return True
-        except ValueError:
-            # Si no se puede parsear la fecha, eliminar el archivo
-            log("[HEARTBEAT] Archivo de latido corrupto. Eliminando...")
-            os.remove(HEARTBEAT_FILE)
-            return False
-
-    except Exception as e:
-        log(f"[HEARTBEAT] Error verificando latido: {e}")
-        return False
-
 def eliminar_heartbeat():
     """Elimina el archivo de latido al cerrar"""
     try:
@@ -150,6 +113,57 @@ def eliminar_heartbeat():
         return True
     except:
         return False
+
+def verificar_y_notificar_cierre():
+    """
+    Verifica si el agente anterior no cerró correctamente
+    y envía un mensaje de cierre si es necesario.
+    """
+    try:
+        # Verificar si existe el archivo de latido de una ejecución anterior
+        if not os.path.exists(HEARTBEAT_FILE):
+            return
+        
+        with open(HEARTBEAT_FILE, "r") as f:
+            contenido = f.read().strip()
+        
+        try:
+            fecha_heartbeat = datetime.strptime(contenido, '%Y-%m-%d %H:%M:%S')
+            ahora = datetime.now()
+            diferencia = (ahora - fecha_heartbeat).total_seconds()
+            
+            # Si el heartbeat tiene más de 45 segundos, significa que el agente anterior murió
+            if diferencia > 45:
+                log(f"[DETECCION] Agente anterior no cerró correctamente (heartbeat de {diferencia:.0f}s)")
+                
+                # Intentar enviar mensaje de cierre
+                try:
+                    mensaje_cierre = f"""
+⚠️ SIMPOL AGENTE DETENIDO DE FORMA INESPERADA
+
+Sistema: Agente de Monitoreo SIMPOL
+Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Motivo: Cierre inesperado del proceso (ventana cerrada con X o error crítico)
+Estado: Agente fuera de linea
+
+El agente se detuvo de forma abrupta sin notificar.
+"""
+                    enviar_telegram(mensaje_cierre)
+                    log("[DETECCION] Mensaje de cierre inesperado enviado a Telegram")
+                except Exception as e:
+                    log(f"[DETECCION] Error enviando mensaje de cierre: {e}")
+                
+                # Eliminar el heartbeat para que no se procese de nuevo
+                os.remove(HEARTBEAT_FILE)
+                log("[DETECCION] Heartbeat eliminado después de notificar")
+                
+        except ValueError:
+            # Si no se puede parsear, eliminar el archivo
+            os.remove(HEARTBEAT_FILE)
+            log("[DETECCION] Heartbeat corrupto eliminado")
+            
+    except Exception as e:
+        log(f"[DETECCION] Error en verificación de cierre: {e}")
 
 # =============================================================================
 # VARIABLES GLOBALES
@@ -624,6 +638,11 @@ def ejecutar_motor_agente():
         pass
 
     log("INICIANDO MOTOR DEL AGENTE")
+
+    # =============================================================
+    # VERIFICAR CIERRE INESPERADO DE LA EJECUCIÓN ANTERIOR
+    # =============================================================
+    verificar_y_notificar_cierre()
 
     # =============================================================
     # VERIFICAR SI EL AGENTE YA ESTÁ CORRIENDO
