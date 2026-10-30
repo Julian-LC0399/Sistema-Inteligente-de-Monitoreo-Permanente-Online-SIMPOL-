@@ -421,14 +421,37 @@ def gestionar_limpieza_filtros(seccion_destino):
         elif seccion_destino == "📈 Capacity planning":
             st.query_params["tab_capacity"] = tab_actual
 
+
+# =============================================================
+# HELPERS DE SESIÓN
+# =============================================================
+def _sincronizar_url_sesion():
+    """Escribe los parámetros de sesión en la URL SOLO cuando hay autenticación real."""
+    st.query_params["s"] = "1"
+    st.query_params["rol"] = st.session_state.get("rol", "operador")
+    st.query_params["uid"] = str(st.session_state.get("user_id", 1))
+    st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
+    st.query_params["c"] = st.session_state.get("cargo", "Analista")
+    st.query_params["p"] = st.session_state.get("seccion_actual", "🏠 Inicio")
+
+
+def _restaurar_sesion_desde_url():
+    """
+    Punto de extensión para restaurar sesión.
+    Ya NO se confía en '?s=1' por sí solo (antes era bypass de seguridad).
+    En el futuro podría implementarse un token firmado.
+    """
+    return
+
+
 def main():
     params = st.query_params
-    
+
     # =============================================================
-    # PROCESAR REDIRECCIÓN DESDE SERVIDORES ("Ver en vivo")
+    # 1. PROCESAR REDIRECCIÓN DESDE SERVIDORES ("Ver en vivo")
     # =============================================================
     srv_desde_url = params.get("srv")
-    if srv_desde_url:
+    if srv_desde_url and st.session_state.get("autenticado"):
         logging.info(f"🔍 Procesando redirección desde servidores: {srv_desde_url}")
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
         st.session_state["_monitoreo_activo"] = True
@@ -442,59 +465,50 @@ def main():
             del st.query_params["srv_mon"]
         st.rerun()
         return
-    
+
     if "srv_mon" in st.query_params:
         del st.query_params["srv_mon"]
         st.rerun()
         return
-    
-    # =============================================================
-    # AUTENTICACIÓN
-    # =============================================================
-    if "autenticado" not in st.session_state:
-        st.session_state["autenticado"] = True if params.get("s") == "1" else False
-    
-    if params.get("rol") and "rol" not in st.session_state:
-        st.session_state["rol"] = params.get("rol")
-    if params.get("uid") and "user_id" not in st.session_state:
-        st.session_state["user_id"] = int(params.get("uid"))
-    if params.get("c") and "cargo" not in st.session_state:
-        st.session_state["cargo"] = params.get("c")
-    if params.get("u") and "user_actual" not in st.session_state:
-        st.session_state["user_actual"] = params.get("u")
 
-    if st.session_state.get("autenticado") and not params.get("s"):
-        st.query_params["s"] = "1"
-        st.query_params["rol"] = st.session_state.get("rol", "operador")
-        st.query_params["uid"] = str(st.session_state.get("user_id", 1))
-        st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
-        st.query_params["c"] = st.session_state.get("cargo", "Analista")
-        st.query_params["p"] = st.session_state.get("seccion_actual", "🏠 Inicio")
-        st.rerun()
+    # =============================================================
+    # 2. RESTAURAR / VALIDAR SESIÓN (SIN BYPASS)
+    # =============================================================
+    _restaurar_sesion_desde_url()
 
+    # =============================================================
+    # 3. FLUJO DE AUTENTICACIÓN
+    # =============================================================
     if not st.session_state.get("autenticado", False):
-        if any(k in params for k in ["s", "rol", "uid", "u", "c", "p"]):
+        # Limpiar cualquier parámetro residual de sesión previa
+        if any(k in params for k in ["s", "rol", "uid", "u", "c", "p", "r"]):
             st.query_params.clear()
         auth.mostrar_login()
         return
 
+    # Si el usuario debe cambiar la clave, forzar pantalla de cambio
+    if st.session_state.get("debe_cambiar_clave", False):
+        st.session_state["_forzar_cambio_clave"] = True
+        auth.mostrar_login()
+        return
+
     # =============================================================
-    # USUARIO AUTENTICADO - NAVEGACIÓN
+    # 4. USUARIO AUTENTICADO - NAVEGACIÓN
     # =============================================================
     url_seccion = params.get("p")
     if url_seccion:
         st.session_state["seccion_actual"] = url_seccion
-    
+
     if st.session_state.get("_monitoreo_activo", False):
         st.session_state["seccion_actual"] = "🖥️ Monitoreo en vivo"
-    
+
     if "seccion_actual" not in st.session_state:
         st.session_state["seccion_actual"] = "🏠 Inicio"
-    
+
     generar_menu()
-    
+
     # =============================================================
-    # ESTABLECER MÓDULO ACTUAL Y LIMPIEZA
+    # 5. ESTABLECER MÓDULO ACTUAL Y LIMPIEZA
     # =============================================================
     modulo_map = {
         "🏠 Inicio": "inicio",
@@ -507,10 +521,10 @@ def main():
         "👥 Gestión de usuarios": "gestion",
         "🕵️ Auditoría": "auditoria"
     }
-    
+
     seccion_anterior = st.session_state.get("_seccion_anterior", "")
     seccion_actual = st.session_state["seccion_actual"]
-    
+
     # =============================================================
     # LIMPIEZA RADICAL: Reportes -> Capacity
     # =============================================================
@@ -528,34 +542,27 @@ def main():
         st.session_state["_seccion_anterior"] = seccion_actual
         st.rerun()
         return
-    
+
     st.session_state["_seccion_anterior"] = seccion_actual
     st.session_state["modulo_actual"] = modulo_map.get(seccion_actual, "otros")
-    
+
     # =============================================================
     # LIMPIEZA DE FILTROS - PRESERVAR MONITOREO
     # =============================================================
     if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         limpiar_parametros_monitoreo()
-    
+
     # =============================================================
-    # SINCRONIZAR URL
+    # 6. SINCRONIZAR URL (solo autenticado)
     # =============================================================
-    if params.get("p") != st.session_state["seccion_actual"]:
-        st.query_params["p"] = st.session_state["seccion_actual"]
-    
-    st.query_params["s"] = "1"
-    st.query_params["rol"] = st.session_state.get("rol", "operador")
-    st.query_params["uid"] = str(st.session_state.get("user_id", 1))
-    st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
-    st.query_params["c"] = st.session_state.get("cargo", "Analista")
-    
+    _sincronizar_url_sesion()
+
     # =============================================================
-    # RENDERIZAR MÓDULO
+    # 7. RENDERIZAR MÓDULO
     # =============================================================
     seleccion = st.session_state["seccion_actual"]
-    
+
     if seleccion == "📈 Capacity planning":
         placeholder = st.empty()
         placeholder.empty()
@@ -563,8 +570,8 @@ def main():
             try:
                 from modulos import capacity
                 capacity.mostrar_pantalla(
-                    usuario_id=st.session_state.get("user_id", 1), 
-                    usuario_login=st.session_state.get("user_actual", "Sistema"), 
+                    usuario_id=st.session_state.get("user_id", 1),
+                    usuario_login=st.session_state.get("user_actual", "Sistema"),
                     nombre_analista=st.session_state.get("cargo", "Analista")
                 )
             except Exception as e:
@@ -608,7 +615,10 @@ def main():
                 )
             elif seleccion == "👥 Gestión de usuarios":
                 from modulos import gestion
-                gestion.mostrar_pantalla(st.session_state.get("user_actual", "Sistema"), st.session_state.get("user_id", 1))
+                gestion.mostrar_pantalla(
+                    st.session_state.get("user_actual", "Sistema"),
+                    st.session_state.get("user_id", 1)
+                )
             elif seleccion == "🕵️ Auditoría":
                 from modulos import auditoria
                 auditoria.mostrar_pantalla()
@@ -616,6 +626,7 @@ def main():
             logging.error(f"Error crítico cargando sección {seleccion}: {e}")
             st.error(f"Error en la sección {seleccion}. Verifique logs.")
             st.exception(e)
+
 
 if __name__ == "__main__":
     main()

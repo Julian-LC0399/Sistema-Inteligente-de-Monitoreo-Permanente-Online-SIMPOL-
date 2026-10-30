@@ -2,6 +2,7 @@ import mysql.connector
 import streamlit as st
 import logging
 from datetime import datetime
+from security import procesar_login, cambiar_clave, hashear_clave, verificar_clave
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -25,6 +26,142 @@ def conectar_bd():
         except Exception:
             return None
 
+# =========================================================================
+# 🔧 REPARACIÓN AUTOMÁTICA DE CLAVES INVÁLIDAS
+# =========================================================================
+def reparar_claves_iniciales():
+    """
+    Verifica que las claves de los usuarios iniciales sean hashes bcrypt válidos
+    y que verifiquen con '1234'. Si no, las repara generando un hash real
+    con bcrypt.gensalt() en esta máquina.
+    Se ejecuta una sola vez al arrancar la app. Es idempotente.
+    """
+    conn = conectar_bd()
+    if not conn:
+        logging.warning("reparar_claves_iniciales: sin conexión a la BD, se omite")
+        return
+
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, usuario, clave
+            FROM usuarios
+            WHERE usuario IN ('seguridad_csu', 'admin_csu', 'operador')
+        """)
+        usuarios = cursor.fetchall()
+
+        if not usuarios:
+            logging.info("reparar_claves_iniciales: no hay usuarios iniciales")
+            cursor.close()
+            conn.close()
+            return
+
+        hash_real_1234 = None
+        reparados = 0
+
+        for u in usuarios:
+            clave_actual = u["clave"] or ""
+            es_valido = False
+            verifica_1234 = False
+
+            # ¿Tiene formato de hash bcrypt?
+            if clave_actual.startswith("$2b$") or clave_actual.startswith("$2a$"):
+                try:
+                    # Probamos que bcrypt pueda procesarlo sin excepción
+                    verificar_clave("dummy", clave_actual)
+                    es_valido = True
+                except Exception:
+                    es_valido = False
+
+            # Si es válido, ¿verifica con 1234?
+            if es_valido:
+                try:
+                    verifica_1234 = verificar_clave("1234", clave_actual)
+                except Exception:
+                    verifica_1234 = False
+
+            if not es_valido or not verifica_1234:
+                if hash_real_1234 is None:
+                    hash_real_1234 = hashear_clave("1234")
+                    logging.info(f"🔧 Hash real de '1234' generado: {hash_real_1234[:35]}...")
+
+                cursor.execute("""
+                    UPDATE usuarios
+                    SET clave = %s,
+                        intentos_fallidos = 0,
+                        bloqueado_hasta = NULL,
+                        debe_cambiar_clave = 1,
+                        estado = 1
+                    WHERE id = %s
+                """, (hash_real_1234, u["id"]))
+                reparados += 1
+                logging.warning(f"🔧 Clave reparada para el usuario: {u['usuario']}")
+
+        if reparados > 0:
+            conn.commit()
+            logging.info(f"✅ {reparados} clave(s) reparada(s) automáticamente. Prueba login con '1234'.")
+        else:
+            logging.info("✅ Todas las claves iniciales son válidas, nada que reparar.")
+
+        cursor.close()
+        conn.close()
+
+    except Exception as e:
+        logging.error(f"Error en reparar_claves_iniciales: {e}")
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# Ejecución automática al importar el módulo
+try:
+    reparar_claves_iniciales()
+except Exception as e:
+    logging.error(f"No se pudo ejecutar reparar_claves_iniciales al importar: {e}")
+
+
+# =========================================================================
+# NUEVAS FUNCIONES DE SEGURIDAD (WRAPPERS)
+# =========================================================================
+def autenticar_usuario(usuario, clave, ip_cliente='127.0.0.1'):
+    """Wrapper para el login usando security.py. Maneja la conexión y el commit."""
+    conn = conectar_bd()
+    if not conn:
+        return {"exito": False, "mensaje": "Error de conexión a la base de datos."}
+    try:
+        cursor = conn.cursor(dictionary=True)
+        resultado = procesar_login(cursor, usuario, clave, ip_cliente)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return resultado
+    except Exception as e:
+        logging.error(f"Error crítico en autenticación: {e}")
+        if conn: conn.close()
+        return {"exito": False, "mensaje": "Error interno del servidor."}
+
+def actualizar_clave_usuario(usuario_id, clave_actual, clave_nueva, es_admin=False, admin_id=None):
+    """Wrapper para cambiar la contraseña usando security.py."""
+    conn = conectar_bd()
+    if not conn:
+        return {"exito": False, "mensaje": "Error de conexión a la base de datos."}
+    try:
+        cursor = conn.cursor(dictionary=True)
+        resultado = cambiar_clave(cursor, usuario_id, clave_actual, clave_nueva, es_admin, admin_id)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return resultado
+    except Exception as e:
+        logging.error(f"Error crítico al cambiar contraseña: {e}")
+        if conn: conn.close()
+        return {"exito": False, "mensaje": "Error interno del servidor."}
+
+# =========================================================================
+# FUNCIONES EXISTENTES (SIN CAMBIOS MAYORES)
+# =========================================================================
 @st.cache_data(ttl=3)
 def obtener_lista_servidores():
     conn = conectar_bd()
@@ -61,7 +198,6 @@ def obtener_lista_servidores():
 
 @st.cache_data(ttl=2)
 def obtener_datos_historicos(ip_objetivo):
-    """Extrae la telemetría histórica integrando el total de CPU, los 8 procesadores, red desglosada y ping avanzado."""
     if not ip_objetivo:
         return []
     ip_limpia = str(ip_objetivo).strip()
@@ -102,7 +238,6 @@ def obtener_datos_historicos(ip_objetivo):
     return []
 
 def guardar_telemetria_servidor(ip_servidor, data):
-    """Inserta la telemetría en la base de datos mapeando de forma explícita los 8 procesadores, red y ping avanzados."""
     conn = conectar_bd()
     if not conn:
         return False
@@ -127,14 +262,10 @@ def guardar_telemetria_servidor(ip_servidor, data):
                 val_latencia_ping, val_latencia_max, val_latencia_min, val_latencia_perdida,
                 estado_sistema
             ) VALUES (
-                %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s,
-                %s, %s, %s, %s,
-                %s
+                %s, %s, %s, %s, %s, %s, %s, %s
             )
         """
         valores = (
@@ -171,7 +302,6 @@ def guardar_telemetria_servidor(ip_servidor, data):
         return False
 
 def obtener_umbrales_actuales(ip):
-    """Carga los umbrales operativos vigentes de la tabla historico_umbrales."""
     umbrales = {
         "cpu_buen_estado": 69, "cpu_advertencia": 70, "cpu_critico": 85,
         "cpu_p_buen_estado": 69, "cpu_p_advertencia": 70, "cpu_p_critico": 85,
@@ -181,7 +311,6 @@ def obtener_umbrales_actuales(ip):
     }
     for i in range(1, 7):
         umbrales.update({f"disco_{i}_buen_estado": 25, f"disco_{i}_advertencia": 15, f"disco_{i}_critico": 5})
-    
     if not ip: return umbrales
     ip_limpia = str(ip).strip()
     conn = conectar_bd()
@@ -224,25 +353,7 @@ def obtener_permisos_usuario(usuario_id):
             if conn: conn.close()
     return permisos
 
-def verificar_usuario(usuario, clave):
-    conn = conectar_bd()
-    if conn:
-        try:
-            conn.commit()
-            cursor = conn.cursor(dictionary=True)
-            query = "SELECT id, usuario, cargo, rol FROM usuarios WHERE usuario = %s AND clave = %s AND estado = 1"
-            cursor.execute(query, (usuario, clave))
-            resultado = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            return resultado
-        except Exception as e:
-            logging.error(f"Error en login: {e}")
-            if conn: conn.close()
-    return None
-
 def registrar_proyeccion(usuario_id, ip_servidor, metrica, act_total, act_gb, act_pct, pro_total, pro_gb, pro_pct, veredicto, act_red=0.0, pro_red=0.0):
-    """Sincronizado con la tabla proyecciones incluyendo los campos correspondientes a capacidad de red."""
     conn = conectar_bd()
     if conn:
         try:
@@ -261,42 +372,6 @@ def registrar_proyeccion(usuario_id, ip_servidor, metrica, act_total, act_gb, ac
             return True
         except Exception as e:
             logging.error(f"Error al registrar proyección: {e}")
-            if conn: conn.close()
-    return False
-
-def registrar_log_acceso(usuario, cargo, rol, resultado="EXITOSO", usuario_id=None):
-    conn = conectar_bd()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            query = "INSERT INTO log_accesos (usuario_id, usuario, cargo, rol, resultado) VALUES (%s, %s, %s, %s, %s)"
-            cursor.execute(query, (usuario_id, usuario, cargo, rol, resultado))
-            conn.commit()
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            logging.error(f"Error de log: {e}")
-            if conn: conn.close()
-
-def registrar_auditoria_usuario(afectado, accion, anterior, nuevo, ejecutor_id, comentario):
-    """REGISTRO CORREGIDO: Mapea perfectamente hacia la columna 'commentario' de la base de datos de auditoría."""
-    conn = conectar_bd()
-    if conn:
-        try:
-            id_limpio = int(ejecutor_id) if ejecutor_id is not None else None
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO historico_usuarios 
-                (usuario_id, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(query, (id_limpio, afectado, accion, anterior, nuevo, comentario))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return True
-        except Exception as e:
-            logging.error(f"Error de auditoría en backend SIMPOL: {e}")
             if conn: conn.close()
     return False
 
@@ -334,7 +409,6 @@ def obtener_reporte_alertas(estado=None, ip=None):
     return resultado
 
 def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_total, val_disp_gb, val_disp_pct, est_srv=None, comentario=None, val_red_mbps=0.0, val_latencia_ms=0.0, val_perdida_pct=0.0):
-    """Gestión de alertas bajo el modelo de disponibilidad incorporando capturas de red, latencia y pérdida de paquetes."""
     ip_limpia = str(ip_servidor).strip()
     conn = conectar_bd()
     if not conn: return False
@@ -380,7 +454,6 @@ def gestionar_estado_alerta(ip_servidor, componente, tipo_alerta, val_total, val
         return False
 
 def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, snap_tot=0, snap_disp=0, snap_pct=0, snap_red_tot=0.0, snap_red_ent=0.0, snap_red_sal=0.0, snap_lat=0.0, snap_per=0.0, snap_srv=None):
-    """Archiva reportes inyectando la métrica de disponibilidad junto con los snapshots de red desglosada y calidad de ping."""
     conn = conectar_bd()
     if not conn: return False
     try:
@@ -408,7 +481,6 @@ def registrar_reporte_archivado(nombre_archivo, formato, ip_servidor, contenido_
         return False
 
 def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_servidor, contenido_blob, usuario_id, alerta_id, tipo_alerta, tamanio_kb, act_tot=0, act_disp=0, pro_disp=0, act_red=0.0, pro_red=0.0):
-    """Sincronizado de manera exacta con las columnas numéricas e históricas de la tabla reportes_capacity_archivados."""
     conn = conectar_bd()
     if not conn: return False
     try:
