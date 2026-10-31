@@ -27,13 +27,14 @@ def conectar_bd():
             return None
 
 # =========================================================================
-# 🔧 REPARACIÓN AUTOMÁTICA DE CLAVES INVÁLIDAS (CORREGIDO)
+# 🔧 INICIALIZACIÓN SEGURA DE CLAVES
 # =========================================================================
 def reparar_claves_iniciales():
     """
     Verifica que las claves de los usuarios iniciales sean hashes bcrypt válidos.
-    Si el hash está corrupto (no es bcrypt), lo repara con '1234'.
-    ¡NUNCA sobreescribe si el hash ya es un bcrypt válido (aunque no sea 1234)!
+    Si detecta la palabra 'PENDIENTE' (desde el script SQL) o un formato inválido, 
+    genera un hash bcrypt real para '1234' en la máquina local y lo guarda.
+    Se ejecuta una sola vez al arrancar la app. Es idempotente.
     """
     conn = conectar_bd()
     if not conn:
@@ -61,20 +62,20 @@ def reparar_claves_iniciales():
             clave_actual = u["clave"] or ""
             es_valido = False
 
-            # ¿Tiene formato de hash bcrypt?
+            # ¿Tiene formato de hash bcrypt válido?
             if clave_actual.startswith("$2b$") or clave_actual.startswith("$2a$"):
                 try:
-                    # Probamos que bcrypt pueda procesarlo sin excepción
                     verificar_clave("dummy", clave_actual)
                     es_valido = True
                 except Exception:
                     es_valido = False
 
-            # SOLO si el hash está corrupto, lo reparamos a 1234
+            # Si NO es válido (por ejemplo, si dice 'PENDIENTE' o está vacío), lo reparamos
             if not es_valido:
                 if hash_real_1234 is None:
+                    # Generamos el hash de '1234' en tiempo real con bcrypt
                     hash_real_1234 = hashear_clave("1234")
-                    logging.info(f"🔧 Hash real de '1234' generado: {hash_real_1234[:35]}...")
+                    logging.info(f"🔧 Generando hash real para '1234': {hash_real_1234[:35]}...")
 
                 cursor.execute("""
                     UPDATE usuarios
@@ -86,13 +87,13 @@ def reparar_claves_iniciales():
                     WHERE id = %s
                 """, (hash_real_1234, u["id"]))
                 reparados += 1
-                logging.warning(f"🔧 Clave reparada (estaba corrupta) para el usuario: {u['usuario']}")
+                logging.info(f"🔧 Contraseña inicializada a '1234' para: {u['usuario']}")
 
         if reparados > 0:
             conn.commit()
-            logging.info(f"✅ {reparados} clave(s) reparada(s) automáticamente. Prueba login con '1234'.")
+            logging.info(f"✅ {reparados} clave(s) inicializada(s) con éxito.")
         else:
-            logging.info("✅ Todas las claves iniciales son válidas, nada que reparar.")
+            logging.info("✅ Todas las claves son válidas, no requiere reparación.")
 
         cursor.close()
         conn.close()
@@ -114,7 +115,7 @@ except Exception as e:
 
 
 # =========================================================================
-# NUEVAS FUNCIONES DE SEGURIDAD (WRAPPERS)
+# FUNCIONES DE SEGURIDAD (WRAPPERS)
 # =========================================================================
 def autenticar_usuario(usuario, clave, ip_cliente='127.0.0.1'):
     """Wrapper para el login usando security.py. Maneja la conexión y el commit."""
@@ -151,7 +152,7 @@ def actualizar_clave_usuario(usuario_id, clave_actual, clave_nueva, es_admin=Fal
         return {"exito": False, "mensaje": "Error interno del servidor."}
 
 # =========================================================================
-# FUNCIONES EXISTENTES
+# FUNCIONES DE MONITOREO Y TELEMETRÍA
 # =========================================================================
 @st.cache_data(ttl=3)
 def obtener_lista_servidores():

@@ -1,5 +1,6 @@
 import streamlit as st
 from database import conectar_bd, registrar_auditoria_usuario
+from security import hashear_clave  # <-- IMPORTANTE: Importar la función de hash
 
 # ==========================================================================
 # FUNCIONES DE CALLBACK
@@ -362,7 +363,7 @@ def mostrar_pantalla(user_actual, user_id):
                                 ejecutar_update_estado(
                                     usr_sel['usuario'], usr_sel['estado'],
                                     user_id, user_actual, justificacion.strip(),
-                                    usr_sel['cargo']   # <-- cargo ya disponible, sin SELECT extra
+                                    usr_sel['cargo']
                                 )
 
         except Exception as e:
@@ -489,9 +490,13 @@ def crear_nuevo_usuario(u, c, cargo_val, r, ejecutor_id):
     try:
         conn = conectar_bd()
         cursor = conn.cursor()
+        
+        # --- FIX DE SEGURIDAD: ENCRIPTAR CONTRASEÑA ANTES DE INSERTAR ---
+        hash_seguro = hashear_clave(c)
+        
         cursor.execute(
-            "INSERT INTO usuarios (usuario, clave, cargo, rol) VALUES (%s, %s, %s, %s)",
-            (u, c, cargo_val, r)
+            "INSERT INTO usuarios (usuario, clave, cargo, rol, debe_cambiar_clave) VALUES (%s, %s, %s, %s, %s)",
+            (u, hash_seguro, cargo_val, r, 0) # 0 = No forzar cambio porque ya la definió el admin
         )
         conn.commit()
         registrar_auditoria_usuario(u, "REGISTRO", "N/A", f"ROL:{r}", ejecutor_id,
