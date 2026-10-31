@@ -27,14 +27,13 @@ def conectar_bd():
             return None
 
 # =========================================================================
-# 🔧 REPARACIÓN AUTOMÁTICA DE CLAVES INVÁLIDAS
+# 🔧 REPARACIÓN AUTOMÁTICA DE CLAVES INVÁLIDAS (CORREGIDO)
 # =========================================================================
 def reparar_claves_iniciales():
     """
-    Verifica que las claves de los usuarios iniciales sean hashes bcrypt válidos
-    y que verifiquen con '1234'. Si no, las repara generando un hash real
-    con bcrypt.gensalt() en esta máquina.
-    Se ejecuta una sola vez al arrancar la app. Es idempotente.
+    Verifica que las claves de los usuarios iniciales sean hashes bcrypt válidos.
+    Si el hash está corrupto (no es bcrypt), lo repara con '1234'.
+    ¡NUNCA sobreescribe si el hash ya es un bcrypt válido (aunque no sea 1234)!
     """
     conn = conectar_bd()
     if not conn:
@@ -51,7 +50,6 @@ def reparar_claves_iniciales():
         usuarios = cursor.fetchall()
 
         if not usuarios:
-            logging.info("reparar_claves_iniciales: no hay usuarios iniciales")
             cursor.close()
             conn.close()
             return
@@ -62,7 +60,6 @@ def reparar_claves_iniciales():
         for u in usuarios:
             clave_actual = u["clave"] or ""
             es_valido = False
-            verifica_1234 = False
 
             # ¿Tiene formato de hash bcrypt?
             if clave_actual.startswith("$2b$") or clave_actual.startswith("$2a$"):
@@ -73,14 +70,8 @@ def reparar_claves_iniciales():
                 except Exception:
                     es_valido = False
 
-            # Si es válido, ¿verifica con 1234?
-            if es_valido:
-                try:
-                    verifica_1234 = verificar_clave("1234", clave_actual)
-                except Exception:
-                    verifica_1234 = False
-
-            if not es_valido or not verifica_1234:
+            # SOLO si el hash está corrupto, lo reparamos a 1234
+            if not es_valido:
                 if hash_real_1234 is None:
                     hash_real_1234 = hashear_clave("1234")
                     logging.info(f"🔧 Hash real de '1234' generado: {hash_real_1234[:35]}...")
@@ -95,7 +86,7 @@ def reparar_claves_iniciales():
                     WHERE id = %s
                 """, (hash_real_1234, u["id"]))
                 reparados += 1
-                logging.warning(f"🔧 Clave reparada para el usuario: {u['usuario']}")
+                logging.warning(f"🔧 Clave reparada (estaba corrupta) para el usuario: {u['usuario']}")
 
         if reparados > 0:
             conn.commit()
@@ -160,7 +151,7 @@ def actualizar_clave_usuario(usuario_id, clave_actual, clave_nueva, es_admin=Fal
         return {"exito": False, "mensaje": "Error interno del servidor."}
 
 # =========================================================================
-# FUNCIONES EXISTENTES (SIN CAMBIOS MAYORES)
+# FUNCIONES EXISTENTES
 # =========================================================================
 @st.cache_data(ttl=3)
 def obtener_lista_servidores():
