@@ -50,25 +50,23 @@ def get_favicon_base64():
 
 # === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
 
-# Obtener la ruta del favicon (sin PIL)
 favicon_path = get_resource_path("favicon.ico")
 
 if os.path.exists(favicon_path):
     st.set_page_config(
         page_title="SIMPOL - Banco Caroní",
-        page_icon=favicon_path,  # ✅ Usar ruta directamente
+        page_icon=favicon_path,
         layout="wide",
         initial_sidebar_state="expanded"
     )
 else:
     st.set_page_config(
         page_title="SIMPOL - Banco Caroní",
-        page_icon="🏦",  # Fallback a emoji
+        page_icon="🏦",
         layout="wide",
         initial_sidebar_state="expanded"
     )
 
-# Favicon para el HTML (refuerzo)
 favicon_b64 = get_favicon_base64()
 st.markdown(f'''
     <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
@@ -76,7 +74,6 @@ st.markdown(f'''
     <link rel="apple-touch-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
 ''', unsafe_allow_html=True)
 
-# CSS
 css_path = get_resource_path("style.css")
 if os.path.exists(css_path):
     try:
@@ -85,9 +82,6 @@ if os.path.exists(css_path):
     except Exception as e:
         logging.error(f"Error cargando style.css: {e}")
 
-# =============================================================
-# ESTILOS - ELIMINADO EL ENCABEZADO CON LOGO/TÍTULO
-# =============================================================
 st.markdown("""
     <style>
         section[data-testid="stSidebar"] {
@@ -168,15 +162,10 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-# === 5. FLUJO PRINCIPAL PROTEGIDO ===
 import auth
 from menu import generar_menu
 
-# =============================================================
-# FUNCIONES DE LIMPIEZA DE ESTADO
-# =============================================================
 def limpiar_estado_capacity():
-    """Limpia todas las variables de estado del módulo capacity"""
     keys_to_clear = [
         'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
         'p1_filtros_aplicados', 'p1_reporte_generado',
@@ -189,45 +178,26 @@ def limpiar_estado_capacity():
             del st.session_state[key]
 
 def limpiar_estado_reportes():
-    """Limpia todas las variables de estado del módulo reportes"""
     keys_to_clear = [
-        'rep_listo',
-        'rep_csv',
-        'rep_pdf',
-        'rep_name_csv',
-        'rep_name_pdf',
-        'key_semilla_selectbox',
-        'reporte_servidor',
-        'reporte_sensor',
-        'reporte_fecha_i',
-        'reporte_fecha_f',
-        'reporte_formato',
-        'filtros_aplicados'
+        'rep_listo', 'rep_csv', 'rep_pdf', 'rep_name_csv', 'rep_name_pdf',
+        'key_semilla_selectbox', 'reporte_servidor', 'reporte_sensor',
+        'reporte_fecha_i', 'reporte_fecha_f', 'reporte_formato', 'filtros_aplicados'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
-    
     st.session_state["filtros_aplicados"] = False
 
 def limpiar_parametros_monitoreo():
-    """Limpia TODOS los parámetros y estados de monitoreo"""
     params_to_remove = ['srv', 'srv_mon', 'srv_select', 'metrica_select', 'tab_servidores']
     for param in params_to_remove:
         if param in st.query_params:
             del st.query_params[param]
     
     keys_to_clear = [
-        '_monitoreo_activo',
-        '_srv_redirect_pending',
-        'filtro_monitoreo_nombre',
-        'filtro_monitoreo_sensor',
-        'servidor_seleccionado',
-        'sb_srv_tab1',
-        'sb_metrica_tab1',
-        'filtro_aplicado_tab1',
-        'filtro_aplicado_tab2',
-        '_srv_mensaje_mostrado'
+        '_monitoreo_activo', '_srv_redirect_pending', 'filtro_monitoreo_nombre',
+        'filtro_monitoreo_sensor', 'servidor_seleccionado', 'sb_srv_tab1',
+        'sb_metrica_tab1', 'filtro_aplicado_tab1', 'filtro_aplicado_tab2', '_srv_mensaje_mostrado'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -238,58 +208,34 @@ def limpiar_parametros_monitoreo():
     st.session_state["filtro_aplicado_tab2"] = False
 
 def limpiar_todas_variables_reportes():
-    """Limpia TODAS las variables relacionadas con reportes"""
     keys_to_clear = [
-        'rep_listo',
-        'rep_csv',
-        'rep_pdf',
-        'rep_name_csv',
-        'rep_name_pdf',
-        'key_semilla_selectbox',
-        'reporte_servidor',
-        'reporte_sensor',
-        'reporte_fecha_i',
-        'reporte_fecha_f',
-        'reporte_formato',
-        'filtros_aplicados',
-        'widget_rep_fi',
-        'widget_rep_ff',
-        'widget_rep_formato',
-        'widget_rep_sensor_general'
+        'rep_listo', 'rep_csv', 'rep_pdf', 'rep_name_csv', 'rep_name_pdf',
+        'key_semilla_selectbox', 'reporte_servidor', 'reporte_sensor',
+        'reporte_fecha_i', 'reporte_fecha_f', 'reporte_formato', 'filtros_aplicados',
+        'widget_rep_fi', 'widget_rep_ff', 'widget_rep_formato', 'widget_rep_sensor_general'
     ]
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
-    
     st.session_state["filtros_aplicados"] = False
 
 def gestionar_limpieza_filtros(seccion_destino):
-    """Gestiona la limpieza de filtros al cambiar de módulo"""
-    
-    # =============================================================
-    # LIMPIEZA FORZADA DE CAPACITY
-    # =============================================================
     if seccion_destino != "📈 Capacity planning":
-        # Forzar limpieza de todas las variables de capacity
         keys_capacity = [
             'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
             'p1_filtros_aplicados', 'p1_reporte_generado',
             'p2_servidor_seleccionado', 'p2_metrica_filtro',
             'p2_formato_filtro', 'p2_mostrar_tabla',
             'modulo_capacity_activo', '_capacity_activo',
-            'servidor_seleccionado_capacity',
-            'metrica_seleccionada_capacity',
+            'servidor_seleccionado_capacity', 'metrica_seleccionada_capacity',
             'dias_prediccion_capacity', 'reporte_generado',
-            'p1_servidor_widget', 'p1_metrica_widget',
-            'p1_dias_widget', 'p1_ajuste_widget',
-            'p2_servidor_widget', 'p2_filtro_metrica',
-            'p2_filtro_formato'
+            'p1_servidor_widget', 'p1_metrica_widget', 'p1_dias_widget',
+            'p1_ajuste_widget', 'p2_servidor_widget', 'p2_filtro_metrica', 'p2_filtro_formato'
         ]
         for key in keys_capacity:
             if key in st.session_state:
                 del st.session_state[key]
         
-        # Resetear valores por defecto
         st.session_state.p1_servidor = "-- Seleccione un Servidor --"
         st.session_state.p1_metrica = ""
         st.session_state.p1_dias = 30
@@ -303,45 +249,25 @@ def gestionar_limpieza_filtros(seccion_destino):
         st.session_state.modulo_capacity_activo = False
         st.session_state._capacity_activo = False
     
-    # =============================================================
-    # LIMPIEZA DE MONITOREO
-    # =============================================================
     if seccion_destino != "🖥️ Monitoreo en vivo":
-        if "filtro_monitoreo_nombre" in st.session_state:
-            st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor--"
-        if "filtro_monitoreo_sensor" in st.session_state:
-            st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
-        if "servidor_seleccionado" in st.session_state:
-            st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
-        if "sb_srv_tab1" in st.session_state:
-            st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor --"
+        for k in ['filtro_monitoreo_nombre', 'filtro_monitoreo_sensor', 'servidor_seleccionado', 'sb_srv_tab1']:
+            if k in st.session_state:
+                st.session_state[k] = "-- Seleccione un Servidor --" if 'nombre' in k or 'servidor' in k or 'srv' in k else "-- Seleccione un Sensor --"
         if "sb_metrica_tab1" in st.session_state:
             st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-        if "filtro_aplicado_tab1" in st.session_state:
-            st.session_state["filtro_aplicado_tab1"] = False
-        if "filtro_aplicado_tab2" in st.session_state:
-            st.session_state["filtro_aplicado_tab2"] = False
+        for k in ['filtro_aplicado_tab1', 'filtro_aplicado_tab2']:
+            if k in st.session_state:
+                st.session_state[k] = False
 
-    # =============================================================
-    # LIMPIEZA DE GESTIÓN DE USUARIOS
-    # =============================================================
     if seccion_destino != "👥 Gestión de usuarios":
-        if "filtro_analista" in st.session_state:
-            st.session_state.filtro_analista = "-- Seleccione un Analista --"
-        if "accion_personal" in st.session_state:
-            st.session_state.accion_personal = None
-        if "filtro_aplicado_p1" in st.session_state:
-            st.session_state.filtro_aplicado_p1 = False
-        if "filtro_auditoria_usr" in st.session_state:
-            st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
-        if "filtro_aplicado_p2" in st.session_state:
-            st.session_state.filtro_aplicado_p2 = False
-        if "wb_filtro_analista" in st.session_state:
-            st.session_state.wb_filtro_analista = "-- Seleccione un Analista --"
+        for k in ['filtro_analista', 'accion_personal', 'filtro_aplicado_p1',
+                  'filtro_auditoria_usr', 'filtro_aplicado_p2', 'wb_filtro_analista']:
+            if k in st.session_state:
+                if 'filtro' in k:
+                    st.session_state[k] = "-- Seleccione un Analista --" if 'analista' in k else "-- Seleccione un Usuario --"
+                else:
+                    st.session_state[k] = None
 
-    # =============================================================
-    # LIMPIEZA DE SERVIDORES
-    # =============================================================
     if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
             st.session_state["filtro_servidor_nombre"] = "-- Seleccione un Servidor --"
@@ -352,21 +278,10 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "accion_adicional" in st.session_state:
             st.session_state["accion_adicional"] = None
 
-    # =============================================================
-    # LIMPIEZA DE REPORTES
-    # =============================================================
     if seccion_destino != "📄 Reportes":
         limpiar_estado_reportes()
         st.session_state["filtros_aplicados"] = False
 
-    # =============================================================
-    # LIMPIEZA DE CAPACITY PLANNING (YA SE HIZO ARRIBA)
-    # =============================================================
-    # Nota: Ya se limpió al inicio de la función
-
-    # =============================================================
-    # LIMPIEZA DE ALERTAS
-    # =============================================================
     if seccion_destino != "🔔 Alertas":
         if "sb_alerta_srv" in st.session_state:
             st.session_state["sb_alerta_srv"] = "-- Seleccione un Servidor para empezar --"
@@ -375,36 +290,17 @@ def gestionar_limpieza_filtros(seccion_destino):
         if "filtro_alerta_estado" in st.session_state:
             st.session_state["filtro_alerta_estado"] = "No Resueltas"
 
-    # =============================================================
-    # LIMPIEZA DE UMBRALES
-    # =============================================================
     if seccion_destino != "⚙️ Umbrales":
-        if "filtro_umbral_servidor" in st.session_state:
-            st.session_state["filtro_umbral_servidor"] = "-- Seleccione un Servidor --"
-        if "filtro_umbral_componente" in st.session_state:
-            st.session_state["filtro_umbral_componente"] = "-- Seleccione un Componente --"
-        if "config_servidor_seleccionado" in st.session_state:
-            st.session_state["config_servidor_seleccionado"] = "-- Seleccione un Servidor --"
-        if "config_componente_seleccionado" in st.session_state:
-            st.session_state["config_componente_seleccionado"] = "-- Seleccione un Componente --"
-        if "aplicar_filtro_config" in st.session_state:
-            st.session_state["aplicar_filtro_config"] = False
-        if "umbrales_modificados" in st.session_state:
-            st.session_state["umbrales_modificados"] = False
-        if "filtro_historico_servidor" in st.session_state:
-            st.session_state["filtro_historico_servidor"] = "-- Seleccione un Servidor --"
-        if "filtro_historico_umbral" in st.session_state:
-            st.session_state["filtro_historico_umbral"] = "-- Seleccione un Umbral --"
-        if "historico_servidor_seleccionado" in st.session_state:
-            st.session_state["historico_servidor_seleccionado"] = "-- Seleccione un Servidor --"
-        if "historico_umbral_seleccionado" in st.session_state:
-            st.session_state["historico_umbral_seleccionado"] = "-- Seleccione un Umbral --"
-        if "aplicar_filtro_historico" in st.session_state:
-            st.session_state["aplicar_filtro_historico"] = False
+        for k in ['filtro_umbral_servidor', 'filtro_umbral_componente',
+                  'config_servidor_seleccionado', 'config_componente_seleccionado',
+                  'filtro_historico_servidor', 'filtro_historico_umbral',
+                  'historico_servidor_seleccionado', 'historico_umbral_seleccionado']:
+            if k in st.session_state:
+                st.session_state[k] = "-- Seleccione un Servidor --"
+        for k in ['aplicar_filtro_config', 'umbrales_modificados', 'aplicar_filtro_historico']:
+            if k in st.session_state:
+                st.session_state[k] = False
 
-    # =============================================================
-    # RECUPERAR TAB_ACTUAL PARA MANTENER PESTAÑAS
-    # =============================================================
     tab_actual = None
     if seccion_destino == "🖥️ Servidores":
         tab_actual = st.query_params.get("tab_servidores")
@@ -449,7 +345,7 @@ def main():
         return
     
     # =============================================================
-    # AUTENTICACIÓN
+    # AUTENTICACIÓN Y MODO RECUPERACIÓN (COMPATIBLE CON auth_2.py)
     # =============================================================
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = True if params.get("s") == "1" else False
@@ -471,6 +367,11 @@ def main():
         st.query_params["c"] = st.session_state.get("cargo", "Analista")
         st.query_params["p"] = st.session_state.get("seccion_actual", "🏠 Inicio")
         st.rerun()
+
+    # Si está activo el modo recuperación, permitimos que auth muestre la pantalla
+    if st.session_state.get("modo_recuperacion", False):
+        auth.mostrar_login()
+        return
 
     if not st.session_state.get("autenticado", False):
         if any(k in params for k in ["s", "rol", "uid", "u", "c", "p"]):
