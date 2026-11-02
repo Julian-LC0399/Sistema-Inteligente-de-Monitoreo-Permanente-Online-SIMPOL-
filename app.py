@@ -6,6 +6,7 @@ from datetime import datetime
 import webbrowser
 import base64
 
+# === 1. CONFIGURACIÓN DE LOGS ===
 logging.basicConfig(
     filename="simpol_debug.log",
     level=logging.INFO,
@@ -13,6 +14,7 @@ logging.basicConfig(
     encoding='utf-8'
 )
 
+# === 2. PARCHE DE COMPATIBILIDAD PARA EL EJECUTABLE ===
 try:
     from streamlit.proto.Common_pb2 import ToolbarMode
     if 'HIDDEN' not in ToolbarMode.keys():
@@ -20,12 +22,15 @@ try:
 except Exception:
     pass
 
+# === 3. FUNCIONES DE UTILIDAD Y RUTAS ===
 def get_resource_path(relative_path):
+    """Localiza recursos dentro del paquete .exe o en desarrollo"""
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
 def get_favicon_base64():
+    """Genera un favicon en base64 desde un archivo o crea uno por defecto"""
     try:
         favicon_path = get_resource_path("favicon.ico")
         if os.path.exists(favicon_path):
@@ -35,6 +40,7 @@ def get_favicon_base64():
     except Exception as e:
         logging.error(f"Error cargando favicon: {e}")
     
+    # Fallback: SVG por defecto
     svg_icon = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
         <rect width="100" height="100" rx="15" fill="#003366"/>
         <text x="50" y="68" font-size="50" text-anchor="middle" fill="white">🏦</text>
@@ -42,13 +48,26 @@ def get_favicon_base64():
     </svg>'''
     return base64.b64encode(svg_icon.encode()).decode()
 
+# === 4. CONFIGURACIÓN DE PÁGINA Y ESTILOS CRÍTICOS ===
+
 favicon_path = get_resource_path("favicon.ico")
 
 if os.path.exists(favicon_path):
-    st.set_page_config(page_title="SIMPOL - Banco Caroní", page_icon=favicon_path, layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(
+        page_title="SIMPOL - Banco Caroní",
+        page_icon=favicon_path,
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
 else:
-    st.set_page_config(page_title="SIMPOL - Banco Caroní", page_icon="🏦", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(
+        page_title="SIMPOL - Banco Caroní",
+        page_icon="🏦",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
 
+# Favicon para el HTML (refuerzo)
 favicon_b64 = get_favicon_base64()
 st.markdown(f'''
     <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
@@ -56,6 +75,7 @@ st.markdown(f'''
     <link rel="apple-touch-icon" href="data:image/x-icon;base64,{favicon_b64}"/>
 ''', unsafe_allow_html=True)
 
+# CSS
 css_path = get_resource_path("style.css")
 if os.path.exists(css_path):
     try:
@@ -64,6 +84,9 @@ if os.path.exists(css_path):
     except Exception as e:
         logging.error(f"Error cargando style.css: {e}")
 
+# =============================================================
+# ESTILOS - ELIMINADO EL ENCABEZADO CON LOGO/TÍTULO
+# =============================================================
 st.markdown("""
     <style>
         section[data-testid="stSidebar"] {
@@ -74,22 +97,51 @@ st.markdown("""
             transform: none !important;
             transition: none !important;
         }
-        section[data-testid="stSidebar"] button { display: none !important; }
+        section[data-testid="stSidebar"] button {
+            display: none !important;
+        }
         [data-testid="stSidebar"] [id^="collapsed-control"],
         section[data-testid="stSidebar"] button[title="Collapse sidebar"],
-        section[data-testid="stSidebar"] svg { display: none !important; }
+        section[data-testid="stSidebar"] svg {
+            display: none !important;
+        }
         [data-testid="sidebar-collapsed-control"],
-        [data-testid="sidebar-collapsed-control"] button { display: none !important; visibility: hidden !important; }
-        [data-testid="stHeader"], header, .stActionButton, #MainMenu, footer { visibility: hidden !important; display: none !important; }
+        [data-testid="sidebar-collapsed-control"] button {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        [data-testid="stHeader"], 
+        header, 
+        .stActionButton, 
+        #MainMenu, 
+        footer {
+            visibility: hidden !important;
+            display: none !important;
+        }
         [data-testid="stTextInputInstructions"],
         [data-testid="stNumberInputInstructions"],
         [data-testid="stTextAreaInstructions"],
         .stTextInput small,
-        .stTextInput div[data-testid="InputInstructions"] { display: none !important; visibility: hidden !important; height: 0px !important; padding: 0px !important; }
-        [data-testid="stToolbar"] { visibility: hidden !important; display: none !important; }
-        .stAppViewMain { margin-left: 0px !important; padding-top: 0px !important; }
-        title { color: #003366 !important; }
-        .main > div { padding-top: 0px !important; }
+        .stTextInput div[data-testid="InputInstructions"] {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0px !important;
+            padding: 0px !important;
+        }
+        [data-testid="stToolbar"] {
+            visibility: hidden !important;
+            display: none !important;
+        }
+        .stAppViewMain {
+            margin-left: 0px !important;
+            padding-top: 0px !important;
+        }
+        title {
+            color: #003366 !important;
+        }
+        .main > div {
+            padding-top: 0px !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -115,9 +167,13 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
+# === 5. FLUJO PRINCIPAL PROTEGIDO ===
 import auth
 from menu import generar_menu
 
+# =============================================================
+# FUNCIONES DE LIMPIEZA DE ESTADO
+# =============================================================
 def limpiar_estado_capacity():
     keys_to_clear = [
         'p1_servidor', 'p1_metrica', 'p1_dias', 'p1_ajuste',
@@ -203,23 +259,34 @@ def gestionar_limpieza_filtros(seccion_destino):
         st.session_state._capacity_activo = False
     
     if seccion_destino != "🖥️ Monitoreo en vivo":
-        for k in ['filtro_monitoreo_nombre', 'filtro_monitoreo_sensor', 'servidor_seleccionado', 'sb_srv_tab1']:
-            if k in st.session_state:
-                st.session_state[k] = "-- Seleccione un Servidor --" if 'nombre' in k or 'servidor' in k or 'srv' in k else "-- Seleccione un Sensor --"
+        if "filtro_monitoreo_nombre" in st.session_state:
+            st.session_state["filtro_monitoreo_nombre"] = "-- Seleccione un Servidor --"
+        if "filtro_monitoreo_sensor" in st.session_state:
+            st.session_state["filtro_monitoreo_sensor"] = "-- Seleccione un Sensor --"
+        if "servidor_seleccionado" in st.session_state:
+            st.session_state["servidor_seleccionado"] = "-- Seleccione un Servidor --"
+        if "sb_srv_tab1" in st.session_state:
+            st.session_state["sb_srv_tab1"] = "-- Seleccione un Servidor --"
         if "sb_metrica_tab1" in st.session_state:
             st.session_state["sb_metrica_tab1"] = "📊 Todas las Métricas"
-        for k in ['filtro_aplicado_tab1', 'filtro_aplicado_tab2']:
-            if k in st.session_state:
-                st.session_state[k] = False
+        if "filtro_aplicado_tab1" in st.session_state:
+            st.session_state["filtro_aplicado_tab1"] = False
+        if "filtro_aplicado_tab2" in st.session_state:
+            st.session_state["filtro_aplicado_tab2"] = False
 
     if seccion_destino != "👥 Gestión de usuarios":
-        for k in ['filtro_analista', 'accion_personal', 'filtro_aplicado_p1',
-                  'filtro_auditoria_usr', 'filtro_aplicado_p2', 'wb_filtro_analista']:
-            if k in st.session_state:
-                if 'filtro' in k:
-                    st.session_state[k] = "-- Seleccione un Analista --" if 'analista' in k else "-- Seleccione un Usuario --"
-                else:
-                    st.session_state[k] = None
+        if "filtro_analista" in st.session_state:
+            st.session_state.filtro_analista = "-- Seleccione un Analista --"
+        if "accion_personal" in st.session_state:
+            st.session_state.accion_personal = None
+        if "filtro_aplicado_p1" in st.session_state:
+            st.session_state.filtro_aplicado_p1 = False
+        if "filtro_auditoria_usr" in st.session_state:
+            st.session_state.filtro_auditoria_usr = "-- Seleccione un Usuario --"
+        if "filtro_aplicado_p2" in st.session_state:
+            st.session_state.filtro_aplicado_p2 = False
+        if "wb_filtro_analista" in st.session_state:
+            st.session_state.wb_filtro_analista = "-- Seleccione un Analista --"
 
     if seccion_destino != "🖥️ Servidores":
         if "filtro_servidor_nombre" in st.session_state:
@@ -298,24 +365,32 @@ def main():
         return
     
     # =============================================================
-    # AUTENTICACIÓN (SIN BYPASS POR URL)
+    # AUTENTICACIÓN
     # =============================================================
     if "autenticado" not in st.session_state:
-        st.session_state["autenticado"] = False
+        st.session_state["autenticado"] = True if params.get("s") == "1" else False
+    
+    if params.get("rol") and "rol" not in st.session_state:
+        st.session_state["rol"] = params.get("rol")
+    if params.get("uid") and "user_id" not in st.session_state:
+        st.session_state["user_id"] = int(params.get("uid"))
+    if params.get("c") and "cargo" not in st.session_state:
+        st.session_state["cargo"] = params.get("c")
+    if params.get("u") and "user_actual" not in st.session_state:
+        st.session_state["user_actual"] = params.get("u")
 
-    # Si NO está autenticado, limpiamos la URL de credenciales antiguas para que no haya bypass
-    if not st.session_state["autenticado"]:
-        for _k in ["s", "rol", "uid", "u", "c"]:
-            if _k in st.query_params:
-                del st.query_params[_k]
+    if st.session_state.get("autenticado") and not params.get("s"):
+        st.query_params["s"] = "1"
+        st.query_params["rol"] = st.session_state.get("rol", "operador")
+        st.query_params["uid"] = str(st.session_state.get("user_id", 1))
+        st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
+        st.query_params["c"] = st.session_state.get("cargo", "Analista")
+        st.query_params["p"] = st.session_state.get("seccion_actual", "🏠 Inicio")
+        st.rerun()
 
-    # Si está activo el modo recuperación, mostramos eso
-    if st.session_state.get("modo_recuperacion", False):
-        auth.mostrar_login()
-        return
-
-    # Si no está autenticado, mostramos login
-    if not st.session_state["autenticado"]:
+    if not st.session_state.get("autenticado", False):
+        if any(k in params for k in ["s", "rol", "uid", "u", "c", "p"]):
+            st.query_params.clear()
         auth.mostrar_login()
         return
 
@@ -352,6 +427,9 @@ def main():
     seccion_anterior = st.session_state.get("_seccion_anterior", "")
     seccion_actual = st.session_state["seccion_actual"]
     
+    # =============================================================
+    # LIMPIEZA RADICAL: Reportes -> Capacity
+    # =============================================================
     if seccion_anterior == "📄 Reportes" and seccion_actual == "📈 Capacity planning":
         logging.info("🧹 Limpieza radical: Reportes -> Capacity")
         limpiar_todas_variables_reportes()
@@ -370,13 +448,24 @@ def main():
     st.session_state["_seccion_anterior"] = seccion_actual
     st.session_state["modulo_actual"] = modulo_map.get(seccion_actual, "otros")
     
+    # =============================================================
+    # LIMPIEZA DE FILTROS - PRESERVAR MONITOREO
+    # =============================================================
     if st.session_state["seccion_actual"] != "🖥️ Monitoreo en vivo":
         gestionar_limpieza_filtros(st.session_state["seccion_actual"])
         limpiar_parametros_monitoreo()
     
-    # Sincronizar solo la seccion
+    # =============================================================
+    # SINCRONIZAR URL
+    # =============================================================
     if params.get("p") != st.session_state["seccion_actual"]:
         st.query_params["p"] = st.session_state["seccion_actual"]
+    
+    st.query_params["s"] = "1"
+    st.query_params["rol"] = st.session_state.get("rol", "operador")
+    st.query_params["uid"] = str(st.session_state.get("user_id", 1))
+    st.query_params["u"] = st.session_state.get("user_actual", "Sistema")
+    st.query_params["c"] = st.session_state.get("cargo", "Analista")
     
     # =============================================================
     # RENDERIZAR MÓDULO

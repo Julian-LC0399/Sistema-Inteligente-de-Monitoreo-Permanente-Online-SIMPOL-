@@ -1,7 +1,8 @@
 import mysql.connector
 import streamlit as st
 import logging
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta
 from security import procesar_login, cambiar_clave, hashear_clave, verificar_clave
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -152,6 +153,142 @@ def actualizar_clave_usuario(usuario_id, clave_actual, clave_nueva, es_admin=Fal
         return {"exito": False, "mensaje": "Error interno del servidor."}
 
 # =========================================================================
+# GESTIÓN DE SESIONES Y AUDITORÍA DE SESIONES (NUEVO - SIMPOL v2.2)
+# =========================================================================
+def crear_sesion_activa(token, usuario_id, ip_cliente, user_agent=None, expiracion_horas=8):
+    """Almacena el hash SHA-256 del token de sesión en la tabla sesiones_activas."""
+    conn = conectar_bd()
+    if not conn:
+        return False
+    try:
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        fecha_expiracion_absoluta = datetime.now() + timedelta(hours=expiracion_horas)
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO sesiones_activas 
+            (token_hash, usuario_id, ip_cliente, user_agent, fecha_expiracion_absoluta)
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (token_hash, usuario_id, ip_cliente, user_agent, fecha_expiracion_absoluta))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        registrar_auditoria_sesion(usuario_id, 'LOGIN', token_hash=token_hash, ip_cliente=ip_cliente, user_agent=user_agent, detalle="Inicio de sesión exitoso.")
+        return True
+    except Exception as e:
+        logging.error(f"Error al crear sesión activa: {e}")
+        if conn: conn.close()
+        return False
+
+def validar_sesion_activa(token, ip_cliente, user_agent=None, tiempo_inactividad_min=20):
+    """
+    Valida un token activo en sesiones_activas contra expiración absoluta,
+    inactividad, revocación y binding de IP/User-Agent.
+    """
+    conn = conectar_bd()
+    if not conn:
+        return {"valido": False, "motivo": "Error de conexión."}
+    try:
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        cursor = conn.cursor(dictionary=True)
+        query = "SELECT * FROM sesiones_activas WHERE token_hash = %s LIMIT 1"
+        cursor.execute(query, (token_hash,))
+        sesion = cursor.fetchone()
+
+        if not sesion:
+            cursor.close()
+            conn.close()
+            return {"valido": False, "motivo": "Sesión inexistente."}
+
+        if sesion["revocada"] == 1:
+            cursor.close()
+            conn.close()
+            return {"valido": False, "motivo": f"Sesión revocada: {sesion.get('motivo_revocacion')}"}
+
+        ahora = datetime.now()
+        if ahora > sesion["fecha_expiracion_absoluta"]:
+            cursor.close()
+            revocar_sesion(token, motivo="Expiración absoluta alcanzada (8h).")
+            conn.close()
+            return {"valido": False, "motivo": "Sesión expirada por límite absoluto."}
+
+        # Validación de inactividad
+        inactividad = ahora - sesion["fecha_ultima_actividad"]
+        if inactividad.total_seconds() > (tiempo_inactividad_min * 60):
+            cursor.close()
+            revocar_sesion(token, motivo="Expiración por inactividad (20 min).")
+            conn.close()
+            return {"valido": False, "motivo": "Sesión expirada por inactividad."}
+
+        # Binding Check (IP / User-Agent)
+        if sesion["ip_cliente"] != ip_cliente:
+            registrar_auditoria_sesion(sesion["usuario_id"], 'BINDING_MISMATCH', token_hash=token_hash, ip_cliente=ip_cliente, user_agent=user_agent, detalle=f"Cambio de IP detectado: {sesion['ip_cliente']} -> {ip_cliente}")
+            cursor.close()
+            revocar_sesion(token, motivo="Secuestro de sesión sospechado (IP Mismatch).")
+            conn.close()
+            return {"valido": False, "motivo": "Discordancia de seguridad en IP."}
+
+        # Actualizar última actividad
+        query_update = "UPDATE sesiones_activas SET fecha_ultima_actividad = NOW() WHERE id = %s"
+        cursor.execute(query_update, (sesion["id"],))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"valido": True, "usuario_id": sesion["usuario_id"], "ultima_seccion": sesion["ultima_seccion"]}
+    except Exception as e:
+        logging.error(f"Error al validar sesión activa: {e}")
+        if conn: conn.close()
+        return {"valido": False, "motivo": "Error interno al validar sesión."}
+
+def revocar_sesion(token, motivo="Cierre de sesión manual"):
+    """Revoca una sesión activa por token_hash y registra el evento en auditoría."""
+    conn = conectar_bd()
+    if not conn:
+        return False
+    try:
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT usuario_id FROM sesiones_activas WHERE token_hash = %s", (token_hash,))
+        res = cursor.fetchone()
+        
+        query = "UPDATE sesiones_activas SET revocada = 1, motivo_revocacion = %s WHERE token_hash = %s"
+        cursor.execute(query, (motivo, token_hash))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        if res:
+            registrar_auditoria_sesion(res["usuario_id"], 'REVOCACION', token_hash=token_hash, detalle=motivo)
+        return True
+    except Exception as e:
+        logging.error(f"Error al revocar sesión: {e}")
+        if conn: conn.close()
+        return False
+
+def registrar_auditoria_sesion(usuario_id, evento, seccion=None, token_hash=None, ip_cliente=None, user_agent=None, detalle=None):
+    """Inserta bitácoras de auditoría de sesiones en la tabla auditoria_sesiones."""
+    conn = conectar_bd()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO auditoria_sesiones 
+            (usuario_id, token_hash, evento, seccion, ip_cliente, user_agent, detalle)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (usuario_id, token_hash, evento, seccion, ip_cliente, user_agent, detalle))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        logging.error(f"Error al registrar auditoría de sesión: {e}")
+        if conn: conn.close()
+        return False
+
+# =========================================================================
 # FUNCIONES DE MONITOREO Y TELEMETRÍA
 # =========================================================================
 @st.cache_data(ttl=3)
@@ -162,7 +299,7 @@ def obtener_lista_servidores():
             conn.commit()
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT ip, nombre_alias, sistema_operativo, tipo,
+                SELECT ip, nombre_alias, sistema_operativo, tipo, servicios,
                        id_sensor_cpu, id_sensor_ram, 
                        id_sensor_disco_1, letra_disco_1,
                        id_sensor_disco_2, letra_disco_2, 
@@ -174,7 +311,7 @@ def obtener_lista_servidores():
                        id_sensor_servicio_4, id_sensor_servicio_5, id_sensor_servicio_6,
                        id_sensor_servicio_7, id_sensor_servicio_8,
                        id_sensor_red_total, id_sensor_red_entrante, id_sensor_red_saliente, 
-                       id_sensor_latencia 
+                       id_sensor_latencia, estado_monitoreo, fecha_alta
                 FROM servidores 
                 WHERE estado_monitoreo = 1
             """
@@ -293,6 +430,26 @@ def guardar_telemetria_servidor(ip_servidor, data):
         if conn: conn.close()
         return False
 
+def obtener_datos_adicionales_servidor(id_servidor):
+    """Consulta los metadatos de máquinas virtuales desde la tabla datos_adicionales."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT * FROM datos_adicionales WHERE id_servidor = %s"
+            cursor.execute(query, (id_servidor,))
+            res = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return res
+        except Exception as e:
+            logging.error(f"Error al obtener datos adicionales del servidor {id_servidor}: {e}")
+            if conn: conn.close()
+    return []
+
+# =========================================================================
+# UMBRALES, PERMISOS Y PROYECCIONES
+# =========================================================================
 def obtener_umbrales_actuales(ip):
     umbrales = {
         "cpu_buen_estado": 69, "cpu_advertencia": 70, "cpu_critico": 85,
@@ -367,6 +524,9 @@ def registrar_proyeccion(usuario_id, ip_servidor, metrica, act_total, act_gb, ac
             if conn: conn.close()
     return False
 
+# =========================================================================
+# GESTIÓN DE ALERTAS Y REPORTES
+# =========================================================================
 @st.cache_data(ttl=5)
 def obtener_reporte_alertas(estado=None, ip=None):
     conn = conectar_bd()
@@ -379,7 +539,7 @@ def obtener_reporte_alertas(estado=None, ip=None):
                 SELECT id, ip_servidor, componente, tipo_alerta, 
                        val_total_gb_momento, val_disponible_gb_momento, val_disponible_pct_momento, 
                        val_red_mbps_momento, val_latencia_ms_momento, val_perdida_pct_momento,
-                       estado_servicio_momento, fecha_inicio, fecha_fin, estado_alerta 
+                       estado_servicio_momento, fecha_inicio, fecha_fin, estado_alerta, comentario
                 FROM alertas WHERE 1=1
             """
             parametros = []
@@ -495,3 +655,93 @@ def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_se
         logging.error(f"Error crítico al archivar reporte de Capacity: {e}")
         if conn: conn.close()
         return False
+
+# =========================================================================
+# GESTIÓN DE USUARIOS, HISTÓRICOS Y LOGS DE ACCESOS (NUEVO - SIMPOL v2.2)
+# =========================================================================
+def obtener_usuarios():
+    """Retorna la lista completa de usuarios registrados."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id, usuario, cargo, rol, estado, debe_cambiar_clave, intentos_fallidos, bloqueado_hasta, fecha_ultimo_cambio_clave, fecha_creacion FROM usuarios")
+            res = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return res
+        except Exception as e:
+            logging.error(f"Error al consultar usuarios: {e}")
+            if conn: conn.close()
+    return []
+
+def obtener_historico_claves(usuario_id):
+    """Consulta las contraseñas históricas de un usuario."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT * FROM historico_claves WHERE usuario_id = %s ORDER BY fecha_cambio DESC"
+            cursor.execute(query, (usuario_id,))
+            res = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return res
+        except Exception as e:
+            logging.error(f"Error al obtener historial de claves: {e}")
+            if conn: conn.close()
+    return []
+
+def registrar_historico_clave(usuario_id, clave_hash, cambiado_por=None):
+    """Guarda un nuevo registro en historico_claves."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = "INSERT INTO historico_claves (usuario_id, clave_hash, cambiado_por) VALUES (%s, %s, %s)"
+            cursor.execute(query, (usuario_id, clave_hash, cambiado_por))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        except Exception as e:
+            logging.error(f"Error al registrar historial de clave: {e}")
+            if conn: conn.close()
+    return False
+
+def registrar_auditoria_usuario(usuario_id, usuario_afectado, accion, valor_anterior=None, valor_nuevo=None, comentario=None):
+    """Inserta registros en la tabla historico_usuarios."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO historico_usuarios (usuario_id, usuario_afectado, accion_realizada, valor_anterior, valor_nuevo, commentario)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (usuario_id, usuario_afectado, accion, valor_anterior, valor_nuevo, comentario))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        except Exception as e:
+            logging.error(f"Error al registrar auditoría de usuario: {e}")
+            if conn: conn.close()
+    return False
+
+def obtener_log_accesos(limit=100):
+    """Obtiene los registros de accesos al sistema desde log_accesos."""
+    conn = conectar_bd()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            query = "SELECT * FROM log_accesos ORDER BY fecha_acceso DESC LIMIT %s"
+            cursor.execute(query, (limit,))
+            res = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return res
+        except Exception as e:
+            logging.error(f"Error al obtener log de accesos: {e}")
+            if conn: conn.close()
+    return []
