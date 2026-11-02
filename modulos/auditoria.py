@@ -3,10 +3,10 @@ from database import conectar_bd
 from datetime import datetime, timedelta
 
 def mostrar_pantalla():
-    # Estilos
+    # Estilos CSS Unificados para el módulo de auditoría
     st.markdown("""
         <style>
-            /* Estilo para el texto del analista - MÁS GRANDE */
+            /* Estilo para el texto del analista */
             .info-analista-auditoria {
                 color: #333333;
                 font-size: 20px;
@@ -53,6 +53,20 @@ def mostrar_pantalla():
     # ==========================================================================
     tab_accesos, tab_sesiones = st.tabs(["📊 Accesos al Sistema (Logins)", "🛡️ Actividad y Sesiones (Runtime)"])
 
+    # Estilos de tabla compartidos y consistentes entre ambas pestañas
+    estilo_tabla_unificado = """
+    <style>
+        .tabla-banco { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
+        .tabla-banco th { background-color: #003366 !important; color: #FFFFFF !important; font-weight: bold !important; text-align: center !important; padding: 12px 10px; border: 1px solid #dee2e6 !important; font-size: 13px; text-transform: uppercase; }
+        .tabla-banco td { color: #000000 !important; border: 1px solid #dee2e6 !important; padding: 10px; text-align: left; font-size: 13px; }
+        .tabla-banco tr:nth-child(even) { background-color: #f8f9fa; }
+        .badge-ok { background-color: #d4edda; color: #155724; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; display: inline-block; }
+        .badge-fail { background-color: #f8d7da; color: #721c24; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; display: inline-block; }
+        .badge-evento { background-color: #e0f2fe; color: #0369a1; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 11px; display: inline-block; }
+        .usuario-nombre { font-weight: 600; color: #003366; }
+    </style>
+    """
+
     # ==========================================================================
     # PESTAÑA 1: ACCESOS AL SISTEMA (LOG_ACCESOS)
     # ==========================================================================
@@ -90,7 +104,7 @@ def mostrar_pantalla():
 
             with col_f1:
                 st.selectbox(
-                    "👤 Filtrar por Usuario (Accresos)",
+                    "👤 Filtrar por Usuario (Accesos)",
                     options=lista_usuarios,
                     key="filtro_usuario_auditoria",
                     label_visibility="collapsed"
@@ -143,7 +157,7 @@ def mostrar_pantalla():
                 condiciones.append("DATE(fecha_acceso) <= %s")
                 params.append(fecha_hasta.strftime("%Y-%m-%d"))
 
-                query = "SELECT usuario, cargo, rol, fecha_acceso, resultado, ip_cliente FROM log_accesos"
+                query = "SELECT usuario, cargo, rol, fecha_acceso, resultado FROM log_accesos"
                 if condiciones:
                     query += " WHERE " + " AND ".join(condiciones)
                 query += " ORDER BY fecha_acceso DESC LIMIT 100"
@@ -173,26 +187,15 @@ def mostrar_pantalla():
                 if not logs:
                     st.info("📭 No se encontraron registros de accesos para este criterio.")
                 else:
-                    html_lineas = ["""
-                    <style>
-                        .tabla-banco { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
-                        .tabla-banco th { background-color: #003366 !important; color: #FFFFFF !important; font-weight: bold !important; text-align: center !important; padding: 12px 10px; border: 1px solid #dee2e6 !important; font-size: 13px; text-transform: uppercase; }
-                        .tabla-banco td { color: #000000 !important; border: 1px solid #dee2e6 !important; padding: 10px; text-align: left; font-size: 13px; }
-                        .tabla-banco tr:nth-child(even) { background-color: #f8f9fa; }
-                        .badge-ok { background-color: #d4edda; color: #155724; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; display: inline-block; }
-                        .badge-fail { background-color: #f8d7da; color: #721c24; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; display: inline-block; }
-                        .usuario-nombre { font-weight: 600; color: #003366; }
-                        .ip-cliente { font-family: 'Courier New', monospace; font-size: 12px; color: #475569; }
-                    </style>
+                    html_lineas = [estilo_tabla_unificado, """
                     <table class="tabla-banco">
                         <thead>
                             <tr>
-                                <th style="width: 18%;">USUARIO</th>
-                                <th style="width: 20%;">CARGO</th>
-                                <th style="width: 12%;">ROL</th>
+                                <th style="width: 25%;">USUARIO</th>
+                                <th style="width: 25%;">CARGO</th>
+                                <th style="width: 15%;">ROL</th>
                                 <th style="width: 20%;">FECHA / HORA</th>
                                 <th style="width: 15%;">RESULTADO</th>
-                                <th style="width: 15%;">IP CLIENTE</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -204,7 +207,6 @@ def mostrar_pantalla():
                         r_name = log.get("rol", "-") or "-"
                         f_time = log["fecha_acceso"].strftime("%d/%m/%Y %H:%M:%S") if log.get("fecha_acceso") else "-"
                         res = log.get("resultado", "-")
-                        ip_c = log.get("ip_cliente", "-") or "-"
 
                         badge = f'<span class="badge-ok">✅ {res}</span>' if res == "EXITOSO" else f'<span class="badge-fail">❌ {res}</span>'
 
@@ -215,7 +217,6 @@ def mostrar_pantalla():
                                 <td style="text-align: center;">{r_name.upper()}</td>
                                 <td style="text-align: center; font-size: 12px;">{f_time}</td>
                                 <td style="text-align: center;">{badge}</td>
-                                <td><span class="ip-cliente">{ip_c}</span></td>
                             </tr>
                         """)
 
@@ -226,12 +227,11 @@ def mostrar_pantalla():
             st.error(f"❌ Error al cargar accesos: {e}")
 
     # ==========================================================================
-    # PESTAÑA 2: ACTIVIDAD Y SESIONES (AUDITORIA_SESIONES) CON FILTROS
+    # PESTAÑA 2: ACTIVIDAD Y SESIONES (AUDITORIA_SESIONES) - Mismo estilo idéntico
     # ==========================================================================
     with tab_sesiones:
         st.markdown("<p style='color: #475569; font-size: 14px;'>Monitoreo en tiempo real del ciclo de vida de las sesiones (Tokens, Navegación y Eventos de Seguridad).</p>", unsafe_allow_html=True)
 
-        # Procesar limpieza de filtros de sesiones vía query_params
         if "_limpiar_sesiones" in st.query_params and st.query_params["_limpiar_sesiones"] == "1":
             st.session_state["filtro_usuario_sesiones"] = "-- Seleccione un Usuario --"
             st.session_state["fecha_desde_sesiones"] = (datetime.now() - timedelta(days=7)).date()
@@ -257,7 +257,6 @@ def mostrar_pantalla():
 
             cursor = conn.cursor(dictionary=True)
 
-            # Obtener usuarios para el selectbox de la pestaña 2
             cursor.execute("SELECT DISTINCT u.usuario FROM auditoria_sesiones a INNER JOIN usuarios u ON a.usuario_id = u.id ORDER BY u.usuario ASC")
             usuarios_sesiones_db = cursor.fetchall()
             lista_usuarios_sesiones = ["-- Seleccione un Usuario --", "-- Todos los Usuarios --"] + [u["usuario"] for u in usuarios_sesiones_db]
@@ -324,7 +323,6 @@ def mostrar_pantalla():
                         COALESCE(u.usuario, 'Sistema / Externo') as usuario,
                         a.evento,
                         a.seccion,
-                        a.ip_cliente,
                         a.detalle,
                         a.fecha_evento
                     FROM auditoria_sesiones a
@@ -337,7 +335,6 @@ def mostrar_pantalla():
                 cursor.execute(query_sesiones, params_ses)
                 eventos_sesion = cursor.fetchall()
 
-                # Contar total
                 query_count_ses = "SELECT COUNT(*) as total FROM auditoria_sesiones a LEFT JOIN usuarios u ON a.usuario_id = u.id"
                 if condiciones_ses:
                     query_count_ses += " WHERE " + " AND ".join(condiciones_ses)
@@ -363,23 +360,15 @@ def mostrar_pantalla():
                 if not eventos_sesion:
                     st.info("📭 No hay registros de auditoría de sesiones para este criterio.")
                 else:
-                    html_sesiones = ["""
-                    <style>
-                        .tabla-sesiones { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; }
-                        .tabla-sesiones th { background-color: #0f172a !important; color: #FFFFFF !important; font-weight: bold !important; text-align: center !important; padding: 12px 10px; border: 1px solid #dee2e6 !important; font-size: 13px; text-transform: uppercase; }
-                        .tabla-sesiones td { color: #000000 !important; border: 1px solid #dee2e6 !important; padding: 10px; text-align: left; font-size: 13px; }
-                        .tabla-sesiones tr:nth-child(even) { background-color: #f8f9fa; }
-                        .badge-evento { background-color: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 6px; font-weight: bold; font-size: 11px; display: inline-block; }
-                    </style>
-                    <table class="tabla-sesiones">
+                    html_sesiones = [estilo_tabla_unificado, """
+                    <table class="tabla-banco">
                         <thead>
                             <tr>
-                                <th style="width: 15%;">USUARIO</th>
-                                <th style="width: 15%;">EVENTO</th>
+                                <th style="width: 20%;">USUARIO</th>
+                                <th style="width: 20%;">EVENTO</th>
                                 <th style="width: 20%;">MÓDULO / SECCIÓN</th>
                                 <th style="width: 20%;">FECHA / HORA</th>
-                                <th style="width: 15%;">IP CLIENTE</th>
-                                <th style="width: 15%;">DETALLE</th>
+                                <th style="width: 20%;">DETALLE</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -390,16 +379,14 @@ def mostrar_pantalla():
                         evt = ev.get("evento", "-")
                         sec = ev.get("seccion", "-") or "-"
                         f_evt = ev["fecha_evento"].strftime("%d/%m/%Y %H:%M:%S") if ev.get("fecha_evento") else "-"
-                        ip_ev = ev.get("ip_cliente", "-") or "-"
                         det = ev.get("detalle", "-") or "-"
 
                         html_sesiones.append(f"""
                             <tr>
-                                <td><b>{usr}</b></td>
+                                <td><span class="usuario-nombre">{usr}</span></td>
                                 <td style="text-align: center;"><span class="badge-evento">{evt}</span></td>
                                 <td>{sec}</td>
                                 <td style="text-align: center; font-size: 12px;">{f_evt}</td>
-                                <td><code>{ip_ev}</code></td>
                                 <td style="font-size: 12px; color: #334155;">{det}</td>
                             </tr>
                         """)
