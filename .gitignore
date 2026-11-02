@@ -19,6 +19,7 @@ dist/
 # --- Bases de Datos y Logs ---
 *.db
 *.log
+*.txt
 # Si tienes un archivo de configuración con el Token de PRTG:
 config_privada.json
 
