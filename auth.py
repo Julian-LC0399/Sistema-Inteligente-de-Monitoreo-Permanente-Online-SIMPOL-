@@ -123,7 +123,7 @@ def _encabezado_login(logo_b64, logo_mime):
             """
             <div style='text-align: center; padding: 10px 0 5px 0;'>
                 <h1 style='color: #003366; font-size: 52px; font-weight: 900; margin-bottom: 5px; letter-spacing: 2px;'>
-                    🏦 SIMPOL
+                    SIMPOL
                 </h1>
             </div>
             """,
@@ -162,7 +162,7 @@ def _formulario_recuperacion(canvas_login, logo_b64, logo_mime):
             _encabezado_login(logo_b64, logo_mime)
 
             st.markdown(
-                "<p style='color: #003366; font-weight: bold; font-size: 16px;'>🔄 Restablecer Contraseña</p>",
+                "<p style='color: #003366; font-weight: bold; font-size: 16px;'>Restablecer Contraseña</p>",
                 unsafe_allow_html=True,
             )
 
@@ -206,7 +206,7 @@ def _formulario_recuperacion(canvas_login, logo_b64, logo_mime):
                                             st.error(resultado.get("mensaje", "No se pudo actualizar la contraseña."))
                                         else:
                                             conn.commit()
-                                            st.success("✅ Contraseña actualizada correctamente. Inicie sesión.")
+                                            st.success("Contraseña actualizada correctamente. Inicie sesión.")
                                             
                                             st.session_state["modo_recuperacion"] = False
                                             for _k in ["autenticado", "user_id", "user_actual", "cargo", "rol",
@@ -248,7 +248,7 @@ def mostrar_login():
 
             with st.form("login_form", clear_on_submit=False):
                 st.markdown(
-                    "<p style='color: #003366; font-weight: bold; font-size: 16px;'>🔐 Acceso al Sistema</p>",
+                    "<p style='color: #003366; font-weight: bold; font-size: 16px;'>Acceso al Sistema</p>",
                     unsafe_allow_html=True,
                 )
                 usuario = st.text_input("Usuario", key="input_user_login")
@@ -262,41 +262,35 @@ def mostrar_login():
                         if conn:
                             try:
                                 cursor = conn.cursor(dictionary=True)
-                                # Procesamos el login (esto ya registra en log_accesos)
                                 resultado = procesar_login(cursor, usuario, clave, ip_cliente="127.0.0.1")
                                 
                                 if resultado.get("exito"):
                                     user_id = resultado["usuario_id"]
                                     
-                                    # Generamos token único para la sesión y lo guardamos en la BD (sesiones_activas)[cite: 5]
                                     token_sesion = secrets.token_hex(32)
                                     crear_sesion_activa(token_sesion, user_id, ip_cliente="127.0.0.1", user_agent="Streamlit App")
                                     
-                                    # REGISTRO EXPLÍCITO EN AUDITORÍA DE SESIONES (Garantiza trazabilidad en la Pestaña 2)[cite: 5]
                                     import hashlib
                                     token_hash = hashlib.sha256(token_sesion.encode('utf-8')).hexdigest()
                                     cursor.execute("""
                                         INSERT INTO auditoria_sesiones (usuario_id, token_hash, evento, seccion, ip_cliente, user_agent, detalle)
-                                        VALUES (%s, %s, 'LOGIN', '🏠 Inicio', '127.0.0.1', 'Streamlit App', 'Inicio de sesión exitoso')
+                                        VALUES (%s, %s, 'LOGIN', 'Inicio', '127.0.0.1', 'Streamlit App', 'Inicio de sesión exitoso')
                                     """, (user_id, token_hash))
                                     
                                     conn.commit()
                                     cursor.close()
 
-                                    # Seteamos el estado de sesión correcto
                                     st.session_state["autenticado"] = True
                                     st.session_state["user_id"] = user_id
                                     st.session_state["user_actual"] = usuario
                                     st.session_state["cargo"] = resultado.get("cargo", "Analista")
                                     st.session_state["rol"] = resultado["rol"].lower()
                                     st.session_state["token_sesion"] = token_sesion
-                                    st.session_state["seccion_actual"] = "🏠 Inicio"
+                                    st.session_state["seccion_actual"] = "Inicio"
 
-                                    # Asignamos los parámetros de la URL de forma inmediata antes del rerun
-                                    st.query_params["p"] = "🏠 Inicio"
+                                    st.query_params["p"] = "Inicio"
                                     st.query_params["token"] = token_sesion
 
-                                    # Limpiamos el contenedor y forzamos la recarga en un solo ciclo fluido
                                     canvas_login.empty()
                                     st.rerun()
                                 else:
@@ -323,7 +317,7 @@ def mostrar_login():
     st.markdown(
         """
         <div style='text-align: center; color: #999; font-size: 12px; margin-top: 50px;'>
-            © 2026 SIMPOL - Banco Caroní | Departamento de Infraestructura y Redes
+            2026 SIMPOL - Banco Caroní | Departamento de Infraestructura y Redes
         </div>
         """,
         unsafe_allow_html=True,

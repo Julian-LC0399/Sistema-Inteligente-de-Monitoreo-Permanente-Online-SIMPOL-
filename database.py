@@ -28,14 +28,13 @@ def conectar_bd():
             return None
 
 # =========================================================================
-# 🔧 INICIALIZACIÓN SEGURA DE CLAVES
+# 🔧 INICIALIZACIÓN SEGURA DE CLAVES Y POLÍTICA BANCARIA
 # =========================================================================
 def reparar_claves_iniciales():
     """
     Verifica que las claves de los usuarios iniciales sean hashes bcrypt válidos.
     Si detecta la palabra 'PENDIENTE' (desde el script SQL) o un formato inválido, 
     genera un hash bcrypt real para '1234' en la máquina local y lo guarda.
-    Se ejecuta una sola vez al arrancar la app. Es idempotente.
     """
     conn = conectar_bd()
     if not conn:
@@ -63,7 +62,6 @@ def reparar_claves_iniciales():
             clave_actual = u["clave"] or ""
             es_valido = False
 
-            # ¿Tiene formato de hash bcrypt válido?
             if clave_actual.startswith("$2b$") or clave_actual.startswith("$2a$"):
                 try:
                     verificar_clave("dummy", clave_actual)
@@ -71,10 +69,8 @@ def reparar_claves_iniciales():
                 except Exception:
                     es_valido = False
 
-            # Si NO es válido (por ejemplo, si dice 'PENDIENTE' o está vacío), lo reparamos
             if not es_valido:
                 if hash_real_1234 is None:
-                    # Generamos el hash de '1234' en tiempo real con bcrypt
                     hash_real_1234 = hashear_clave("1234")
                     logging.info(f"🔧 Generando hash real para '1234': {hash_real_1234[:35]}...")
 
@@ -83,8 +79,10 @@ def reparar_claves_iniciales():
                     SET clave = %s,
                         intentos_fallidos = 0,
                         bloqueado_hasta = NULL,
+                        bloqueado_permanente = 0,
                         debe_cambiar_clave = 1,
-                        estado = 1
+                        estado = 1,
+                        fecha_expiracion_clave = DATE_ADD(NOW(), INTERVAL 90 DAY)
                     WHERE id = %s
                 """, (hash_real_1234, u["id"]))
                 reparados += 1
@@ -92,7 +90,7 @@ def reparar_claves_iniciales():
 
         if reparados > 0:
             conn.commit()
-            logging.info(f"✅ {reparados} clave(s) inicializada(s) con éxito.")
+            logging.info(f"✅ {reparados} clave(s) inicializada(s) con éxito bajo política bancaria.")
         else:
             logging.info("✅ Todas las claves son válidas, no requiere reparación.")
 
@@ -153,9 +151,9 @@ def actualizar_clave_usuario(usuario_id, clave_actual, clave_nueva, es_admin=Fal
         return {"exito": False, "mensaje": "Error interno del servidor."}
 
 # =========================================================================
-# GESTIÓN DE SESIONES Y AUDITORÍA DE SESIONES (NUEVO - SIMPOL v2.2)
+# GESTIÓN DE SESIONES Y AUDITORÍA DE SESIONES (SIMPOL v2.3)
 # =========================================================================
-def crear_sesion_activa(token, usuario_id, ip_cliente, user_agent=None, expiracion_horas=8):
+def crear_sesion_activa(token, usuario_id, ip_cliente, user_agent=None, fingerprint=None, expiracion_horas=8):
     """Almacena el hash SHA-256 del token de sesión en la tabla sesiones_activas."""
     conn = conectar_bd()
     if not conn:
@@ -166,10 +164,10 @@ def crear_sesion_activa(token, usuario_id, ip_cliente, user_agent=None, expiraci
         cursor = conn.cursor()
         query = """
             INSERT INTO sesiones_activas 
-            (token_hash, usuario_id, ip_cliente, user_agent, fecha_expiracion_absoluta)
-            VALUES (%s, %s, %s, %s, %s)
+            (token_hash, usuario_id, ip_cliente, fingerprint_navegador, user_agent, fecha_expiracion_absoluta)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (token_hash, usuario_id, ip_cliente, user_agent, fecha_expiracion_absoluta))
+        cursor.execute(query, (token_hash, usuario_id, ip_cliente, fingerprint, user_agent, fecha_expiracion_absoluta))
         conn.commit()
         cursor.close()
         conn.close()
@@ -181,10 +179,7 @@ def crear_sesion_activa(token, usuario_id, ip_cliente, user_agent=None, expiraci
         return False
 
 def validar_sesion_activa(token, ip_cliente, user_agent=None, tiempo_inactividad_min=20):
-    """
-    Valida un token activo en sesiones_activas contra expiración absoluta,
-    inactividad, revocación y binding de IP/User-Agent.
-    """
+    """Valida un token activo en sesiones_activas contra expiración, inactividad y binding."""
     conn = conectar_bd()
     if not conn:
         return {"valido": False, "motivo": "Error de conexión."}
@@ -212,7 +207,6 @@ def validar_sesion_activa(token, ip_cliente, user_agent=None, tiempo_inactividad
             conn.close()
             return {"valido": False, "motivo": "Sesión expirada por límite absoluto."}
 
-        # Validación de inactividad
         inactividad = ahora - sesion["fecha_ultima_actividad"]
         if inactividad.total_seconds() > (tiempo_inactividad_min * 60):
             cursor.close()
@@ -220,7 +214,6 @@ def validar_sesion_activa(token, ip_cliente, user_agent=None, tiempo_inactividad
             conn.close()
             return {"valido": False, "motivo": "Sesión expirada por inactividad."}
 
-        # Binding Check (IP / User-Agent)
         if sesion["ip_cliente"] != ip_cliente:
             registrar_auditoria_sesion(sesion["usuario_id"], 'BINDING_MISMATCH', token_hash=token_hash, ip_cliente=ip_cliente, user_agent=user_agent, detalle=f"Cambio de IP detectado: {sesion['ip_cliente']} -> {ip_cliente}")
             cursor.close()
@@ -228,7 +221,6 @@ def validar_sesion_activa(token, ip_cliente, user_agent=None, tiempo_inactividad
             conn.close()
             return {"valido": False, "motivo": "Discordancia de seguridad en IP."}
 
-        # Actualizar última actividad
         query_update = "UPDATE sesiones_activas SET fecha_ultima_actividad = NOW() WHERE id = %s"
         cursor.execute(query_update, (sesion["id"],))
         conn.commit()
@@ -242,7 +234,7 @@ def validar_sesion_activa(token, ip_cliente, user_agent=None, tiempo_inactividad
         return {"valido": False, "motivo": "Error interno al validar sesión."}
 
 def revocar_sesion(token, motivo="Cierre de sesión manual"):
-    """Revoca una sesión activa por token_hash y registra el evento en auditoría."""
+    """Revoca una sesión activa por token_hash y registra el evento."""
     conn = conectar_bd()
     if not conn:
         return False
@@ -267,7 +259,7 @@ def revocar_sesion(token, motivo="Cierre de sesión manual"):
         return False
 
 def registrar_auditoria_sesion(usuario_id, evento, seccion=None, token_hash=None, ip_cliente=None, user_agent=None, detalle=None):
-    """Inserta bitácoras de auditoría de sesiones en la tabla auditoria_sesiones."""
+    """Inserta bitácoras de auditoría de sesiones con soporte para caracteres especiales y emojis."""
     conn = conectar_bd()
     if not conn:
         return False
@@ -289,7 +281,7 @@ def registrar_auditoria_sesion(usuario_id, evento, seccion=None, token_hash=None
         return False
 
 # =========================================================================
-# FUNCIONES DE MONITOREO Y TELEMETRÍA
+# FUNCIONES DE MONITOREO Y TELEMETRÍA (MULTIDISCO Y MULTISERVICIO)
 # =========================================================================
 @st.cache_data(ttl=3)
 def obtener_lista_servidores():
@@ -299,7 +291,7 @@ def obtener_lista_servidores():
             conn.commit()
             cursor = conn.cursor(dictionary=True)
             query = """
-                SELECT ip, nombre_alias, sistema_operativo, tipo, servicios,
+                SELECT ip, nombre_alias, sistema_operativo, tipo, nivel_criticidad, servicios,
                        id_sensor_cpu, id_sensor_ram, 
                        id_sensor_disco_1, letra_disco_1,
                        id_sensor_disco_2, letra_disco_2, 
@@ -657,7 +649,7 @@ def registrar_reporte_capacity_archivado(nombre_archivo, formato, metrica, ip_se
         return False
 
 # =========================================================================
-# GESTIÓN DE USUARIOS, HISTÓRICOS Y LOGS DE ACCESOS (NUEVO - SIMPOL v2.2)
+# GESTIÓN DE USUARIOS, HISTÓRICOS Y LOGS DE ACCESOS
 # =========================================================================
 def obtener_usuarios():
     """Retorna la lista completa de usuarios registrados."""
@@ -710,7 +702,7 @@ def registrar_historico_clave(usuario_id, clave_hash, cambiado_por=None):
     return False
 
 def registrar_auditoria_usuario(usuario_id, usuario_afectado, accion, valor_anterior=None, valor_nuevo=None, comentario=None):
-    """Inserta registros en la tabla historico_usuarios."""
+    """Inserta registros en la tabla historico_usuarios con codificación utf8mb4."""
     conn = conectar_bd()
     if conn:
         try:
