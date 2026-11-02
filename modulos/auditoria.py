@@ -60,15 +60,13 @@ def mostrar_pantalla():
         .tabla-banco th { background-color: #003366 !important; color: #FFFFFF !important; font-weight: bold !important; text-align: center !important; padding: 12px 10px; border: 1px solid #dee2e6 !important; font-size: 13px; text-transform: uppercase; }
         .tabla-banco td { color: #000000 !important; border: 1px solid #dee2e6 !important; padding: 10px; text-align: left; font-size: 13px; }
         .tabla-banco tr:nth-child(even) { background-color: #f8f9fa; }
-        .badge-ok { background-color: #d4edda; color: #155724; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; display: inline-block; }
-        .badge-fail { background-color: #f8d7da; color: #721c24; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; display: inline-block; }
         .badge-evento { background-color: #e0f2fe; color: #0369a1; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 11px; display: inline-block; }
         .usuario-nombre { font-weight: 600; color: #003366; }
     </style>
     """
 
     # ==========================================================================
-    # PESTAÑA 1: ACCESOS AL SISTEMA (LOG_ACCESOS)
+    # PESTAÑA 1: ACCESOS AL SISTEMA (LOG_ACCESOS) - Sin columna Resultado
     # ==========================================================================
     with tab_accesos:
         if "_limpiar_auditoria" in st.query_params and st.query_params["_limpiar_auditoria"] == "1":
@@ -157,7 +155,7 @@ def mostrar_pantalla():
                 condiciones.append("DATE(fecha_acceso) <= %s")
                 params.append(fecha_hasta.strftime("%Y-%m-%d"))
 
-                query = "SELECT usuario, cargo, rol, fecha_acceso, resultado FROM log_accesos"
+                query = "SELECT usuario, cargo, rol, fecha_acceso FROM log_accesos"
                 if condiciones:
                     query += " WHERE " + " AND ".join(condiciones)
                 query += " ORDER BY fecha_acceso DESC LIMIT 100"
@@ -191,11 +189,10 @@ def mostrar_pantalla():
                     <table class="tabla-banco">
                         <thead>
                             <tr>
-                                <th style="width: 25%;">USUARIO</th>
-                                <th style="width: 25%;">CARGO</th>
+                                <th style="width: 30%;">USUARIO</th>
+                                <th style="width: 30%;">CARGO</th>
                                 <th style="width: 15%;">ROL</th>
-                                <th style="width: 20%;">FECHA / HORA</th>
-                                <th style="width: 15%;">RESULTADO</th>
+                                <th style="width: 25%;">FECHA / HORA</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -206,9 +203,6 @@ def mostrar_pantalla():
                         c_name = log.get("cargo", "-") or "-"
                         r_name = log.get("rol", "-") or "-"
                         f_time = log["fecha_acceso"].strftime("%d/%m/%Y %H:%M:%S") if log.get("fecha_acceso") else "-"
-                        res = log.get("resultado", "-")
-
-                        badge = f'<span class="badge-ok">✅ {res}</span>' if res == "EXITOSO" else f'<span class="badge-fail">❌ {res}</span>'
 
                         html_lineas.append(f"""
                             <tr>
@@ -216,7 +210,6 @@ def mostrar_pantalla():
                                 <td>{c_name}</td>
                                 <td style="text-align: center;">{r_name.upper()}</td>
                                 <td style="text-align: center; font-size: 12px;">{f_time}</td>
-                                <td style="text-align: center;">{badge}</td>
                             </tr>
                         """)
 
@@ -227,7 +220,7 @@ def mostrar_pantalla():
             st.error(f"❌ Error al cargar accesos: {e}")
 
     # ==========================================================================
-    # PESTAÑA 2: ACTIVIDAD Y SESIONES (AUDITORIA_SESIONES) - Mismo estilo idéntico
+    # PESTAÑA 2: ACTIVIDAD Y SESIONES (AUDITORIA_SESIONES)
     # ==========================================================================
     with tab_sesiones:
         st.markdown("<p style='color: #475569; font-size: 14px;'>Monitoreo en tiempo real del ciclo de vida de las sesiones (Tokens, Navegación y Eventos de Seguridad).</p>", unsafe_allow_html=True)

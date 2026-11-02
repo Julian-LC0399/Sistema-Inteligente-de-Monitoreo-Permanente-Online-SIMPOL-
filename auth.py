@@ -272,9 +272,10 @@ def mostrar_login():
                                     
                                     import hashlib
                                     token_hash = hashlib.sha256(token_sesion.encode('utf-8')).hexdigest()
+                                    # Adaptado al esquema optimizado de auditoria_sesiones (sin columnas redundantes)
                                     cursor.execute("""
-                                        INSERT INTO auditoria_sesiones (usuario_id, token_hash, evento, seccion, ip_cliente, user_agent, detalle)
-                                        VALUES (%s, %s, 'LOGIN', 'Inicio', '127.0.0.1', 'Streamlit App', 'Inicio de sesión exitoso')
+                                        INSERT INTO auditoria_sesiones (usuario_id, token_hash, evento, seccion, detalle)
+                                        VALUES (%s, %s, 'LOGIN', 'Inicio', 'Inicio de sesión exitoso')
                                     """, (user_id, token_hash))
                                     
                                     conn.commit()
